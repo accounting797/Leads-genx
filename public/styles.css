@@ -149,6 +149,16 @@ p { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .compact { align-items: end; }
 
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.filter-grid .wide {
+  grid-column: span 2;
+}
+
 label span, .checkline span {
   display: block;
   margin-bottom: 6px;
@@ -432,8 +442,12 @@ tr:last-child td { border-bottom: 0; }
 }
 
 @media (max-width: 920px) {
-  .layout, .form-grid.two, .form-grid.three {
+  .layout, .form-grid.two, .form-grid.three, .filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .filter-grid .wide {
+    grid-column: auto;
   }
 
   .topbar, .panel-head, .table-actions {

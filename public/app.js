@@ -59,6 +59,10 @@
         titles: chips.snTitles.getValue(),
         industries: chips.snIndustries.getValue(),
         geographies: chips.snGeographies.getValue(),
+        companies: chips.snCompanies.getValue(),
+        seniorities: chips.snSeniorities.getValue(),
+        functions: chips.snFunctions.getValue(),
+        headcounts: chips.snHeadcounts.getValue(),
       };
     }
 
@@ -161,13 +165,25 @@
       suggestions: suggestions.googleMaps.businessCategories,
     });
     chips.snTitles = window.LeadsGenXChips.createChipInput($('snTitles'), {
-      suggestions: suggestions.salesNavigator.jobTitles,
+      suggestions: suggestions.salesNavigator.titles,
     });
     chips.snIndustries = window.LeadsGenXChips.createChipInput($('snIndustries'), {
       suggestions: suggestions.salesNavigator.industries,
     });
     chips.snGeographies = window.LeadsGenXChips.createChipInput($('snGeographies'), {
       suggestions: suggestions.salesNavigator.geographies,
+    });
+    chips.snCompanies = window.LeadsGenXChips.createChipInput($('snCompanies'), {
+      suggestions: suggestions.salesNavigator.companies,
+    });
+    chips.snSeniorities = window.LeadsGenXChips.createChipInput($('snSeniorities'), {
+      suggestions: suggestions.salesNavigator.seniorities,
+    });
+    chips.snFunctions = window.LeadsGenXChips.createChipInput($('snFunctions'), {
+      suggestions: suggestions.salesNavigator.functions,
+    });
+    chips.snHeadcounts = window.LeadsGenXChips.createChipInput($('snHeadcounts'), {
+      suggestions: suggestions.salesNavigator.headcounts,
     });
 
     document.querySelectorAll('.source-btn').forEach((btn) =>

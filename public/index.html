@@ -85,30 +85,47 @@
           </section>
 
           <section id="salesNavigatorFields" class="source-fields">
-            <label>
-              <span>Sales Navigator URL</span>
-              <input id="snUrl" type="url" placeholder="https://www.linkedin.com/sales/search/people?...">
-            </label>
-            <div class="form-grid two">
+            <div class="filter-grid">
               <label>
                 <span>Keywords</span>
                 <input id="snKeywords" type="text" placeholder="SaaS, revenue, hiring">
               </label>
-              <label>
+              <label class="wide">
                 <span>Geographies</span>
                 <div id="snGeographies" class="chip-input" data-placeholder="Select regions"></div>
               </label>
-            </div>
-            <div class="form-grid two">
-              <label>
+              <label class="wide">
                 <span>Job Titles</span>
                 <div id="snTitles" class="chip-input" data-placeholder="Select titles"></div>
               </label>
-              <label>
+              <label class="wide">
                 <span>Industries</span>
                 <div id="snIndustries" class="chip-input" data-placeholder="Select industries"></div>
               </label>
+              <label class="wide">
+                <span>Companies</span>
+                <div id="snCompanies" class="chip-input" data-placeholder="Select companies"></div>
+              </label>
+              <label class="wide">
+                <span>Seniority</span>
+                <div id="snSeniorities" class="chip-input" data-placeholder="Select seniority levels"></div>
+              </label>
+              <label class="wide">
+                <span>Functions</span>
+                <div id="snFunctions" class="chip-input" data-placeholder="Select functions"></div>
+              </label>
+              <label class="wide">
+                <span>Company Headcount</span>
+                <div id="snHeadcounts" class="chip-input" data-placeholder="Select headcount bands"></div>
+              </label>
             </div>
+            <details class="advanced">
+              <summary>Advanced</summary>
+              <label>
+                <span>Override Sales Navigator URL</span>
+                <input id="snUrl" type="url" placeholder="https://www.linkedin.com/sales/search/people?...">
+              </label>
+            </details>
           </section>
 
           <details class="advanced">
