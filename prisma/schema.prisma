@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Run {
+  id             Int        @id @default(autoincrement())
+  status         String     @default("queued")
+  leadSource     String     @default("google_maps")
+  searchUrl      String?
+  filterJson     String?
+  actorId        String
+  apifyRunId     String?
+  datasetId      String?
+  maxResults     Int        @default(100)
+  leadCount      Int        @default(0)
+  errorMessage   String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  leads          Lead[]
+  events         RunEvent[]
+  errorLogs      ErrorLog[]
+}
+
+model Lead {
+  id               Int      @id @default(autoincrement())
+  runId            Int
+  leadSource       String
+  leadType         String
+  fullName         String?
+  firstName        String?
+  lastName         String?
+  jobTitle         String?
+  companyName      String?
+  email            String?
+  phone            String?
+  location         String?
+  profileUrl       String?
+  connectionDegree String?
+  categoryName     String?
+  address          String?
+  website          String?
+  rating           Float?
+  reviewsCount     Int?
+  placeUrl         String?
+  rawJson          String?
+  createdAt        DateTime @default(now())
+  run              Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+model RunEvent {
+  id           Int      @id @default(autoincrement())
+  runId        Int
+  type         String
+  message      String
+  metadataJson String?
+  createdAt    DateTime @default(now())
+  run          Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  secret    Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+}
+
+model ErrorLog {
+  id          Int      @id @default(autoincrement())
+  runId       Int?
+  requestId   String?
+  source      String
+  severity    String
+  message     String
+  detailsJson String?
+  createdAt   DateTime @default(now())
+  run         Run?     @relation(fields: [runId], references: [id], onDelete: SetNull)
+}
