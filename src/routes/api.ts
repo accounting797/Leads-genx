@@ -19,6 +19,11 @@ export interface ApiDeps {
   runService?: ApiRunService;
 }
 
+const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
+  process.env.DEFAULT_GOOGLE_MAPS_ACTOR_ID || 'compass/google-maps-extractor';
+const DEFAULT_SALES_NAVIGATOR_ACTOR_ID =
+  process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID || 'harvestapi/linkedin-profile-search';
+
 export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
   const router = Router();
 
@@ -133,6 +138,32 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
         ? await prisma.errorLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })
         : [];
       res.json({ data: errors });
+    })
+  );
+
+  router.get(
+    '/settings',
+    asyncHandler(async (_req, res) => {
+      const settings = prisma
+        ? await prisma.appSetting.findMany({
+            where: {
+              key: {
+                in: ['defaultGoogleMapsActorId', 'defaultSalesNavigatorActorId', 'apifyToken'],
+              },
+            },
+          })
+        : [];
+      const byKey = new Map(settings.map((setting) => [setting.key, setting]));
+
+      res.json({
+        data: {
+          defaultGoogleMapsActorId:
+            byKey.get('defaultGoogleMapsActorId')?.value || DEFAULT_GOOGLE_MAPS_ACTOR_ID,
+          defaultSalesNavigatorActorId:
+            byKey.get('defaultSalesNavigatorActorId')?.value || DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
+          hasSavedApifyToken: byKey.has('apifyToken'),
+        },
+      });
     })
   );
 

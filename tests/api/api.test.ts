@@ -54,4 +54,18 @@ describe('API', () => {
     });
     expect(JSON.stringify(res.body)).not.toContain('apify-secret-token');
   });
+
+  it('returns safe operator settings', async () => {
+    const app = createApp();
+
+    const res = await request(app).get('/api/settings').expect(200);
+
+    expect(res.body).toEqual({
+      data: {
+        defaultGoogleMapsActorId: 'compass/google-maps-extractor',
+        defaultSalesNavigatorActorId: 'harvestapi/linkedin-profile-search',
+        hasSavedApifyToken: false,
+      },
+    });
+  });
 });
