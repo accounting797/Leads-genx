@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Leads-GenX</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">GX</div>
+        <div>
+          <h1>Leads-GenX</h1>
+          <p>Local lead extraction console</p>
+        </div>
+      </div>
+      <div class="metrics">
+        <div><strong id="metricRuns">0</strong><span>Runs</span></div>
+        <div><strong id="metricLeads">0</strong><span>Leads</span></div>
+        <div><strong id="metricActive">0</strong><span>Active</span></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel run-panel">
+        <div class="panel-head">
+          <div>
+            <h2>New Run</h2>
+            <p>Choose a source, define the search, then track extraction live.</p>
+          </div>
+          <div class="source-toggle" role="tablist" aria-label="Lead source">
+            <button class="source-btn active" data-source="google_maps" type="button">Google Maps</button>
+            <button class="source-btn" data-source="sales_navigator" type="button">Sales Navigator</button>
+          </div>
+        </div>
+
+        <form id="runForm" class="run-form">
+          <div class="form-grid two">
+            <label>
+              <span>Apify API Token</span>
+              <input id="apifyToken" type="password" autocomplete="off" placeholder="apify_api_..." required>
+            </label>
+            <label>
+              <span>Max Results</span>
+              <input id="maxResults" type="number" min="1" max="1000" value="250">
+            </label>
+          </div>
+
+          <section id="googleMapsFields" class="source-fields active">
+            <div class="form-grid two">
+              <label>
+                <span>Search Terms</span>
+                <div id="gmSearchTerms" class="chip-input" data-free="true" data-placeholder="dentist, roofer, med spa"></div>
+              </label>
+              <label>
+                <span>Location</span>
+                <input id="gmLocation" type="text" placeholder="Austin, TX">
+              </label>
+            </div>
+            <div class="form-grid two">
+              <label>
+                <span>Business Categories</span>
+                <div id="gmCategories" class="chip-input" data-placeholder="Select categories"></div>
+              </label>
+              <label>
+                <span>Direct Google Maps URL</span>
+                <input id="gmMapsUrl" type="url" placeholder="https://www.google.com/maps/search/...">
+              </label>
+            </div>
+            <div class="form-grid three compact">
+              <label>
+                <span>Minimum Rating</span>
+                <input id="gmMinStars" type="number" min="0" max="5" step="0.1" placeholder="4">
+              </label>
+              <label>
+                <span>Minimum Reviews</span>
+                <input id="gmMinReviews" type="number" min="0" step="1" placeholder="20">
+              </label>
+              <label class="checkline">
+                <input id="gmSkipClosed" type="checkbox" checked>
+                <span>Skip closed businesses</span>
+              </label>
+            </div>
+          </section>
+
+          <section id="salesNavigatorFields" class="source-fields">
+            <label>
+              <span>Sales Navigator URL</span>
+              <input id="snUrl" type="url" placeholder="https://www.linkedin.com/sales/search/people?...">
+            </label>
+            <div class="form-grid two">
+              <label>
+                <span>Keywords</span>
+                <input id="snKeywords" type="text" placeholder="SaaS, revenue, hiring">
+              </label>
+              <label>
+                <span>Geographies</span>
+                <div id="snGeographies" class="chip-input" data-placeholder="Select regions"></div>
+              </label>
+            </div>
+            <div class="form-grid two">
+              <label>
+                <span>Job Titles</span>
+                <div id="snTitles" class="chip-input" data-placeholder="Select titles"></div>
+              </label>
+              <label>
+                <span>Industries</span>
+                <div id="snIndustries" class="chip-input" data-placeholder="Select industries"></div>
+              </label>
+            </div>
+          </section>
+
+          <details class="advanced">
+            <summary>Actor settings</summary>
+            <label>
+              <span>Override Actor ID</span>
+              <input id="actorId" type="text" placeholder="Leave blank for source default">
+            </label>
+          </details>
+
+          <div class="actions">
+            <button id="startBtn" type="submit" class="primary-btn">Start Run</button>
+            <span id="formStatus" class="form-status"></span>
+          </div>
+        </form>
+      </section>
+
+      <aside class="panel status-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Live Progress</h2>
+            <p id="progressSubhead">No active run.</p>
+          </div>
+        </div>
+        <div class="progress-shell">
+          <div class="progress-row">
+            <span id="progressLabel">Idle</span>
+            <span id="progressRunId">-</span>
+          </div>
+          <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+          <div class="progress-meta">
+            <span id="progressElapsed">Elapsed 0s</span>
+            <span id="progressLatest">Waiting</span>
+          </div>
+        </div>
+        <div class="mini-log" id="miniLog"></div>
+      </aside>
+
+      <section class="panel data-panel">
+        <nav class="tabs">
+          <button class="tab active" data-tab="runs" type="button">Runs</button>
+          <button class="tab" data-tab="leads" type="button">Leads</button>
+          <button class="tab" data-tab="logs" type="button">Logs</button>
+        </nav>
+
+        <div id="runsTab" class="tab-page active">
+          <div class="table-actions">
+            <h2>Run History</h2>
+            <button id="refreshRuns" type="button" class="ghost-btn">Refresh</button>
+          </div>
+          <div id="runsTable"></div>
+        </div>
+
+        <div id="leadsTab" class="tab-page">
+          <div class="table-actions">
+            <h2>Leads</h2>
+            <div class="inline-actions">
+              <select id="leadRunFilter"><option value="">All runs</option></select>
+              <button id="downloadLeads" type="button" class="ghost-btn">Download TXT</button>
+            </div>
+          </div>
+          <div id="leadsTable"></div>
+        </div>
+
+        <div id="logsTab" class="tab-page">
+          <div class="table-actions">
+            <h2>Error Logs</h2>
+            <button id="refreshLogs" type="button" class="ghost-btn">Refresh</button>
+          </div>
+          <div id="logsTable"></div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="/api.js"></script>
+    <script src="/chips.js"></script>
+    <script src="/ui.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

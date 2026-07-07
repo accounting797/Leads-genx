@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
 import { formatLeadsTxt } from '../domain/exportFormatter';
 import { suggestions } from '../domain/suggestions';
@@ -139,7 +140,7 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
     res.status(204).send();
   });
 
-  router.use((error: unknown, _req, res, _next) => {
+  router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof ValidationError) {
       res.status(400).json({ error: error.message, fields: error.fields });
       return;

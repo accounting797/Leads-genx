@@ -1,11 +1,11 @@
-import { NormalizedLead } from './types';
-
 function text(value: unknown): string {
   if (value === null || value === undefined) return '';
   return String(value);
 }
 
-export function formatLeadsTxt(leads: Array<Partial<NormalizedLead>>): string {
+type ExportableLead = Record<string, unknown>;
+
+export function formatLeadsTxt(leads: ExportableLead[]): string {
   const header =
     'Type | Name | Title/Category | Company | Email | Phone | Website/Profile | Location/Address | Rating | Reviews';
 
