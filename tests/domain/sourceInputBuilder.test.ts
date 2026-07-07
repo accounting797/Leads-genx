@@ -84,4 +84,24 @@ describe('buildActorInput', () => {
       locationQuery: 'Phoenix, AZ',
     });
   });
+
+  it('maps the expanded Sales Navigator filters into a generated query URL', () => {
+    const result = buildActorInput({
+      apifyToken: 'token',
+      leadSource: 'sales_navigator',
+      maxResults: 100,
+      salesNavigator: {
+        keywords: 'SaaS',
+        titles: ['VP Sales'],
+        industries: ['Software Development'],
+        geographies: ['United States'],
+        companies: ['Enterprise'],
+        seniorities: ['Director'],
+        functions: ['Sales'],
+        headcounts: ['51-200'],
+      },
+    });
+
+    expect(result.input).toMatchObject({ searchUrl: expect.any(String), maxResults: 100 });
+  });
 });

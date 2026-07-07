@@ -36,7 +36,10 @@ function hasSalesNavigatorFilters(filters?: SalesNavigatorFilters): boolean {
       filters.titles?.length ||
       filters.industries?.length ||
       filters.geographies?.length ||
-      filters.companies?.length
+      filters.companies?.length ||
+      filters.seniorities?.length ||
+      filters.functions?.length ||
+      filters.headcounts?.length
   );
 }
 

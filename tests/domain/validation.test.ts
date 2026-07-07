@@ -74,4 +74,29 @@ describe('validateCreateRunInput', () => {
       },
     });
   });
+
+  it('accepts expanded Sales Navigator filters as run criteria', () => {
+    const input = validateCreateRunInput(
+      {
+        apifyToken: 'secret-token',
+        leadSource: 'sales_navigator',
+        maxResults: 100,
+        salesNavigator: {
+          seniorities: ['Director'],
+          functions: ['Sales'],
+          headcounts: ['51-200'],
+        },
+      },
+      false
+    );
+
+    expect(input).toMatchObject({
+      leadSource: 'sales_navigator',
+      salesNavigator: {
+        seniorities: ['Director'],
+        functions: ['Sales'],
+        headcounts: ['51-200'],
+      },
+    });
+  });
 });
