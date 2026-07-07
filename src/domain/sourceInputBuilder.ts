@@ -15,6 +15,27 @@ function addRepeated(parts: string[], key: string, values?: string[]) {
   }
 }
 
+function cleanValues(values?: string[]): string[] {
+  return (values ?? []).map((value) => value.trim()).filter(Boolean);
+}
+
+function uniqueValues(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
+function buildGoogleMapsSearchStrings(filters: GoogleMapsFilters): string[] {
+  const searchTerms = cleanValues(filters.searchTerms);
+  const categories = cleanValues(filters.categoryFilters);
+  const locations = cleanValues(filters.locations);
+  const baseSearches = [...searchTerms, ...categories];
+
+  if (!locations.length) return searchTerms;
+
+  return uniqueValues(
+    baseSearches.flatMap((search) => locations.map((location) => `${search} ${location}`))
+  );
+}
+
 export function buildSalesNavigatorUrl(filters: SalesNavigatorFilters): string {
   const parts: string[] = ['spellCorrectionEnabled:true'];
 
@@ -40,13 +61,12 @@ export function buildGoogleMapsInput(filters: GoogleMapsFilters): Record<string,
   if (filters.mapsUrl?.trim()) {
     input.startUrls = [{ url: filters.mapsUrl.trim() }];
   }
-  if (filters.searchTerms?.length) {
-    input.searchStringsArray = filters.searchTerms.map((term) => term.trim()).filter(Boolean);
+  const searchStrings = buildGoogleMapsSearchStrings(filters);
+  if (searchStrings.length) {
+    input.searchStringsArray = searchStrings;
   }
   if (filters.categoryFilters?.length) {
-    input.categoryFilterWords = filters.categoryFilters
-      .map((category) => category.trim())
-      .filter(Boolean);
+    input.categoryFilterWords = cleanValues(filters.categoryFilters);
   }
   if (filters.locationQuery?.trim()) input.locationQuery = filters.locationQuery.trim();
   if (filters.maxPlaces) input.maxCrawledPlacesPerSearch = filters.maxPlaces;

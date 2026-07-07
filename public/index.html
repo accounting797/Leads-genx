@@ -43,29 +43,23 @@
             </label>
             <label>
               <span>Max Results</span>
-              <input id="maxResults" type="number" min="1" max="1000" value="250">
+              <input id="maxResults" type="number" min="1" value="250">
             </label>
           </div>
 
           <section id="googleMapsFields" class="source-fields active">
-            <div class="form-grid two">
+            <div class="filter-grid">
               <label>
                 <span>Search Terms</span>
                 <div id="gmSearchTerms" class="chip-input" data-free="true" data-placeholder="dentist, roofer, med spa"></div>
               </label>
-              <label>
-                <span>Location</span>
-                <input id="gmLocation" type="text" placeholder="Austin, TX">
-              </label>
-            </div>
-            <div class="form-grid two">
-              <label>
+              <label class="wide">
                 <span>Business Categories</span>
                 <div id="gmCategories" class="chip-input" data-placeholder="Select categories"></div>
               </label>
-              <label>
-                <span>Direct Google Maps URL</span>
-                <input id="gmMapsUrl" type="url" placeholder="https://www.google.com/maps/search/...">
+              <label class="wide">
+                <span>Locations</span>
+                <div id="gmLocations" class="chip-input" data-free="true" data-placeholder="Austin, TX, Phoenix, AZ"></div>
               </label>
             </div>
             <div class="form-grid three compact">
@@ -82,6 +76,13 @@
                 <span>Skip closed businesses</span>
               </label>
             </div>
+            <details class="advanced">
+              <summary>Advanced</summary>
+              <label>
+                <span>Direct Google Maps URL</span>
+                <input id="gmMapsUrl" type="url" placeholder="https://www.google.com/maps/search/...">
+              </label>
+            </details>
           </section>
 
           <section id="salesNavigatorFields" class="source-fields">

@@ -15,6 +15,7 @@ export interface SalesNavigatorFilters {
 export interface GoogleMapsFilters {
   searchTerms?: string[];
   categoryFilters?: string[];
+  locations?: string[];
   locationQuery?: string;
   mapsUrl?: string;
   maxPlaces?: number;

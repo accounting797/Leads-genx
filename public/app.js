@@ -45,7 +45,7 @@
       body.googleMaps = {
         searchTerms: chips.gmSearchTerms.getValue(),
         categoryFilters: chips.gmCategories.getValue(),
-        locationQuery: $('gmLocation').value.trim() || undefined,
+        locations: chips.gmLocations.getValue(),
         mapsUrl: $('gmMapsUrl').value.trim() || undefined,
         maxPlaces: numberValue('maxResults') || 100,
         minimumStars: numberValue('gmMinStars'),
@@ -163,6 +163,9 @@
     });
     chips.gmCategories = window.LeadsGenXChips.createChipInput($('gmCategories'), {
       suggestions: suggestions.googleMaps.businessCategories,
+    });
+    chips.gmLocations = window.LeadsGenXChips.createChipInput($('gmLocations'), {
+      suggestions: suggestions.googleMaps.locations,
     });
     chips.snTitles = window.LeadsGenXChips.createChipInput($('snTitles'), {
       suggestions: suggestions.salesNavigator.titles,

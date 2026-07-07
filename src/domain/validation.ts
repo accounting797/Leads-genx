@@ -58,6 +58,7 @@ function parseGoogleMaps(value: unknown): GoogleMapsFilters | undefined {
   return {
     searchTerms: asStringArray(obj.searchTerms),
     categoryFilters: asStringArray(obj.categoryFilters),
+    locations: asStringArray(obj.locations),
     locationQuery: asString(obj.locationQuery),
     mapsUrl: asString(obj.mapsUrl),
     maxPlaces: asNumber(obj.maxPlaces),
@@ -97,8 +98,8 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
   }
 
   const maxResults = asNumber(obj.maxResults) ?? 100;
-  if (maxResults < 1 || maxResults > 1000) {
-    fields.maxResults = 'maxResults must be between 1 and 1000.';
+  if (maxResults < 1) {
+    fields.maxResults = 'maxResults must be at least 1.';
   }
 
   const searchUrl = asString(obj.searchUrl);

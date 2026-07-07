@@ -34,13 +34,13 @@ describe('validateCreateRunInput', () => {
     ).toThrow(/Sales Navigator/i);
   });
 
-  it('rejects max results outside the allowed bounds', () => {
+  it('rejects max results below the allowed minimum', () => {
     expect(() =>
       validateCreateRunInput(
         {
           apifyToken: 'secret-token',
           leadSource: 'google_maps',
-          maxResults: 5000,
+          maxResults: 0,
           googleMaps: { searchTerms: ['dentist'], locationQuery: 'Austin, TX' },
         },
         false
@@ -96,6 +96,29 @@ describe('validateCreateRunInput', () => {
         seniorities: ['Director'],
         functions: ['Sales'],
         headcounts: ['51-200'],
+      },
+    });
+  });
+
+  it('accepts high-volume Google Maps max results above 1000', () => {
+    const input = validateCreateRunInput(
+      {
+        apifyToken: 'secret-token',
+        leadSource: 'google_maps',
+        maxResults: 5000,
+        googleMaps: {
+          searchTerms: ['dentist'],
+          locations: ['Austin, TX', 'Phoenix, AZ'],
+        },
+      },
+      false
+    );
+
+    expect(input).toMatchObject({
+      maxResults: 5000,
+      googleMaps: {
+        searchTerms: ['dentist'],
+        locations: ['Austin, TX', 'Phoenix, AZ'],
       },
     });
   });

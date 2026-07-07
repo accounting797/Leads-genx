@@ -8,7 +8,7 @@ The app runs locally at `http://localhost:4177` and stores runs, leads, events, 
 
 ### Google Maps / Google Business Profile
 
-This is the recommended higher-volume source. Use business search terms, categories, and a location to collect company-level leads such as business name, category, address, website, phone, rating, review count, and Google Maps URL.
+This is the recommended higher-volume source. Use business search terms, categories, and one or more locations to collect company-level leads such as business name, category, address, website, phone, rating, review count, and Google Maps URL. A pasted Google Maps URL is optional and only needed as an advanced override.
 
 Default actor: `compass/google-maps-extractor`
 

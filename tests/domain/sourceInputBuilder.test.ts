@@ -7,6 +7,12 @@ import {
 import { suggestions } from '../../src/domain/suggestions';
 
 describe('suggestions', () => {
+  it('exposes curated Google Maps suggestion groups', () => {
+    expect(suggestions.googleMaps.businessCategories.length).toBeGreaterThanOrEqual(25);
+    expect(suggestions.googleMaps.searchTemplates.length).toBeGreaterThanOrEqual(15);
+    expect(suggestions.googleMaps.locations.length).toBeGreaterThanOrEqual(20);
+  });
+
   it('exposes curated Sales Navigator suggestion groups', () => {
     expect(suggestions.salesNavigator.titles.length).toBeGreaterThanOrEqual(10);
     expect(suggestions.salesNavigator.industries.length).toBeGreaterThanOrEqual(10);
@@ -59,6 +65,30 @@ describe('buildGoogleMapsInput', () => {
       skipClosedPlaces: true,
       language: 'en',
     });
+  });
+
+  it('generates Google Maps search strings from terms, categories, and locations', () => {
+    const input = buildGoogleMapsInput({
+      searchTerms: ['dentist', 'roofer'],
+      categoryFilters: ['Dental clinic'],
+      locations: ['Austin, TX', 'Phoenix, AZ'],
+      maxPlaces: 5000,
+      skipClosedPlaces: true,
+    });
+
+    expect(input).toMatchObject({
+      searchStringsArray: [
+        'dentist Austin, TX',
+        'dentist Phoenix, AZ',
+        'roofer Austin, TX',
+        'roofer Phoenix, AZ',
+        'Dental clinic Austin, TX',
+        'Dental clinic Phoenix, AZ',
+      ],
+      categoryFilterWords: ['Dental clinic'],
+      maxCrawledPlacesPerSearch: 5000,
+    });
+    expect(input).not.toHaveProperty('locationQuery');
   });
 });
 
