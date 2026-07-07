@@ -1,8 +1,8 @@
-# Sales Navigator Lead Scraper Design
+# Leads-GenX Design
 
 ## Scope
 
-Build a new single-user operator application for extracting and managing LinkedIn Sales Navigator lead results through a configurable Apify actor integration.
+Build a new single-user operator application named Leads-GenX for extracting and managing lead results through configurable Apify actor integrations. The first lead source will be LinkedIn Sales Navigator because that is the requested starting workflow, but the architecture will keep lead-source execution behind an adapter so Google Maps and other easier lead sources can be added cleanly.
 
 The application is intended for commercial use as a local/operator tool. It will prioritize reliability, auditability, maintainability, and a polished workflow over SaaS features. It will not include multi-user authentication, billing, tenant isolation, CAPTCHA bypass, stealth browser automation, credential theft, or scraping of data the operator is not authorized to access.
 
@@ -10,7 +10,8 @@ The application is intended for commercial use as a local/operator tool. It will
 
 - Provide a clean Express + TypeScript backend with SQLite persistence.
 - Provide a vanilla JavaScript dark-theme UI suitable for repeated lead generation work.
-- Support Sales Navigator URLs and structured lead filters.
+- Support Sales Navigator URLs and structured lead filters in the first version.
+- Keep the product name and UI brand as `Leads-GenX`.
 - Include multi-select chip filters with curated suggestions per category.
 - Track scraping runs live from start to completion.
 - Store leads, runs, run events, app settings, and error logs.
@@ -110,7 +111,7 @@ export interface ActorClient {
 }
 ```
 
-The adapter maps app-level run input to actor input and maps actor output to normalized leads. Actor ID will be configurable through settings or `.env`.
+The adapter maps app-level run input to actor input and maps actor output to normalized leads. Actor ID will be configurable through settings or `.env`. The initial `leadSource` value will be `sales_navigator`; the run model and service boundaries will leave room for `google_maps` without changing the lead table or export flow.
 
 ### Logging
 
@@ -373,3 +374,4 @@ The first version is single-user. A SaaS version can be added later by:
 - Encrypting per-user secrets.
 - Adding quotas, audit logs, and billing hooks.
 - Moving long-running actor polling to a worker queue.
+- Adding a `google_maps` source backed by a Google Maps Apify actor for local business lead discovery.
