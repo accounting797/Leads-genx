@@ -4,6 +4,19 @@ import {
   buildGoogleMapsInput,
   buildSalesNavigatorUrl,
 } from '../../src/domain/sourceInputBuilder';
+import { suggestions } from '../../src/domain/suggestions';
+
+describe('suggestions', () => {
+  it('exposes curated Sales Navigator suggestion groups', () => {
+    expect(suggestions.salesNavigator.titles.length).toBeGreaterThanOrEqual(10);
+    expect(suggestions.salesNavigator.industries.length).toBeGreaterThanOrEqual(10);
+    expect(suggestions.salesNavigator.seniorities.length).toBeGreaterThanOrEqual(5);
+    expect(suggestions.salesNavigator.functions.length).toBeGreaterThanOrEqual(5);
+    expect(suggestions.salesNavigator.geographies.length).toBeGreaterThanOrEqual(10);
+    expect(suggestions.salesNavigator.companies.length).toBeGreaterThanOrEqual(10);
+    expect(suggestions.salesNavigator.headcounts.length).toBeGreaterThanOrEqual(10);
+  });
+});
 
 describe('buildSalesNavigatorUrl', () => {
   it('builds a sales navigator URL from multi-value filters', () => {
