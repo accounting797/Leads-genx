@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build Leads-GenX, a production-grade local operator app for lead generation with Express, TypeScript, SQLite, Apify-backed Sales Navigator extraction, polished vanilla JS dark UI, live progress, error logging, and TXT export.
+**Goal:** Build Leads-GenX, a production-grade local operator app for lead generation with Express, TypeScript, SQLite, Apify-backed Google Maps and Sales Navigator extraction, polished vanilla JS dark UI, live progress, error logging, and TXT export.
 
-**Architecture:** A single Express service serves JSON APIs and static frontend assets on port `4177`. Prisma manages SQLite persistence. Scraping execution is isolated behind an Apify actor adapter so Sales Navigator is the first source and Google Maps can be added later without changing the core run, lead, log, or export flow.
+**Architecture:** A single Express service serves JSON APIs and static frontend assets on port `4177`. Prisma manages SQLite persistence. Scraping execution is isolated behind an Apify actor adapter with two first-version source modes: `google_maps` for higher-volume business leads and `sales_navigator` for targeted professional leads.
 
 **Tech Stack:** Node.js, Express, TypeScript, Prisma, SQLite, Vitest, Supertest, vanilla HTML/CSS/JavaScript, Apify SDK.
 
@@ -15,7 +15,8 @@
 - First version is single-user/operator only; do not add SaaS auth, billing, or tenant isolation.
 - Do not implement CAPTCHA bypass, stealth automation, raw LinkedIn browser automation, credential theft, or login/session harvesting.
 - Secrets must be redacted from logs, run events, API responses, and frontend error messages.
-- Sales Navigator is the initial lead source; design service boundaries so `google_maps` can be added later.
+- First-version lead sources are `google_maps` and `sales_navigator`.
+- Google Maps should be the prominent higher-volume source mode in the UI.
 - Use TDD for production TypeScript logic: write failing tests before implementation.
 - Keep UI vanilla JS and visually polished for repeated commercial use.
 
@@ -34,11 +35,11 @@
 - Create `src/domain/types.ts`: shared domain types.
 - Create `src/domain/redact.ts`: secret redaction helper.
 - Create `src/domain/suggestions.ts`: curated filter data.
-- Create `src/domain/filterBuilder.ts`: Sales Navigator URL builder.
+- Create `src/domain/sourceInputBuilder.ts`: Google Maps and Sales Navigator actor input builder.
 - Create `src/domain/validation.ts`: run input validation.
 - Create `src/domain/exportFormatter.ts`: TXT formatter.
 - Create `src/domain/errorLogger.ts`: database and file logging.
-- Create `src/domain/leadNormalizer.ts`: actor output normalization.
+- Create `src/domain/leadNormalizer.ts`: Google Maps business and Sales Navigator person output normalization.
 - Create `src/domain/runService.ts`: run lifecycle orchestration.
 - Create `src/integrations/actorClient.ts`: actor client interface.
 - Create `src/integrations/apifyActorClient.ts`: Apify SDK implementation.
@@ -117,7 +118,8 @@ Create `.env.example`:
 ```text
 DATABASE_URL="file:./dev.db"
 PORT=4177
-DEFAULT_ACTOR_ID="harvestapi/linkedin-profile-search"
+DEFAULT_GOOGLE_MAPS_ACTOR_ID="compass/google-maps-extractor"
+DEFAULT_SALES_NAVIGATOR_ACTOR_ID="harvestapi/linkedin-profile-search"
 ```
 
 Create `.gitignore`:
@@ -159,7 +161,7 @@ git commit -m "chore: scaffold Leads-GenX project"
 
 - [ ] **Step 1: Add Prisma schema**
 
-Create `prisma/schema.prisma` with SQLite datasource and models matching the approved spec. Include `leadSource String @default("sales_navigator")` on `Run`.
+Create `prisma/schema.prisma` with SQLite datasource and models matching the approved spec. Include `leadSource String @default("google_maps")` on `Run`, plus business lead fields on `Lead`: `leadType`, `categoryName`, `address`, `website`, `rating`, `reviewsCount`, and `placeUrl`.
 
 - [ ] **Step 2: Add database client**
 
@@ -197,30 +199,32 @@ git commit -m "feat: add sqlite schema"
 - Create: `src/domain/types.ts`
 - Create: `src/domain/redact.ts`
 - Create: `src/domain/suggestions.ts`
-- Create: `src/domain/filterBuilder.ts`
+- Create: `src/domain/sourceInputBuilder.ts`
 - Create: `src/domain/validation.ts`
 - Create: `src/domain/exportFormatter.ts`
 - Create: `src/domain/leadNormalizer.ts`
-- Test: `tests/domain/filterBuilder.test.ts`
+- Test: `tests/domain/sourceInputBuilder.test.ts`
 - Test: `tests/domain/validation.test.ts`
 - Test: `tests/domain/exportFormatter.test.ts`
 - Test: `tests/domain/redact.test.ts`
 - Test: `tests/domain/leadNormalizer.test.ts`
 
 **Interfaces:**
-- Produces `buildSalesNavigatorUrl(filters: LeadFilters): string`.
+- Produces `buildActorInput(input: ValidatedRunInput): ActorRunInput`.
+- Produces `buildSalesNavigatorUrl(filters: SalesNavigatorFilters): string`.
+- Produces `buildGoogleMapsInput(filters: GoogleMapsFilters): Record<string, unknown>`.
 - Produces `validateCreateRunInput(input: unknown, hasSavedToken: boolean): ValidatedRunInput`.
 - Produces `formatLeadsTxt(leads: ExportLead[]): string`.
 - Produces `redactSecrets(value: unknown): unknown`.
 - Produces `normalizeLead(item: unknown): NormalizedLead`.
 
-- [ ] **Step 1: Write failing filter builder test**
+- [ ] **Step 1: Write failing source input builder test**
 
-Test multi-value titles and industries:
+Test Google Maps input mapping and Sales Navigator multi-value titles and industries:
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { buildSalesNavigatorUrl } from '../../src/domain/filterBuilder';
+import { buildGoogleMapsInput, buildSalesNavigatorUrl } from '../../src/domain/sourceInputBuilder';
 
 describe('buildSalesNavigatorUrl', () => {
   it('builds a sales navigator URL from multi-value filters', () => {
@@ -238,27 +242,51 @@ describe('buildSalesNavigatorUrl', () => {
     expect(decodeURIComponent(url)).toContain('industry:Software Development');
   });
 });
+
+describe('buildGoogleMapsInput', () => {
+  it('builds high-volume business search input for Google Maps', () => {
+    const input = buildGoogleMapsInput({
+      searchTerms: ['dentist', 'orthodontist'],
+      categoryFilters: ['Dental clinic'],
+      locationQuery: 'Austin, TX',
+      maxPlaces: 500,
+      minimumStars: 4,
+      minimumReviews: 20,
+      skipClosedPlaces: true
+    });
+
+    expect(input).toMatchObject({
+      searchStringsArray: ['dentist', 'orthodontist'],
+      categoryFilterWords: ['Dental clinic'],
+      locationQuery: 'Austin, TX',
+      maxCrawledPlacesPerSearch: 500,
+      placeMinimumStars: '4',
+      skipClosedPlaces: true,
+      language: 'en'
+    });
+  });
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -- tests/domain/filterBuilder.test.ts`
+Run: `npm test -- tests/domain/sourceInputBuilder.test.ts`
 
-Expected: FAIL because `filterBuilder` does not exist.
+Expected: FAIL because `sourceInputBuilder` does not exist.
 
-- [ ] **Step 3: Implement domain types and filter builder**
+- [ ] **Step 3: Implement domain types and source input builder**
 
-Implement `LeadFilters` with optional strings and string arrays. Implement `buildSalesNavigatorUrl` using `URLSearchParams` and a stable encoded `query` value.
+Implement `LeadSource`, `SalesNavigatorFilters`, `GoogleMapsFilters`, and `ValidatedRunInput`. Implement `buildSalesNavigatorUrl` using `URLSearchParams` and a stable encoded `query` value. Implement `buildGoogleMapsInput` using Apify Google Maps field names.
 
-- [ ] **Step 4: Run filter builder test to verify it passes**
+- [ ] **Step 4: Run source input builder test to verify it passes**
 
-Run: `npm test -- tests/domain/filterBuilder.test.ts`
+Run: `npm test -- tests/domain/sourceInputBuilder.test.ts`
 
 Expected: PASS.
 
 - [ ] **Step 5: Write failing validation tests**
 
-Cover missing token, missing search criteria, invalid URL, and max result bounds.
+Cover missing token, missing source, missing Google Maps search criteria, missing Sales Navigator search criteria, invalid URL, and max result bounds.
 
 - [ ] **Step 6: Implement validation**
 
@@ -282,11 +310,11 @@ Implement recursive object and string redaction.
 
 - [ ] **Step 11: Write failing lead normalizer test**
 
-Cover common actor field aliases: `fullName`, `name`, `jobTitle`, `title`, `companyName`, `company`, `profileUrl`, `linkedinUrl`.
+Cover Google Maps aliases (`title`, `categoryName`, `address`, `website`, `phone`, `totalScore`, `reviewsCount`, `url`) and Sales Navigator aliases (`fullName`, `name`, `jobTitle`, `title`, `companyName`, `company`, `profileUrl`, `linkedinUrl`).
 
 - [ ] **Step 12: Implement lead normalizer**
 
-Return normalized fields and `rawJson`.
+Return normalized fields, `leadType`, source-specific business/person fields, and `rawJson`.
 
 - [ ] **Step 13: Run all domain tests**
 
@@ -319,7 +347,7 @@ git commit -m "feat: add tested domain utilities"
 
 - [ ] **Step 1: Write failing run service success test**
 
-Use an in-memory fake actor client that returns a started run, completed status, dataset ID, and two lead items. Assert run status becomes `completed`, events are recorded, and normalized leads are saved.
+Use an in-memory fake actor client that returns a started run, completed status, dataset ID, and two Google Maps business lead items. Assert run status becomes `completed`, events are recorded, and normalized business leads are saved.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -329,7 +357,7 @@ Expected: FAIL because `runService` does not exist.
 
 - [ ] **Step 3: Implement actor interface**
 
-Create `ActorClient`, `ActorRunInput`, `ActorRunStarted`, and `ActorRunStatus` types.
+Create `ActorClient`, `ActorRunInput`, `ActorRunStarted`, and `ActorRunStatus` types. `ActorRunInput` must include `leadSource`, `actorId`, `token`, `input`, and `maxResults`.
 
 - [ ] **Step 4: Implement error logger**
 
@@ -337,7 +365,7 @@ Write error logs to SQLite and append JSON lines to `logs/app.log`. Redact detai
 
 - [ ] **Step 5: Implement run service**
 
-Create queued run, mark running, call actor, poll or wait through adapter, save leads, record events, and mark completed.
+Create queued run with `leadSource`, mark running, call actor, poll or wait through adapter, save normalized source-specific leads, record events, and mark completed.
 
 - [ ] **Step 6: Verify success test passes**
 
@@ -355,7 +383,7 @@ Catch actor errors, redact messages, write `run_failed` event, set terminal fail
 
 - [ ] **Step 9: Implement Apify actor client**
 
-Use `ApifyClient` from `apify-client`. Start actor with supplied `actorId`, wait for finish, and list dataset items when the run succeeds.
+Use `ApifyClient` from `apify-client`. Start actor with supplied `actorId`, wait for finish, and list dataset items when the run succeeds. Default actor selection must choose `compass/google-maps-extractor` for `google_maps` and `harvestapi/linkedin-profile-search` for `sales_navigator` when the request does not override actor ID.
 
 - [ ] **Step 10: Run tests**
 
@@ -387,7 +415,7 @@ git commit -m "feat: add run lifecycle service"
 
 - [ ] **Step 1: Write failing API health test**
 
-Assert `GET /api/health` returns `{ data: { name: 'Leads-GenX', status: 'ok' } }`.
+Assert `GET /api/health` returns `{ data: { name: 'Leads-GenX', status: 'ok', sources: ['google_maps', 'sales_navigator'] } }`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -448,7 +476,7 @@ git commit -m "feat: add express api"
 
 - [ ] **Step 1: Create HTML shell**
 
-Use the app name `Leads-GenX`, first-screen dashboard layout, form panel, progress panel, and tabs for Runs, Leads, Logs.
+Use the app name `Leads-GenX`, first-screen dashboard layout, source segmented control, form panel, progress panel, and tabs for Runs, Leads, Logs. The Google Maps source should be selected by default.
 
 - [ ] **Step 2: Create dark visual system**
 
@@ -460,15 +488,15 @@ Create functions: `getHealth`, `getSuggestions`, `createRun`, `listRuns`, `getRu
 
 - [ ] **Step 4: Implement chip controls**
 
-Build searchable multi-select chips with keyboard-friendly input, removable chips, selected state, and single-select mode where needed.
+Build searchable multi-select chips with keyboard-friendly input, removable chips, selected state, and single-select mode where needed. Include chips for Google Maps business categories and Sales Navigator professional filters.
 
 - [ ] **Step 5: Implement UI renderers**
 
-Render stats, run rows, lead rows, error rows, progress state, and safe empty states.
+Render stats, run rows, source-aware lead rows, error rows, progress state, and safe empty states. Google Maps rows must show business name, category, address, website, phone, rating, reviews, and Maps URL. Sales Navigator rows must show person name, title, company, email, location, and profile URL.
 
 - [ ] **Step 6: Wire app behavior**
 
-Load suggestions, initialize chips, validate the form client-side, submit runs, poll active runs every 3 seconds, refresh tables, and trigger TXT downloads.
+Load suggestions, initialize chips, toggle source-specific forms, validate the selected source client-side, submit runs, poll active runs every 3 seconds, refresh tables, and trigger TXT downloads.
 
 - [ ] **Step 7: Commit**
 
@@ -497,7 +525,7 @@ Document:
 - Setup commands.
 - Apify token handling.
 - Sales Navigator risk note.
-- Google Maps future-source note.
+- Google Maps high-volume business source note.
 - TXT export behavior.
 
 - [ ] **Step 2: Run all tests**
@@ -526,6 +554,7 @@ Open `http://localhost:4177` and verify:
 - New run form renders.
 - Chip filters open and select values.
 - Tabs switch without layout breakage.
+- Source switch toggles Google Maps and Sales Navigator forms.
 - Download button points to `/api/leads/download`.
 - Text does not overlap on desktop or mobile widths.
 
@@ -540,6 +569,6 @@ git commit -m "docs: add setup and verification guide"
 
 ## Self-Review Notes
 
-- Spec coverage: all approved requirements map to tasks: clean app, port `4177`, Leads-GenX name, Express, TypeScript, SQLite, vanilla JS UI, chip filters, suggestions, progress, logs, TXT export, Apify adapter, and TDD.
+- Spec coverage: all approved requirements map to tasks: clean app, port `4177`, Leads-GenX name, Google Maps and Sales Navigator source switching, Express, TypeScript, SQLite, vanilla JS UI, chip filters, suggestions, progress, logs, TXT export, Apify adapter, and TDD.
 - Placeholder scan: no `TBD`, `TODO`, or unspecified implementation tasks remain.
-- Type consistency: `LeadFilters`, `ValidatedRunInput`, `ActorClient`, and run statuses are named consistently across tasks.
+- Type consistency: `LeadSource`, `GoogleMapsFilters`, `SalesNavigatorFilters`, `ValidatedRunInput`, `ActorClient`, and run statuses are named consistently across tasks.

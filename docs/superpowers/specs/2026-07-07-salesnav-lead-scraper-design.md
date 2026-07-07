@@ -2,7 +2,7 @@
 
 ## Scope
 
-Build a new single-user operator application named Leads-GenX for extracting and managing lead results through configurable Apify actor integrations. The first lead source will be LinkedIn Sales Navigator because that is the requested starting workflow, but the architecture will keep lead-source execution behind an adapter so Google Maps and other easier lead sources can be added cleanly.
+Build a new single-user operator application named Leads-GenX for extracting and managing lead results through configurable Apify actor integrations. The first version will support two source modes: LinkedIn Sales Navigator for targeted professional leads and Google Maps / Google Business Profile for higher-volume local business leads.
 
 The application is intended for commercial use as a local/operator tool. It will prioritize reliability, auditability, maintainability, and a polished workflow over SaaS features. It will not include multi-user authentication, billing, tenant isolation, CAPTCHA bypass, stealth browser automation, credential theft, or scraping of data the operator is not authorized to access.
 
@@ -10,7 +10,9 @@ The application is intended for commercial use as a local/operator tool. It will
 
 - Provide a clean Express + TypeScript backend with SQLite persistence.
 - Provide a vanilla JavaScript dark-theme UI suitable for repeated lead generation work.
-- Support Sales Navigator URLs and structured lead filters in the first version.
+- Support source switching between Sales Navigator and Google Maps / Google Business Profile in the first version.
+- Support Sales Navigator URLs and structured professional lead filters.
+- Support Google Maps business searches by search terms, categories, location, max places, rating/review thresholds, and closed-business filtering.
 - Keep the product name and UI brand as `Leads-GenX`.
 - Include multi-select chip filters with curated suggestions per category.
 - Track scraping runs live from start to completion.
@@ -36,12 +38,18 @@ The scraping layer will be isolated behind an `ActorClient` interface. The first
 
 The frontend will be plain HTML, CSS, and JavaScript. It will be split into static files rather than one large HTML file: `index.html`, `styles.css`, `api.js`, `state.js`, `chips.js`, `ui.js`, and `app.js`.
 
+## Lead Source Strategy
+
+Sales Navigator is useful for targeted people-based prospecting, but it is the riskier source because LinkedIn explicitly restricts unauthorized automated access and can limit, suspend, or terminate accounts for misuse. Leads-GenX will keep this source operator-controlled and configurable rather than attempting stealth browser automation.
+
+Google Maps / Google Business Profile is the preferred higher-volume source for business leads. It uses business search terms and location inputs, returns company-level data such as name, category, address, website, phone, rating, review count, and Maps URL, and is better suited for bulk prospecting. Leads-GenX will make Google Maps the more prominent source mode in the UI.
+
 ## Compliance Boundary
 
 The app will only run with operator-provided authorized inputs:
 
 - Apify API token.
-- Sales Navigator search URL or structured search filters.
+- Sales Navigator search URL, structured professional filters, or Google Maps business search filters.
 - Optional actor configuration supported by the selected actor.
 
 The app will not collect LinkedIn credentials, attempt to bypass LinkedIn protections, automate login flows, or hide automation from target services. Any session cookie support must be explicit, optional, locally stored only if the operator chooses, and never logged. The UI will label sensitive inputs and the backend will redact secrets from logs and API responses.
@@ -66,23 +74,21 @@ The app will not collect LinkedIn credentials, attempt to bypass LinkedIn protec
 - Rejects invalid URLs unless they are empty and filters are present.
 - Redacts sensitive values from validation errors.
 
-### Filter Builder
+### Source Input Builders
 
-`src/domain/filterBuilder.ts` converts structured filters into a Sales Navigator URL query. Multi-value fields are supported for titles, industries, seniority, functions, geography, company type, headcount, and years-in-role filters.
+`src/domain/sourceInputBuilder.ts` converts app filters into actor-specific inputs.
+
+For Sales Navigator, it converts structured filters into a Sales Navigator URL query. Multi-value fields are supported for titles, industries, seniority, functions, geography, company type, headcount, and years-in-role filters.
+
+For Google Maps, it converts business filters into Apify Google Maps actor input with search terms, category filters, location query, language, maximum crawled places, minimum stars, minimum review count, and skip-closed-business options.
 
 ### Suggestions
 
 `src/domain/suggestions.ts` contains curated suggestions for:
 
-- Job titles.
-- Industries.
-- Seniority levels.
-- Departments/functions.
-- Company headcount.
-- Company type.
-- Geography.
-- Years in current company.
-- Years in current position.
+- Google Maps business categories and search templates.
+- Common city/region examples.
+- Job titles, industries, seniority levels, departments/functions, company headcount, company type, geography, years in current company, and years in current position for Sales Navigator.
 
 Suggestions are returned by `GET /api/suggestions` and rendered as searchable multi-select chips.
 
@@ -111,7 +117,7 @@ export interface ActorClient {
 }
 ```
 
-The adapter maps app-level run input to actor input and maps actor output to normalized leads. Actor ID will be configurable through settings or `.env`. The initial `leadSource` value will be `sales_navigator`; the run model and service boundaries will leave room for `google_maps` without changing the lead table or export flow.
+The adapter maps app-level run input to actor input and maps actor output to normalized leads. Actor IDs will be configurable through settings or `.env`. Supported `leadSource` values in the first version are `google_maps` and `sales_navigator`.
 
 ### Logging
 
@@ -142,6 +148,7 @@ TXT download routes support all leads or a specific run.
 
 - `id`
 - `status`: `queued`, `running`, `completed`, `failed`, `cancelled`
+- `leadSource`: `google_maps` or `sales_navigator`
 - `searchUrl`
 - `filterJson`
 - `actorId`
@@ -169,6 +176,13 @@ TXT download routes support all leads or a specific run.
 - `location`
 - `profileUrl`
 - `connectionDegree`
+- `leadType`: `person` or `business`
+- `categoryName`
+- `address`
+- `website`
+- `rating`
+- `reviewsCount`
+- `placeUrl`
 - `rawJson`
 - `createdAt`
 
@@ -218,6 +232,16 @@ Starts a run. Body:
 ```json
 {
   "apifyToken": "optional when saved",
+  "leadSource": "google_maps",
+  "googleMaps": {
+    "searchTerms": ["dentist", "orthodontist"],
+    "categoryFilters": ["Dental clinic"],
+    "locationQuery": "Austin, TX",
+    "maxPlaces": 500,
+    "minimumStars": 4,
+    "minimumReviews": 20,
+    "skipClosedPlaces": true
+  },
   "searchUrl": "https://www.linkedin.com/sales/search/people?...",
   "filters": {
     "keywords": "SaaS",
@@ -226,7 +250,7 @@ Starts a run. Body:
     "geographies": ["United States"]
   },
   "maxResults": 100,
-  "actorId": "harvestapi/linkedin-profile-search"
+  "actorId": "compass/google-maps-extractor"
 }
 ```
 
@@ -283,9 +307,10 @@ The first screen is the actual operating dashboard, not a marketing page.
 ### New Run Form
 
 - Apify token input, with option to save locally.
-- Sales Navigator URL input.
-- Structured filter builder as an alternative to direct URL.
-- Multi-select chip filters for titles, industries, functions, seniority, geographies, and company attributes.
+- Source segmented control: `Google Maps` and `Sales Navigator`.
+- Google Maps form: search terms, business categories, location, max places, minimum rating, minimum reviews, skip closed businesses, and optional direct Maps URL.
+- Sales Navigator form: search URL input and structured filter builder as an alternative to direct URL.
+- Multi-select chip filters for Google Maps business categories and Sales Navigator titles, industries, functions, seniority, geographies, and company attributes.
 - Numeric max results input.
 - Actor ID advanced field.
 - Start button disabled during invalid input.
@@ -304,7 +329,7 @@ The first screen is the actual operating dashboard, not a marketing page.
 
 ### Leads
 
-- Table with full name, title, company, email, location, profile URL.
+- Table adapts by source. Google Maps rows show business name, category, address, website, phone, rating, reviews, and Maps URL. Sales Navigator rows show full name, title, company, email, location, and profile URL.
 - Filter by run.
 - Download TXT button.
 
@@ -374,4 +399,4 @@ The first version is single-user. A SaaS version can be added later by:
 - Encrypting per-user secrets.
 - Adding quotas, audit logs, and billing hooks.
 - Moving long-running actor polling to a worker queue.
-- Adding a `google_maps` source backed by a Google Maps Apify actor for local business lead discovery.
+- Adding contact enrichment and email verification for Google Maps business websites.
