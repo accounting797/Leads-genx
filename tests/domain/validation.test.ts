@@ -122,6 +122,26 @@ describe('validateCreateRunInput', () => {
     expect(input.googleApiKey).toBe('google-one');
   });
 
+  it('parses newline-separated Apify tokens and Google API keys', () => {
+    const input = validateCreateRunInput(
+      {
+        apifyToken: 'apify-one\napify-two\napify-three',
+        googleApiKey: 'google-one\ngoogle-two',
+        leadSource: 'google_maps',
+        maxResults: 1000,
+        googleMaps: {
+          provider: 'hybrid',
+          searchTerms: ['logistics company'],
+          locations: ['Washington, DC'],
+        },
+      },
+      false
+    );
+
+    expect(input.apifyTokens).toEqual(['apify-one', 'apify-two', 'apify-three']);
+    expect(input.googleApiKeys).toEqual(['google-one', 'google-two']);
+  });
+
   it('requires at least one provider credential for hybrid Google Maps runs', () => {
     expect(() =>
       validateCreateRunInput(

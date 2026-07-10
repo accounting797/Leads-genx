@@ -24,7 +24,7 @@ function asCredentialList(value: unknown): string[] {
   const raw = asString(value);
   if (!raw) return [];
   return raw
-    .split(',')
+    .split(/[\s,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
 }

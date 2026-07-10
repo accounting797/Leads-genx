@@ -146,11 +146,12 @@ export function buildActorInputsForApifyTokens(input: ValidatedRunInput): ActorR
     return [buildActorInput({ ...input, apifyToken: tokens[0] })];
   }
 
-  return chunkSearchStrings(searchStrings, tokens.length).map((chunk, index) => ({
-    token: tokens[index],
+  const searchChunks = chunkSearchStrings(searchStrings, tokens.length);
+  return tokens.map((token, index) => ({
+    token,
     leadSource: 'google_maps',
     actorId: input.actorId ?? process.env.DEFAULT_GOOGLE_MAPS_ACTOR_ID ?? DEFAULT_GOOGLE_MAPS_ACTOR_ID,
-    input: buildGoogleMapsInputWithSearchStrings(filters, chunk),
+    input: buildGoogleMapsInputWithSearchStrings(filters, searchChunks[index] ?? searchStrings),
     maxResults: input.maxResults,
   }));
 }

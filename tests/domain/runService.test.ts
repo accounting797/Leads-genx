@@ -404,4 +404,70 @@ describe('createRunService', () => {
     );
     expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 3 });
   });
+
+  it('continues hybrid runs when one Apify credential is invalid', async () => {
+    const store = createStore();
+    const apifyTokens: string[] = [];
+    const actorClient: ActorClient = {
+      async startRun(input) {
+        apifyTokens.push(input.token);
+        if (input.token === 'bad-apify') {
+          throw new Error('User was not found or authentication token is not valid');
+        }
+        return {
+          runId: 'apify-run-good',
+          status: 'SUCCEEDED',
+          datasetId: 'dataset-good',
+        };
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems() {
+        return [{ title: 'Good Apify Lead', website: 'https://apify-good.example.com' }];
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search() {
+        return [{ displayName: { text: 'Good Google Lead' }, websiteUri: 'https://google-good.example.com' }];
+      },
+    };
+    const emailExtractor: EmailExtractor = {
+      async extract(url) {
+        return url.includes('apify-good') ? ['apify-good@example.com'] : ['google-good@example.com'];
+      },
+    };
+
+    const service = createRunService({ store, actorClient, googlePlacesClient, emailExtractor });
+    await service.startRun(
+      {
+        apifyToken: 'bad-apify',
+        apifyTokens: ['bad-apify', 'good-apify'],
+        googleApiKey: 'google-one',
+        googleApiKeys: ['google-one'],
+        leadSource: 'google_maps',
+        maxResults: 1000,
+        googleMaps: {
+          provider: 'hybrid',
+          searchTerms: ['oilfield services'],
+          locations: ['Houston, TX'],
+        },
+      },
+      { background: false }
+    );
+
+    expect(apifyTokens).toEqual(['bad-apify', 'good-apify']);
+    expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 2 });
+    expect(store.leads.map((lead) => lead.email)).toEqual([
+      'apify-good@example.com',
+      'google-good@example.com',
+    ]);
+    expect(store.events).toContainEqual(
+      expect.objectContaining({
+        type: 'apify_shard_failed',
+        metadata: expect.objectContaining({ shard: 1, shardCount: 2 }),
+      })
+    );
+    expect(JSON.stringify(store.events)).not.toContain('bad-apify');
+  });
 });

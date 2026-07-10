@@ -175,6 +175,24 @@ describe('buildActorInput', () => {
 });
 
 describe('buildActorInputsForApifyTokens', () => {
+  it('keeps every Apify token active even when there is only one search shard', () => {
+    const inputs = buildActorInputsForApifyTokens({
+      apifyToken: 'token-a',
+      apifyTokens: ['token-a', 'token-b', 'token-c'],
+      leadSource: 'google_maps',
+      maxResults: 1000,
+      googleMaps: {
+        searchTerms: ['oilfield services'],
+        locations: ['Houston, TX'],
+        maxPlaces: 1000,
+      },
+    });
+
+    expect(inputs).toHaveLength(3);
+    expect(inputs.map((input) => input.token)).toEqual(['token-a', 'token-b', 'token-c']);
+    expect(inputs.every((input) => Array.isArray(input.input.searchStringsArray))).toBe(true);
+  });
+
   it('splits Google Maps search strings across Apify tokens', () => {
     const inputs = buildActorInputsForApifyTokens({
       apifyToken: 'token-a',

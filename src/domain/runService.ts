@@ -47,6 +47,10 @@ export interface StartRunOptions {
   background?: boolean;
 }
 
+interface RunApifyShardsOptions {
+  continueOnShardError?: boolean;
+}
+
 function serializeFilters(input: ValidatedRunInput): string {
   return JSON.stringify({
     googleMaps: input.googleMaps,
@@ -109,12 +113,14 @@ export function createRunService({
     run: RunRecord,
     input: ValidatedRunInput,
     seenEmails = new Set<string>(),
-    startingTotal = 0
-  ): Promise<{ leadCount: number; datasetIds: string[]; apifyRunIds: string[] }> {
+    startingTotal = 0,
+    options: RunApifyShardsOptions = {}
+  ): Promise<{ leadCount: number; datasetIds: string[]; apifyRunIds: string[]; failedShardCount: number }> {
     const actorInputs = buildActorInputsForApifyTokens(input);
     const datasetIds: string[] = [];
     const apifyRunIds: string[] = [];
     let leadCount = startingTotal;
+    let failedShardCount = 0;
 
     for (const [index, actorInput] of actorInputs.entries()) {
       await store.addEvent(run.id, 'apify_shard_started', `Apify shard ${index + 1}/${actorInputs.length} started.`, {
@@ -123,45 +129,68 @@ export function createRunService({
         actorId: actorInput.actorId,
       });
 
-      const actorRun = await actorClient.startRun(actorInput);
-      apifyRunIds.push(actorRun.runId);
-      if (actorRun.datasetId) datasetIds.push(actorRun.datasetId);
-      await store.updateRun(run.id, {
-        apifyRunId: actorRun.runId,
-        datasetId: actorRun.datasetId,
-      });
+      try {
+        const actorRun = await actorClient.startRun(actorInput);
+        apifyRunIds.push(actorRun.runId);
+        if (actorRun.datasetId) datasetIds.push(actorRun.datasetId);
+        await store.updateRun(run.id, {
+          apifyRunId: actorRun.runId,
+          datasetId: actorRun.datasetId,
+        });
 
-      if (actorRun.status !== 'SUCCEEDED') {
-        throw new Error(`Actor finished with status ${actorRun.status}`);
-      }
+        if (actorRun.status !== 'SUCCEEDED') {
+          throw new Error(`Actor finished with status ${actorRun.status}`);
+        }
 
-      await store.addEvent(run.id, 'actor_succeeded', 'Actor run succeeded.', {
-        apifyRunId: actorRun.runId,
-        datasetId: actorRun.datasetId,
-        shard: index + 1,
-      });
+        await store.addEvent(run.id, 'actor_succeeded', 'Actor run succeeded.', {
+          apifyRunId: actorRun.runId,
+          datasetId: actorRun.datasetId,
+          shard: index + 1,
+        });
 
-      const items = actorRun.datasetId
-        ? await actorClient.getDatasetItems(actorRun.datasetId, actorInput.token)
-        : [];
-      const normalizedLeads = items.map((item) => normalizeLead(item, input.leadSource));
-      await store.addEvent(
-        run.id,
-        'source_results',
-        `Apify shard ${index + 1} returned ${normalizedLeads.length} records; ${websiteCount(
-          normalizedLeads
-        )} had websites to scan.`,
-        {
+        const items = actorRun.datasetId
+          ? await actorClient.getDatasetItems(actorRun.datasetId, actorInput.token)
+          : [];
+        const normalizedLeads = items.map((item) => normalizeLead(item, input.leadSource));
+        await store.addEvent(
+          run.id,
+          'source_results',
+          `Apify shard ${index + 1} returned ${normalizedLeads.length} records; ${websiteCount(
+            normalizedLeads
+          )} had websites to scan.`,
+          {
+            provider: 'apify',
+            shard: index + 1,
+            itemCount: normalizedLeads.length,
+            websiteCount: websiteCount(normalizedLeads),
+          }
+        );
+        leadCount = await saveEmailLeadsInBatches(run.id, normalizedLeads, seenEmails, leadCount);
+      } catch (error) {
+        if (!options.continueOnShardError) throw error;
+
+        failedShardCount += 1;
+        const message = safeErrorMessage(error);
+        await store.addErrorLog({
+          runId: run.id,
+          source: 'runService',
+          severity: 'warn',
+          message,
+          details: {
+            provider: 'apify',
+            shard: index + 1,
+            shardCount: actorInputs.length,
+          },
+        });
+        await store.addEvent(run.id, 'apify_shard_failed', `Apify shard ${index + 1} failed: ${message}`, {
           provider: 'apify',
           shard: index + 1,
-          itemCount: normalizedLeads.length,
-          websiteCount: websiteCount(normalizedLeads),
-        }
-      );
-      leadCount = await saveEmailLeadsInBatches(run.id, normalizedLeads, seenEmails, leadCount);
+          shardCount: actorInputs.length,
+        });
+      }
     }
 
-    return { leadCount, datasetIds, apifyRunIds };
+    return { leadCount, datasetIds, apifyRunIds, failedShardCount };
   }
 
   async function runGooglePlaces(
@@ -216,7 +245,9 @@ export function createRunService({
         });
 
         if (input.apifyToken) {
-          const result = await runApifyShards(run, input, seenEmails, leadCount);
+          const result = await runApifyShards(run, input, seenEmails, leadCount, {
+            continueOnShardError: Boolean(input.googleApiKey),
+          });
           leadCount = result.leadCount;
         }
         if (input.googleApiKey) {
