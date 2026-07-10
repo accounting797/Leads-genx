@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildActorInput,
+  buildActorInputsForApifyTokens,
   buildGoogleMapsInput,
   buildSalesNavigatorUrl,
 } from '../../src/domain/sourceInputBuilder';
@@ -170,5 +171,30 @@ describe('buildActorInput', () => {
     });
 
     expect(result.input).toMatchObject({ searchUrl: expect.any(String), maxResults: 100 });
+  });
+});
+
+describe('buildActorInputsForApifyTokens', () => {
+  it('splits Google Maps search strings across Apify tokens', () => {
+    const inputs = buildActorInputsForApifyTokens({
+      apifyToken: 'token-a',
+      apifyTokens: ['token-a', 'token-b'],
+      leadSource: 'google_maps',
+      maxResults: 1000,
+      googleMaps: {
+        searchTerms: ['oilfield services', 'aviation maintenance'],
+        locations: ['Houston, TX', 'Tulsa, OK'],
+        maxPlaces: 1000,
+      },
+    });
+
+    expect(inputs).toHaveLength(2);
+    expect(inputs.map((input) => input.token)).toEqual(['token-a', 'token-b']);
+    expect(inputs[0].input).toMatchObject({
+      searchStringsArray: ['oilfield services Houston, TX', 'aviation maintenance Houston, TX'],
+    });
+    expect(inputs[1].input).toMatchObject({
+      searchStringsArray: ['oilfield services Tulsa, OK', 'aviation maintenance Tulsa, OK'],
+    });
   });
 });

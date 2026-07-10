@@ -99,6 +99,7 @@ describe('createRunService', () => {
     expect(store.events.map((event) => event.type)).toEqual([
       'run_queued',
       'run_started',
+      'apify_shard_started',
       'actor_succeeded',
       'source_results',
       'leads_saved',
@@ -311,7 +312,7 @@ describe('createRunService', () => {
       expect.objectContaining({
         type: 'source_results',
         message: 'Google Places returned 2 businesses; 1 had websites to scan.',
-        metadata: { itemCount: 2, websiteCount: 1 },
+        metadata: expect.objectContaining({ itemCount: 2, websiteCount: 1 }),
       })
     );
     expect(store.events).toContainEqual(
@@ -321,5 +322,86 @@ describe('createRunService', () => {
         metadata: { leadCount: 0 },
       })
     );
+  });
+
+  it('runs hybrid Google Maps sessions across Apify and Google credentials', async () => {
+    const store = createStore();
+    const apifyTokens: string[] = [];
+    const actorClient: ActorClient = {
+      async startRun(input) {
+        apifyTokens.push(input.token);
+        return {
+          runId: `apify-run-${apifyTokens.length}`,
+          status: 'SUCCEEDED',
+          datasetId: `dataset-${apifyTokens.length}`,
+        };
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems(datasetId) {
+        return [
+          {
+            title: `Apify ${datasetId}`,
+            website: `https://${datasetId}.example.com`,
+          },
+        ];
+      },
+    };
+    let googleApiKeys: string[] | undefined;
+    const googlePlacesClient: GooglePlacesClient = {
+      async search(input) {
+        googleApiKeys = input.apiKeys;
+        return [
+          {
+            displayName: { text: 'Google Energy' },
+            websiteUri: 'https://google.example.com',
+          },
+        ];
+      },
+    };
+    const emailExtractor: EmailExtractor = {
+      async extract(url) {
+        if (url.includes('dataset-1')) return ['shared@example.com'];
+        if (url.includes('dataset-2')) return ['apify-two@example.com'];
+        return ['shared@example.com', 'google@example.com'];
+      },
+    };
+
+    const service = createRunService({
+      store,
+      actorClient,
+      googlePlacesClient,
+      emailExtractor,
+      emailLeadBatchSize: 1,
+    });
+    await service.startRun(
+      {
+        apifyToken: 'apify-one',
+        apifyTokens: ['apify-one', 'apify-two'],
+        googleApiKey: 'google-one',
+        googleApiKeys: ['google-one', 'google-two'],
+        leadSource: 'google_maps',
+        maxResults: 1000,
+        googleMaps: {
+          provider: 'hybrid',
+          searchTerms: ['oilfield services'],
+          locations: ['Houston, TX', 'Tulsa, OK'],
+        },
+      },
+      { background: false }
+    );
+
+    expect(apifyTokens).toEqual(['apify-one', 'apify-two']);
+    expect(googleApiKeys).toEqual(['google-one', 'google-two']);
+    expect(store.leads.map((lead) => lead.email)).toEqual([
+      'shared@example.com',
+      'apify-two@example.com',
+      'google@example.com',
+    ]);
+    expect(store.events.map((event) => event.type)).toEqual(
+      expect.arrayContaining(['apify_shard_started', 'google_places_started'])
+    );
+    expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 3 });
   });
 });

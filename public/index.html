@@ -38,8 +38,8 @@
         <form id="runForm" class="run-form">
           <div class="form-grid two">
             <label>
-              <span>Apify API Token</span>
-              <input id="apifyToken" type="password" autocomplete="off" placeholder="apify_api_...">
+              <span>Apify API Tokens</span>
+              <input id="apifyToken" type="password" autocomplete="off" placeholder="Comma-separated Apify tokens">
             </label>
             <label>
               <span>Max Results</span>
@@ -54,11 +54,12 @@
                 <select id="gmProvider">
                   <option value="apify">Apify Bulk</option>
                   <option value="google_places">Google Places API</option>
+                  <option value="hybrid">Hybrid Max Output</option>
                 </select>
               </label>
               <label>
-                <span>Google API Key</span>
-                <input id="googleApiKey" type="password" autocomplete="off" placeholder="Required for Google Places API">
+                <span>Google API Keys</span>
+                <input id="googleApiKey" type="password" autocomplete="off" placeholder="Comma-separated Google API keys">
               </label>
             </div>
             <div class="filter-grid">

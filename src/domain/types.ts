@@ -1,6 +1,6 @@
 export type LeadSource = 'google_maps' | 'sales_navigator';
 export type LeadType = 'business' | 'person';
-export type GoogleMapsProvider = 'apify' | 'google_places';
+export type GoogleMapsProvider = 'apify' | 'google_places' | 'hybrid';
 
 export interface SalesNavigatorFilters {
   keywords?: string;
@@ -29,7 +29,9 @@ export interface GoogleMapsFilters {
 
 export interface ValidatedRunInput {
   apifyToken?: string;
+  apifyTokens?: string[];
   googleApiKey?: string;
+  googleApiKeys?: string[];
   leadSource: LeadSource;
   actorId?: string;
   searchUrl?: string;

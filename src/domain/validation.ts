@@ -20,6 +20,15 @@ function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function asCredentialList(value: unknown): string[] {
+  const raw = asString(value);
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function asStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const values = value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
@@ -69,7 +78,7 @@ function parseLeadSource(value: unknown): LeadSource | undefined {
 }
 
 function parseGoogleMapsProvider(value: unknown): GoogleMapsProvider | undefined {
-  return value === 'apify' || value === 'google_places' ? value : undefined;
+  return value === 'apify' || value === 'google_places' || value === 'hybrid' ? value : undefined;
 }
 
 function parseGoogleMaps(value: unknown): GoogleMapsFilters | undefined {
@@ -109,8 +118,10 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
   const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   const fields: Record<string, string> = {};
 
-  const apifyToken = asString(obj.apifyToken);
-  const googleApiKey = asString(obj.googleApiKey);
+  const apifyTokens = asCredentialList(obj.apifyToken);
+  const googleApiKeys = asCredentialList(obj.googleApiKey);
+  const apifyToken = apifyTokens[0];
+  const googleApiKey = googleApiKeys[0];
   const rawGoogleMaps = obj.googleMaps && typeof obj.googleMaps === 'object'
     ? (obj.googleMaps as Record<string, unknown>)
     : {};
@@ -160,6 +171,15 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
     fields.googleApiKey = 'Google API key is required for Google Places runs.';
   }
 
+  if (
+    leadSource === 'google_maps' &&
+    googleMapsProvider === 'hybrid' &&
+    !apifyToken &&
+    !googleApiKey
+  ) {
+    fields.apifyToken = 'At least one Apify or Google API credential is required for Hybrid runs.';
+  }
+
   if (leadSource === 'sales_navigator' && !searchUrl && !hasSalesNavigatorFilters(salesNavigator)) {
     fields.salesNavigator = 'Sales Navigator runs need a search URL or professional filters.';
   }
@@ -170,7 +190,9 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
 
   return {
     apifyToken,
+    apifyTokens: apifyTokens.length ? apifyTokens : undefined,
     googleApiKey,
+    googleApiKeys: googleApiKeys.length ? googleApiKeys : undefined,
     leadSource: leadSource ?? 'google_maps',
     actorId: asString(obj.actorId),
     searchUrl,

@@ -56,7 +56,9 @@ describe('static dashboard Google Maps providers', () => {
     expect(html).toContain('id="gmProvider"');
     expect(html).toContain('value="apify"');
     expect(html).toContain('value="google_places"');
+    expect(html).toContain('value="hybrid"');
     expect(html).toContain('id="googleApiKey"');
+    expect(html).toContain('Comma-separated');
   });
 
   it('submits the selected Google Maps provider and Google API key', () => {

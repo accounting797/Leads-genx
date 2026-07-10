@@ -67,4 +67,28 @@ describe('GooglePlacesApiClient', () => {
     );
     expect(String(requestInit?.body)).not.toContain('google-secret-key');
   });
+
+  it('rotates Google API keys across text search queries', async () => {
+    const keys: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        keys.push((init.headers as Record<string, string>)['X-Goog-Api-Key']);
+        return Response.json({ places: [{ id: keys.length }] });
+      })
+    );
+
+    const client = new GooglePlacesApiClient();
+    await client.search({
+      apiKey: 'google-one',
+      apiKeys: ['google-one', 'google-two'],
+      maxResults: 10,
+      filters: {
+        searchTerms: ['oilfield services', 'aviation maintenance'],
+        locations: ['Houston, TX', 'Tulsa, OK'],
+      },
+    });
+
+    expect(keys).toEqual(['google-one', 'google-two', 'google-one', 'google-two']);
+  });
 });

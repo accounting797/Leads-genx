@@ -100,6 +100,44 @@ describe('validateCreateRunInput', () => {
     });
   });
 
+  it('parses comma-separated Apify tokens and Google API keys', () => {
+    const input = validateCreateRunInput(
+      {
+        apifyToken: 'apify-one, apify-two ,, apify-three',
+        googleApiKey: 'google-one, google-two',
+        leadSource: 'google_maps',
+        maxResults: 1000,
+        googleMaps: {
+          provider: 'hybrid',
+          searchTerms: ['oilfield services'],
+          locations: ['Houston, TX'],
+        },
+      },
+      false
+    );
+
+    expect(input.apifyTokens).toEqual(['apify-one', 'apify-two', 'apify-three']);
+    expect(input.googleApiKeys).toEqual(['google-one', 'google-two']);
+    expect(input.apifyToken).toBe('apify-one');
+    expect(input.googleApiKey).toBe('google-one');
+  });
+
+  it('requires at least one provider credential for hybrid Google Maps runs', () => {
+    expect(() =>
+      validateCreateRunInput(
+        {
+          leadSource: 'google_maps',
+          googleMaps: {
+            provider: 'hybrid',
+            searchTerms: ['mining contractor'],
+            locations: ['Reno, NV'],
+          },
+        },
+        false
+      )
+    ).toThrow(/Apify or Google/i);
+  });
+
   it('accepts high-volume Google Maps max results above 1000', () => {
     const input = validateCreateRunInput(
       {

@@ -2,6 +2,7 @@ import { GoogleMapsFilters } from '../domain/types';
 
 export interface GooglePlacesSearchInput {
   apiKey: string;
+  apiKeys?: string[];
   filters: GoogleMapsFilters;
   maxResults: number;
 }
@@ -32,12 +33,14 @@ function buildQueries(filters: GoogleMapsFilters): string[] {
 }
 
 export class GooglePlacesApiClient implements GooglePlacesClient {
-  async search({ apiKey, filters, maxResults }: GooglePlacesSearchInput): Promise<unknown[]> {
+  async search({ apiKey, apiKeys, filters, maxResults }: GooglePlacesSearchInput): Promise<unknown[]> {
     const queries = buildQueries(filters);
     const places: unknown[] = [];
+    const keyPool = apiKeys?.length ? apiKeys : [apiKey];
 
-    for (const textQuery of queries) {
+    for (const [queryIndex, textQuery] of queries.entries()) {
       if (places.length >= maxResults) break;
+      const queryApiKey = keyPool[queryIndex % keyPool.length];
       let pageToken: string | undefined;
 
       do {
@@ -52,7 +55,7 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Goog-Api-Key': apiKey,
+            'X-Goog-Api-Key': queryApiKey,
             'X-Goog-FieldMask': [
               'places.id',
               'places.name',

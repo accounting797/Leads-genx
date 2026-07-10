@@ -37,6 +37,27 @@ function buildGoogleMapsSearchStrings(filters: GoogleMapsFilters): string[] {
   );
 }
 
+function buildGoogleMapsShardSearchStrings(filters: GoogleMapsFilters): string[] {
+  const searchTerms = cleanValues(filters.searchTerms);
+  const categories = cleanValues(filters.categoryFilters);
+  const companyTypes = cleanValues(filters.companyTypes);
+  const locations = cleanValues(filters.locations);
+  const baseSearches = [...searchTerms, ...categories, ...companyTypes];
+
+  if (!locations.length) return buildGoogleMapsSearchStrings(filters);
+  return uniqueValues(
+    locations.flatMap((location) => baseSearches.map((search) => `${search} ${location}`))
+  );
+}
+
+function chunkSearchStrings(searchStrings: string[], chunkCount: number): string[][] {
+  const size = Math.ceil(searchStrings.length / chunkCount);
+  const chunks = Array.from({ length: chunkCount }, (_, index) =>
+    searchStrings.slice(index * size, index * size + size)
+  );
+  return chunks.filter((chunk) => chunk.length);
+}
+
 export function buildSalesNavigatorUrl(filters: SalesNavigatorFilters): string {
   const parts: string[] = ['spellCorrectionEnabled:true'];
 
@@ -74,6 +95,15 @@ export function buildGoogleMapsInput(filters: GoogleMapsFilters): Record<string,
   return input;
 }
 
+function buildGoogleMapsInputWithSearchStrings(
+  filters: GoogleMapsFilters,
+  searchStrings: string[]
+): Record<string, unknown> {
+  const input = buildGoogleMapsInput(filters);
+  if (searchStrings.length) input.searchStringsArray = searchStrings;
+  return input;
+}
+
 export function buildActorInput(input: ValidatedRunInput): ActorRunInput {
   if (!input.apifyToken) {
     throw new Error('Apify token is required to build actor input');
@@ -103,4 +133,24 @@ export function buildActorInput(input: ValidatedRunInput): ActorRunInput {
     },
     maxResults: input.maxResults,
   };
+}
+
+export function buildActorInputsForApifyTokens(input: ValidatedRunInput): ActorRunInput[] {
+  const tokens = input.apifyTokens?.length ? input.apifyTokens : input.apifyToken ? [input.apifyToken] : [];
+  if (!tokens.length) throw new Error('Apify token is required to build actor input');
+  if (input.leadSource !== 'google_maps') return [buildActorInput({ ...input, apifyToken: tokens[0] })];
+
+  const filters = input.googleMaps ?? {};
+  const searchStrings = buildGoogleMapsShardSearchStrings(filters);
+  if (!searchStrings.length || tokens.length === 1) {
+    return [buildActorInput({ ...input, apifyToken: tokens[0] })];
+  }
+
+  return chunkSearchStrings(searchStrings, tokens.length).map((chunk, index) => ({
+    token: tokens[index],
+    leadSource: 'google_maps',
+    actorId: input.actorId ?? process.env.DEFAULT_GOOGLE_MAPS_ACTOR_ID ?? DEFAULT_GOOGLE_MAPS_ACTOR_ID,
+    input: buildGoogleMapsInputWithSearchStrings(filters, chunk),
+    maxResults: input.maxResults,
+  }));
 }

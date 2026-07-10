@@ -7,6 +7,7 @@ function createClient(token: string) {
 }
 
 const DATASET_PAGE_SIZE = 1000;
+const ACTOR_WAIT_SECONDS = 3600;
 
 export async function collectDatasetItems(
   listPage: (offset: number, limit: number) => Promise<unknown[]>,
@@ -25,7 +26,7 @@ export class ApifyActorClient implements ActorClient {
   async startRun(input: ActorRunInput): Promise<ActorRunStarted> {
     const client = createClient(input.token);
     const run = await client.actor(input.actorId).start(input.input);
-    const finished = await client.run(run.id).waitForFinish({ waitSecs: 300 });
+    const finished = await client.run(run.id).waitForFinish({ waitSecs: ACTOR_WAIT_SECONDS });
 
     return {
       runId: run.id,
