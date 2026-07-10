@@ -100,6 +100,7 @@ describe('createRunService', () => {
       'run_queued',
       'run_started',
       'actor_succeeded',
+      'source_results',
       'leads_saved',
       'run_completed',
     ]);
@@ -262,5 +263,63 @@ describe('createRunService', () => {
       store.operations.indexOf('updateRun:completed')
     );
     expect(store.runs[0].leadCount).toBe(2);
+  });
+
+  it('records source diagnostics when a Google Places run finds businesses but no emails', async () => {
+    const store = createStore();
+    const actorClient: ActorClient = {
+      async startRun() {
+        throw new Error('Apify should not run for Google Places');
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems() {
+        return [];
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search() {
+        return [
+          { displayName: { text: 'No Website Energy' } },
+          { displayName: { text: 'Quiet Aviation' }, websiteUri: 'https://quiet.example.com' },
+        ];
+      },
+    };
+    const emailExtractor: EmailExtractor = {
+      async extract() {
+        return [];
+      },
+    };
+
+    const service = createRunService({ store, actorClient, googlePlacesClient, emailExtractor });
+    await service.startRun(
+      {
+        googleApiKey: 'google-secret-key',
+        leadSource: 'google_maps',
+        maxResults: 10,
+        googleMaps: {
+          provider: 'google_places',
+          searchTerms: ['oilfield services'],
+          locations: ['Houston, TX'],
+        },
+      },
+      { background: false }
+    );
+
+    expect(store.events).toContainEqual(
+      expect.objectContaining({
+        type: 'source_results',
+        message: 'Google Places returned 2 businesses; 1 had websites to scan.',
+        metadata: { itemCount: 2, websiteCount: 1 },
+      })
+    );
+    expect(store.events).toContainEqual(
+      expect.objectContaining({
+        type: 'leads_saved',
+        message: 'Saved 0 email leads.',
+        metadata: { leadCount: 0 },
+      })
+    );
   });
 });

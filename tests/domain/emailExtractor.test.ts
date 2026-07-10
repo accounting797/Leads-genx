@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { extractEmailsFromText, keepEmailLeadsOnly } from '../../src/domain/emailExtractor';
+import {
+  extractEmailsFromText,
+  keepEmailLeadsOnly,
+  WebsiteEmailExtractor,
+} from '../../src/domain/emailExtractor';
 import { NormalizedLead } from '../../src/domain/types';
 
 describe('extractEmailsFromText', () => {
@@ -9,6 +13,43 @@ describe('extractEmailsFromText', () => {
     );
 
     expect(emails).toEqual(['sales@example.com', 'support@example.com']);
+  });
+});
+
+describe('WebsiteEmailExtractor', () => {
+  it('extracts decoded mailto emails from fetched pages', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async () =>
+      new Response('<a href="mailto:Sales%40Example.com?subject=Lead">Email sales</a>')) as typeof fetch;
+
+    try {
+      const extractor = new WebsiteEmailExtractor({ maxPagesPerSite: 1 });
+      await expect(extractor.extract('https://example.com')).resolves.toEqual(['sales@example.com']);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('follows contact-like internal links discovered on the home page', async () => {
+    const originalFetch = global.fetch;
+    const pages = new Map([
+      [
+        'https://example.com/',
+        '<a href="/leadership">Leadership</a><a href="/contact-sales">Contact sales</a>',
+      ],
+      ['https://example.com/contact-sales', 'Reach our team at growth@example.com'],
+    ]);
+    global.fetch = (async (input) => {
+      const html = pages.get(String(input));
+      return new Response(html ?? '', { status: html ? 200 : 404 });
+    }) as typeof fetch;
+
+    try {
+      const extractor = new WebsiteEmailExtractor({ maxPagesPerSite: 4 });
+      await expect(extractor.extract('https://example.com')).resolves.toEqual(['growth@example.com']);
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 });
 

@@ -6,6 +6,22 @@ export interface EmailExtractor {
 
 const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 const BAD_SUFFIXES = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'];
+const CONTACT_PATHS = [
+  '/',
+  '/contact',
+  '/contact-us',
+  '/contacts',
+  '/about',
+  '/about-us',
+  '/team',
+  '/staff',
+  '/leadership',
+  '/sales',
+  '/support',
+  '/locations',
+];
+const CONTACT_LINK_PATTERN = /\b(contact|about|team|staff|sales|support|location|leadership)\b/i;
+const HREF_PATTERN = /\bhref\s*=\s*["']([^"']+)["']/gi;
 
 function normalizeEmail(email: string): string | undefined {
   const cleaned = email.trim().toLowerCase().replace(/[),.;:]+$/, '');
@@ -28,6 +44,43 @@ export function extractEmailsFromText(text: string): string[] {
     if (email) seen.add(email);
   }
   return Array.from(seen);
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&#64;|&commat;/gi, '@')
+    .replace(/&#46;|&period;/gi, '.');
+}
+
+function extractMailtoEmails(text: string): string[] {
+  const emails = new Set<string>();
+  for (const match of text.matchAll(/\bmailto:([^"'<>\s?]+)/gi)) {
+    const decoded = decodeURIComponent(decodeHtmlEntities(match[1]));
+    for (const email of extractEmailsFromText(decoded)) emails.add(email);
+  }
+  return Array.from(emails);
+}
+
+function discoverInternalContactUrls(html: string, baseUrl: URL): string[] {
+  const urls = new Set<string>();
+  for (const match of html.matchAll(HREF_PATTERN)) {
+    const href = decodeHtmlEntities(match[1].trim());
+    if (!href || href.startsWith('mailto:') || href.startsWith('tel:')) continue;
+
+    try {
+      const url = new URL(href, baseUrl);
+      if (url.origin !== baseUrl.origin) continue;
+      const searchable = `${url.pathname} ${url.search}`.replace(/[-_]/g, ' ');
+      if (CONTACT_LINK_PATTERN.test(searchable)) {
+        url.hash = '';
+        urls.add(url.toString());
+      }
+    } catch {
+      // Ignore malformed links discovered on third-party sites.
+    }
+  }
+  return Array.from(urls);
 }
 
 async function mapWithConcurrency<T, R>(
@@ -99,17 +152,18 @@ export class WebsiteEmailExtractor implements EmailExtractor {
 
   async extract(url: string): Promise<string[]> {
     const target = new URL(url);
-    const paths = [target.pathname, '/contact', '/contact-us', '/about', '/about-us'];
+    const pageLimit = this.options.maxPagesPerSite ?? 12;
     const urls = Array.from(
       new Set(
-        paths
-          .slice(0, this.options.maxPagesPerSite ?? 5)
-          .map((path) => new URL(path || '/', target.origin).toString())
+        [target.pathname || '/', ...CONTACT_PATHS].map((path) =>
+          new URL(path || '/', target.origin).toString()
+        )
       )
     );
     const emails = new Set<string>();
 
-    for (const pageUrl of urls) {
+    for (let index = 0; index < urls.length && index < pageLimit; index += 1) {
+      const pageUrl = urls[index];
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.options.timeoutMs ?? 8000);
       try {
@@ -120,7 +174,15 @@ export class WebsiteEmailExtractor implements EmailExtractor {
         });
         if (!response.ok) continue;
         const html = await response.text();
-        for (const email of extractEmailsFromText(html.slice(0, 750_000))) emails.add(email);
+        const source = html.slice(0, 750_000);
+        for (const email of extractEmailsFromText(source)) emails.add(email);
+        for (const email of extractMailtoEmails(source)) emails.add(email);
+        if (index === 0) {
+          const discoveredUrls = discoverInternalContactUrls(source, new URL(pageUrl)).filter(
+            (discoveredUrl) => !urls.includes(discoveredUrl)
+          );
+          urls.splice(index + 1, 0, ...discoveredUrls);
+        }
       } finally {
         clearTimeout(timer);
       }

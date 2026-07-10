@@ -58,6 +58,10 @@ function isGooglePlacesRun(input: ValidatedRunInput): boolean {
   return input.leadSource === 'google_maps' && input.googleMaps?.provider === 'google_places';
 }
 
+function websiteCount(leads: NormalizedLead[]): number {
+  return leads.filter((lead) => Boolean(lead.website)).length;
+}
+
 export function createRunService({
   store,
   actorClient,
@@ -116,10 +120,19 @@ export function createRunService({
           filters: input.googleMaps ?? {},
           maxResults: input.maxResults,
         });
-        const leadCount = await saveEmailLeadsInBatches(
+        const normalizedLeads = items.map((item) => normalizeLead(item, input.leadSource));
+        await store.addEvent(
           run.id,
-          items.map((item) => normalizeLead(item, input.leadSource))
+          'source_results',
+          `Google Places returned ${normalizedLeads.length} businesses; ${websiteCount(
+            normalizedLeads
+          )} had websites to scan.`,
+          { itemCount: normalizedLeads.length, websiteCount: websiteCount(normalizedLeads) }
         );
+        const leadCount = await saveEmailLeadsInBatches(run.id, normalizedLeads);
+        if (leadCount === 0) {
+          await store.addEvent(run.id, 'leads_saved', 'Saved 0 email leads.', { leadCount: 0 });
+        }
         await store.updateRun(run.id, {
           status: 'completed',
           actorId: 'google_places',
@@ -160,10 +173,19 @@ export function createRunService({
       const items = actorRun.datasetId
         ? await actorClient.getDatasetItems(actorRun.datasetId, actorInput.token)
         : [];
-      const leadCount = await saveEmailLeadsInBatches(
+      const normalizedLeads = items.map((item) => normalizeLead(item, input.leadSource));
+      await store.addEvent(
         run.id,
-        items.map((item) => normalizeLead(item, input.leadSource))
+        'source_results',
+        `Provider returned ${normalizedLeads.length} records; ${websiteCount(
+          normalizedLeads
+        )} had websites to scan.`,
+        { itemCount: normalizedLeads.length, websiteCount: websiteCount(normalizedLeads) }
       );
+      const leadCount = await saveEmailLeadsInBatches(run.id, normalizedLeads);
+      if (leadCount === 0) {
+        await store.addEvent(run.id, 'leads_saved', 'Saved 0 email leads.', { leadCount: 0 });
+      }
       await store.updateRun(run.id, {
         status: 'completed',
         leadCount,
