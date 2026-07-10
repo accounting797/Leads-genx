@@ -38,7 +38,9 @@
             escapeHtml(run.errorMessage || '') +
             '</td><td><button class="ghost-btn" data-view-run="' +
             run.id +
-            '">View</button> <button class="ghost-btn" data-delete-run="' +
+            '">View</button> <button class="ghost-btn" data-copy-run-emails="' +
+            run.id +
+            '">Copy Emails</button> <button class="ghost-btn" data-delete-run="' +
             run.id +
             '">Delete</button></td></tr>'
           );

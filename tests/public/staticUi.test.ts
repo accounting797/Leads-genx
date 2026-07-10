@@ -24,6 +24,24 @@ describe('static dashboard downloads', () => {
   });
 });
 
+describe('static dashboard per-run copy emails', () => {
+  it('renders a Copy Emails button for each run', () => {
+    const uiJs = readPublicFile('ui.js');
+
+    expect(uiJs).toContain('data-copy-run-emails');
+    expect(uiJs).toContain('Copy Emails');
+  });
+
+  it('fetches and copies email TXT for a selected run', () => {
+    const apiJs = readPublicFile('api.js');
+    const appJs = readPublicFile('app.js');
+
+    expect(apiJs).toContain('getLeadEmailsTxt');
+    expect(appJs).toContain('navigator.clipboard.writeText');
+    expect(appJs).toContain('api.getLeadEmailsTxt');
+  });
+});
+
 describe('static dashboard run deletion', () => {
   it('renders delete buttons for runs', () => {
     const uiJs = readPublicFile('ui.js');

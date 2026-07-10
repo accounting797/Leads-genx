@@ -8,6 +8,13 @@
     return data.data;
   }
 
+  async function requestText(path, options) {
+    const res = await fetch(BASE + path, options);
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || 'Request failed');
+    return text;
+  }
+
   window.LeadsGenXApi = {
     getHealth: () => requestJson('/health'),
     getSuggestions: () => requestJson('/suggestions'),
@@ -22,6 +29,8 @@
     deleteRun: (id) => requestJson('/runs/' + id, { method: 'DELETE' }),
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
     listLeads: (runId) => requestJson('/leads' + (runId ? '?runId=' + runId : '')),
+    getLeadEmailsTxt: (runId) =>
+      requestText('/leads/download?format=emails' + (runId ? '&runId=' + runId : '')),
     listErrors: () => requestJson('/errors'),
     downloadLeads: (runId, format) => {
       const params = new URLSearchParams();

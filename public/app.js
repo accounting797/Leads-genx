@@ -118,6 +118,22 @@
     $('logsTable').innerHTML = window.LeadsGenXUi.renderLogs(logs);
   }
 
+  async function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'readonly');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+  }
+
   async function refreshLiveProgressTables(runId) {
     const currentRunId = $('leadRunFilter').value;
     await loadRuns(currentRunId || String(runId));
@@ -222,11 +238,13 @@
     $('runsTable').addEventListener('click', (event) => {
       const target = event.target;
       const viewRunId = target.dataset ? target.dataset.viewRun : undefined;
+      const copyRunEmailsId = target.dataset ? target.dataset.copyRunEmails : undefined;
       const deleteRunId = target.dataset ? target.dataset.deleteRun : undefined;
       if (viewRunId) {
         $('leadRunFilter').value = viewRunId;
         setTab('leads');
       }
+      if (copyRunEmailsId) void copyRunEmails(copyRunEmailsId);
       if (deleteRunId) void deleteRun(deleteRunId);
     });
 
@@ -248,6 +266,13 @@
     window.LeadsGenXUi.toast('Run #' + runId + ' deleted');
     await loadRuns();
     await loadLeads();
+  }
+
+  async function copyRunEmails(runId) {
+    const text = await api.getLeadEmailsTxt(runId);
+    await copyText(text);
+    const count = text.trim() ? text.trim().split('\n').length : 0;
+    window.LeadsGenXUi.toast('Copied ' + count + ' emails from run #' + runId);
   }
 
   void init().catch((error) => window.LeadsGenXUi.toast(error.message));
