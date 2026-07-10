@@ -76,7 +76,7 @@ describe('static dashboard Google Maps providers', () => {
     expect(html).toContain('value="google_places"');
     expect(html).toContain('value="hybrid"');
     expect(html).toContain('id="googleApiKey"');
-    expect(html).toContain('Comma-separated');
+    expect(html).toContain('one per line');
   });
 
   it('submits the selected Google Maps provider and Google API key', () => {
@@ -84,5 +84,22 @@ describe('static dashboard Google Maps providers', () => {
 
     expect(appJs).toContain("provider: $('gmProvider').value");
     expect(appJs).toContain("googleApiKey: $('googleApiKey').value.trim()");
+  });
+});
+
+describe('static dashboard credential entry', () => {
+  it('uses multiline credential boxes for Apify and Google keys', () => {
+    const html = readPublicFile('index.html');
+
+    expect(html).toContain('<textarea id="apifyToken"');
+    expect(html).toContain('<textarea id="googleApiKey"');
+  });
+
+  it('normalizes pasted credentials into one key per line', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('normalizeCredentialBox');
+    expect(appJs).toContain("normalizeCredentialBox($('apifyToken'))");
+    expect(appJs).toContain("normalizeCredentialBox($('googleApiKey'))");
   });
 });

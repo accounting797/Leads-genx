@@ -15,6 +15,26 @@
     return value ? Number(value) : undefined;
   }
 
+  function normalizeCredentialBox(element) {
+    const credentials = element.value
+      .split(/[\s,]+/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    element.value = credentials.join('\n');
+  }
+
+  function setupCredentialBox(element) {
+    element.addEventListener('blur', () => normalizeCredentialBox(element));
+    element.addEventListener('paste', () => {
+      setTimeout(() => normalizeCredentialBox(element), 0);
+    });
+    element.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        setTimeout(() => normalizeCredentialBox(element), 0);
+      }
+    });
+  }
+
   function setSource(source) {
     activeSource = source;
     document.querySelectorAll('.source-btn').forEach((btn) => {
@@ -230,6 +250,10 @@
       btn.addEventListener('click', () => setSource(btn.dataset.source))
     );
     document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
+    setupCredentialBox($('apifyToken'));
+    setupCredentialBox($('googleApiKey'));
+    normalizeCredentialBox($('apifyToken'));
+    normalizeCredentialBox($('googleApiKey'));
     $('runForm').addEventListener('submit', submitRun);
     $('refreshRuns').addEventListener('click', loadRuns);
     $('refreshLogs').addEventListener('click', loadLogs);
