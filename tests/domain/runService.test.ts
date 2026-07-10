@@ -10,30 +10,37 @@ function createStore(): RunStore & {
   events: Array<Record<string, any>>;
   leads: NormalizedLead[];
   errors: Array<Record<string, any>>;
+  operations: string[];
 } {
   return {
     runs: [],
     events: [],
     leads: [],
     errors: [],
+    operations: [],
     async createRun(data) {
       const run = { id: this.runs.length + 1, ...data };
       this.runs.push(run);
+      this.operations.push('createRun');
       return run;
     },
     async updateRun(id, data) {
       const run = this.runs.find((item) => item.id === id);
       Object.assign(run!, data);
+      this.operations.push(data.status ? `updateRun:${data.status}` : 'updateRun');
       return run!;
     },
     async addEvent(runId, type, message, metadata) {
       this.events.push({ runId, type, message, metadata });
+      this.operations.push(`addEvent:${type}`);
     },
     async addLeads(_runId, leads) {
       this.leads.push(...leads);
+      this.operations.push(`addLeads:${leads.length}`);
     },
     async addErrorLog(error) {
       this.errors.push(error);
+      this.operations.push('addErrorLog');
     },
   };
 }
@@ -204,5 +211,56 @@ describe('createRunService', () => {
       phone: '(432) 555-0100',
       email: 'contact@permian.example.com',
     });
+  });
+
+  it('persists email leads in batches before marking the run completed', async () => {
+    const store = createStore();
+    const actorClient: ActorClient = {
+      async startRun() {
+        return { runId: 'apify-run-2', status: 'SUCCEEDED', datasetId: 'dataset-2' };
+      },
+      async getRun() {
+        return { runId: 'apify-run-2', status: 'SUCCEEDED', datasetId: 'dataset-2' };
+      },
+      async getDatasetItems() {
+        return [
+          { title: 'Alpha Energy', website: 'https://alpha.example.com' },
+          { title: 'Beta Aviation', website: 'https://beta.example.com' },
+        ];
+      },
+    };
+    const emailExtractor: EmailExtractor = {
+      async extract(url) {
+        return url.includes('alpha') ? ['sales@alpha.example.com'] : ['ops@beta.example.com'];
+      },
+    };
+
+    const service = createRunService({
+      store,
+      actorClient,
+      emailExtractor,
+      emailLeadBatchSize: 1,
+    } as Parameters<typeof createRunService>[0] & { emailLeadBatchSize: number });
+
+    await service.startRun(
+      {
+        apifyToken: 'token',
+        leadSource: 'google_maps',
+        maxResults: 2,
+        googleMaps: { searchTerms: ['energy'], locationQuery: 'Houston, TX' },
+      },
+      { background: false }
+    );
+
+    expect(store.leads.map((lead) => lead.email)).toEqual([
+      'sales@alpha.example.com',
+      'ops@beta.example.com',
+    ]);
+    expect(store.operations).toContain('addLeads:1');
+    expect(store.operations.filter((operation) => operation === 'addLeads:1')).toHaveLength(2);
+    expect(store.operations.indexOf('addLeads:1')).toBeLessThan(
+      store.operations.indexOf('updateRun:completed')
+    );
+    expect(store.runs[0].leadCount).toBe(2);
   });
 });

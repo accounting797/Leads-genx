@@ -81,7 +81,8 @@
       window.LeadsGenXUi.toast('Run #' + run.id + ' queued');
       $('formStatus').textContent = 'Run #' + run.id + ' queued';
       startProgress(run.id);
-      await loadRuns();
+      await loadRuns(String(run.id));
+      await loadLeads();
     } catch (error) {
       $('formStatus').textContent = error.message;
       window.LeadsGenXUi.toast(error.message);
@@ -90,8 +91,9 @@
     }
   }
 
-  async function loadRuns() {
+  async function loadRuns(preferredRunId) {
     const runs = await api.listRuns();
+    const selectedRunId = preferredRunId || $('leadRunFilter').value;
     $('runsTable').innerHTML = window.LeadsGenXUi.renderRuns(runs);
     $('metricRuns').textContent = runs.length;
     $('metricActive').textContent = runs.filter((run) => ['queued', 'running'].includes(run.status)).length;
@@ -100,6 +102,9 @@
     $('leadRunFilter').innerHTML =
       '<option value="">All runs</option>' +
       runs.map((run) => '<option value="' + run.id + '">Run #' + run.id + ' - ' + run.leadSource + '</option>').join('');
+    if (selectedRunId && runs.some((run) => String(run.id) === String(selectedRunId))) {
+      $('leadRunFilter').value = selectedRunId;
+    }
   }
 
   async function loadLeads() {
@@ -111,6 +116,15 @@
   async function loadLogs() {
     const logs = await api.listErrors();
     $('logsTable').innerHTML = window.LeadsGenXUi.renderLogs(logs);
+  }
+
+  async function refreshLiveProgressTables(runId) {
+    const currentRunId = $('leadRunFilter').value;
+    await loadRuns(currentRunId || String(runId));
+    if (!$('leadRunFilter').value && runId) $('leadRunFilter').value = String(runId);
+    if (!$('leadRunFilter').value || $('leadRunFilter').value === String(runId)) {
+      await loadLeads();
+    }
   }
 
   function startProgress(runId) {
@@ -143,16 +157,17 @@
       if (run.status === 'completed') {
         $('progressFill').style.width = '100%';
         clearInterval(progressTimer);
-        await loadRuns();
+        await loadRuns(String(run.id));
         await loadLeads();
       } else if (run.status === 'failed') {
         $('progressFill').style.width = '100%';
         clearInterval(progressTimer);
-        await loadRuns();
+        await loadRuns(String(run.id));
         await loadLogs();
       } else {
         const width = Math.min(88, 12 + elapsed);
         $('progressFill').style.width = width + '%';
+        await refreshLiveProgressTables(run.id);
       }
     } catch (error) {
       $('progressLatest').textContent = error.message;
@@ -205,16 +220,34 @@
     $('leadRunFilter').addEventListener('change', loadLeads);
     $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
     $('runsTable').addEventListener('click', (event) => {
-      const id = event.target.dataset ? event.target.dataset.viewRun : undefined;
-      if (id) {
-        $('leadRunFilter').value = id;
+      const target = event.target;
+      const viewRunId = target.dataset ? target.dataset.viewRun : undefined;
+      const deleteRunId = target.dataset ? target.dataset.deleteRun : undefined;
+      if (viewRunId) {
+        $('leadRunFilter').value = viewRunId;
         setTab('leads');
       }
+      if (deleteRunId) void deleteRun(deleteRunId);
     });
 
     await loadRuns();
     await loadLeads();
     await loadLogs();
+  }
+
+  async function deleteRun(runId) {
+    if (!window.confirm('Delete run #' + runId + ' and its email leads?')) return;
+    await api.deleteRun(runId);
+    if (String(activeRunId) === String(runId)) {
+      activeRunId = null;
+      if (progressTimer) clearInterval(progressTimer);
+      $('progressLabel').textContent = 'Idle';
+      $('progressSubhead').textContent = 'No active run.';
+    }
+    if ($('leadRunFilter').value === String(runId)) $('leadRunFilter').value = '';
+    window.LeadsGenXUi.toast('Run #' + runId + ' deleted');
+    await loadRuns();
+    await loadLeads();
   }
 
   void init().catch((error) => window.LeadsGenXUi.toast(error.message));

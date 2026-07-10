@@ -19,6 +19,7 @@
       }),
     listRuns: () => requestJson('/runs'),
     getRun: (id) => requestJson('/runs/' + id),
+    deleteRun: (id) => requestJson('/runs/' + id, { method: 'DELETE' }),
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
     listLeads: (runId) => requestJson('/leads' + (runId ? '?runId=' + runId : '')),
     listErrors: () => requestJson('/errors'),

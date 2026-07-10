@@ -40,6 +40,7 @@ export interface RunServiceDeps {
   actorClient: ActorClient;
   googlePlacesClient?: GooglePlacesClient;
   emailExtractor?: EmailExtractor;
+  emailLeadBatchSize?: number;
 }
 
 export interface StartRunOptions {
@@ -62,7 +63,39 @@ export function createRunService({
   actorClient,
   googlePlacesClient,
   emailExtractor,
+  emailLeadBatchSize = 25,
 }: RunServiceDeps) {
+  async function saveEmailLeadsInBatches(
+    runId: number,
+    normalizedLeads: NormalizedLead[]
+  ): Promise<number> {
+    const seenEmails = new Set<string>();
+    const batchSize = Math.max(1, emailLeadBatchSize);
+    let total = 0;
+
+    for (let index = 0; index < normalizedLeads.length; index += batchSize) {
+      const batch = normalizedLeads.slice(index, index + batchSize);
+      const emailLeads = await keepEmailLeadsOnly(batch, emailExtractor);
+      const newEmailLeads = emailLeads.filter((lead) => {
+        if (!lead.email || seenEmails.has(lead.email)) return false;
+        seenEmails.add(lead.email);
+        return true;
+      });
+
+      if (!newEmailLeads.length) continue;
+
+      await store.addLeads(runId, newEmailLeads);
+      total += newEmailLeads.length;
+      await store.updateRun(runId, { leadCount: total });
+      await store.addEvent(runId, 'leads_saved', `Saved ${total} email leads.`, {
+        leadCount: total,
+        batchLeadCount: newEmailLeads.length,
+      });
+    }
+
+    return total;
+  }
+
   async function executeRun(run: RunRecord, input: ValidatedRunInput) {
     try {
       if (isGooglePlacesRun(input)) {
@@ -83,23 +116,18 @@ export function createRunService({
           filters: input.googleMaps ?? {},
           maxResults: input.maxResults,
         });
-        const leads = await keepEmailLeadsOnly(
-          items.map((item) => normalizeLead(item, input.leadSource)),
-          emailExtractor
+        const leadCount = await saveEmailLeadsInBatches(
+          run.id,
+          items.map((item) => normalizeLead(item, input.leadSource))
         );
-
-        await store.addLeads(run.id, leads);
-        await store.addEvent(run.id, 'leads_saved', `Saved ${leads.length} email leads.`, {
-          leadCount: leads.length,
-        });
         await store.updateRun(run.id, {
           status: 'completed',
           actorId: 'google_places',
           datasetId: 'google_places',
-          leadCount: leads.length,
+          leadCount,
         });
         await store.addEvent(run.id, 'run_completed', 'Run completed.', {
-          leadCount: leads.length,
+          leadCount,
         });
         return;
       }
@@ -132,21 +160,16 @@ export function createRunService({
       const items = actorRun.datasetId
         ? await actorClient.getDatasetItems(actorRun.datasetId, actorInput.token)
         : [];
-      const leads = await keepEmailLeadsOnly(
-        items.map((item) => normalizeLead(item, input.leadSource)),
-        emailExtractor
+      const leadCount = await saveEmailLeadsInBatches(
+        run.id,
+        items.map((item) => normalizeLead(item, input.leadSource))
       );
-
-      await store.addLeads(run.id, leads);
-      await store.addEvent(run.id, 'leads_saved', `Saved ${leads.length} email leads.`, {
-        leadCount: leads.length,
-      });
       await store.updateRun(run.id, {
         status: 'completed',
-        leadCount: leads.length,
+        leadCount,
       });
       await store.addEvent(run.id, 'run_completed', 'Run completed.', {
-        leadCount: leads.length,
+        leadCount,
       });
     } catch (error) {
       const message = safeErrorMessage(error);

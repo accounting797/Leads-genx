@@ -24,6 +24,31 @@ describe('static dashboard downloads', () => {
   });
 });
 
+describe('static dashboard run deletion', () => {
+  it('renders delete buttons for runs', () => {
+    const uiJs = readPublicFile('ui.js');
+
+    expect(uiJs).toContain('data-delete-run');
+  });
+
+  it('calls the delete run API from the run table', () => {
+    const apiJs = readPublicFile('api.js');
+    const appJs = readPublicFile('app.js');
+
+    expect(apiJs).toContain('deleteRun');
+    expect(appJs).toContain('api.deleteRun');
+  });
+});
+
+describe('static dashboard live progress', () => {
+  it('refreshes runs and visible leads while active runs are polling', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('refreshLiveProgressTables');
+    expect(appJs).toContain('await refreshLiveProgressTables(run.id)');
+  });
+});
+
 describe('static dashboard Google Maps providers', () => {
   it('exposes Apify bulk and Google Places provider controls', () => {
     const html = readPublicFile('index.html');

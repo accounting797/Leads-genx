@@ -90,6 +90,26 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
     })
   );
 
+  router.delete(
+    '/runs/:id',
+    asyncHandler(async (req, res) => {
+      if (!prisma) {
+        res.status(503).json({ error: 'Database unavailable' });
+        return;
+      }
+
+      const id = Number(req.params.id);
+      const run = await prisma.run.findUnique({ where: { id } });
+      if (!run) {
+        res.status(404).json({ error: 'Run not found' });
+        return;
+      }
+
+      await prisma.run.delete({ where: { id } });
+      res.status(204).send();
+    })
+  );
+
   router.get(
     '/runs/:id/events',
     asyncHandler(async (req, res) => {

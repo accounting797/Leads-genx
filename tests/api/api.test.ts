@@ -2,11 +2,12 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app';
 
-function createPrismaStub(leads: unknown[]) {
+function createPrismaStub(leads: unknown[], overrides: Record<string, unknown> = {}) {
   return {
     lead: {
       findMany: async () => leads,
     },
+    ...overrides,
   };
 }
 
@@ -164,5 +165,45 @@ describe('API', () => {
     const res = await request(app).get('/api/leads/download?format=csv').expect(400);
 
     expect(res.body).toEqual({ error: 'Unsupported download format.' });
+  });
+
+  it('deletes a run and its dependent records', async () => {
+    const deleted: number[] = [];
+    const app = createApp({
+      prisma: createPrismaStub([], {
+        run: {
+          async findUnique({ where }: { where: { id: number } }) {
+            return where.id === 12 ? { id: 12 } : null;
+          },
+          async delete({ where }: { where: { id: number } }) {
+            deleted.push(where.id);
+            return { id: where.id };
+          },
+        },
+      }) as never,
+    });
+
+    await request(app).delete('/api/runs/12').expect(204);
+
+    expect(deleted).toEqual([12]);
+  });
+
+  it('returns 404 when deleting a missing run', async () => {
+    const app = createApp({
+      prisma: createPrismaStub([], {
+        run: {
+          async findUnique() {
+            return null;
+          },
+          async delete() {
+            throw new Error('delete should not be called');
+          },
+        },
+      }) as never,
+    });
+
+    const res = await request(app).delete('/api/runs/404').expect(404);
+
+    expect(res.body).toEqual({ error: 'Run not found' });
   });
 });
