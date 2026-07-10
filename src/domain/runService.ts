@@ -41,6 +41,7 @@ export interface RunServiceDeps {
   googlePlacesClient?: GooglePlacesClient;
   emailExtractor?: EmailExtractor;
   emailLeadBatchSize?: number;
+  emailExtractionConcurrency?: number;
 }
 
 export interface StartRunOptions {
@@ -75,7 +76,8 @@ export function createRunService({
   actorClient,
   googlePlacesClient,
   emailExtractor,
-  emailLeadBatchSize = 25,
+  emailLeadBatchSize = 100,
+  emailExtractionConcurrency = 50,
 }: RunServiceDeps) {
   async function saveEmailLeadsInBatches(
     runId: number,
@@ -88,7 +90,14 @@ export function createRunService({
 
     for (let index = 0; index < normalizedLeads.length; index += batchSize) {
       const batch = normalizedLeads.slice(index, index + batchSize);
-      const emailLeads = await keepEmailLeadsOnly(batch, emailExtractor);
+      if (batch.length > 25) {
+        await store.addEvent(runId, 'email_scan_started', `Scanning ${batch.length} websites for emails.`, {
+          batchSize: batch.length,
+          concurrency: emailExtractionConcurrency,
+          scannedBeforeBatch: index,
+        });
+      }
+      const emailLeads = await keepEmailLeadsOnly(batch, emailExtractor, emailExtractionConcurrency);
       const newEmailLeads = emailLeads.filter((lead) => {
         if (!lead.email || seenEmails.has(lead.email)) return false;
         seenEmails.add(lead.email);

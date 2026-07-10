@@ -85,6 +85,14 @@ describe('static dashboard Google Maps providers', () => {
     expect(appJs).toContain("provider: $('gmProvider').value");
     expect(appJs).toContain("googleApiKey: $('googleApiKey').value.trim()");
   });
+
+  it('raises the target result count when Hybrid Max Output is selected', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('applyProviderDefaults');
+    expect(appJs).toContain("if ($('gmProvider').value === 'hybrid'");
+    expect(appJs).toContain("$('maxResults').value = '5000'");
+  });
 });
 
 describe('static dashboard credential entry', () => {

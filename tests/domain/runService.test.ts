@@ -266,6 +266,63 @@ describe('createRunService', () => {
     expect(store.runs[0].leadCount).toBe(2);
   });
 
+  it('scans large website batches with higher bounded concurrency', async () => {
+    const store = createStore();
+    const sourceLeads = Array.from({ length: 80 }, (_, index) => ({
+      title: `High Output ${index}`,
+      website: `https://high-output-${index}.example.com`,
+    }));
+    const actorClient: ActorClient = {
+      async startRun() {
+        return { runId: 'apify-run-high-output', status: 'SUCCEEDED', datasetId: 'dataset-high-output' };
+      },
+      async getRun() {
+        return { runId: 'apify-run-high-output', status: 'SUCCEEDED', datasetId: 'dataset-high-output' };
+      },
+      async getDatasetItems() {
+        return sourceLeads;
+      },
+    };
+    let active = 0;
+    let maxActive = 0;
+    const emailExtractor: EmailExtractor = {
+      async extract(url) {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active -= 1;
+        const id = url.match(/high-output-(\d+)/)?.[1] ?? '0';
+        return [`lead-${id}@example.com`];
+      },
+    };
+
+    const service = createRunService({
+      store,
+      actorClient,
+      emailExtractor,
+      emailLeadBatchSize: 100,
+      emailExtractionConcurrency: 50,
+    });
+    await service.startRun(
+      {
+        apifyToken: 'token',
+        leadSource: 'google_maps',
+        maxResults: 5000,
+        googleMaps: { searchTerms: ['industrial services'], locations: ['Houston, TX'] },
+      },
+      { background: false }
+    );
+
+    expect(maxActive).toBe(50);
+    expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 80 });
+    expect(store.events).toContainEqual(
+      expect.objectContaining({
+        type: 'email_scan_started',
+        metadata: expect.objectContaining({ batchSize: 80, concurrency: 50 }),
+      })
+    );
+  });
+
   it('records source diagnostics when a Google Places run finds businesses but no emails', async () => {
     const store = createStore();
     const actorClient: ActorClient = {

@@ -4,6 +4,7 @@ import {
   SalesNavigatorFilters,
   ValidatedRunInput,
 } from './types';
+import { buildGoogleMapsSearchQueries } from './googleMapsQueryBuilder';
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID = 'compass/google-maps-extractor';
 const DEFAULT_SALES_NAVIGATOR_ACTOR_ID = 'harvestapi/linkedin-profile-search';
@@ -15,39 +16,12 @@ function addRepeated(parts: string[], key: string, values?: string[]) {
   }
 }
 
-function cleanValues(values?: string[]): string[] {
-  return (values ?? []).map((value) => value.trim()).filter(Boolean);
-}
-
-function uniqueValues(values: string[]): string[] {
-  return Array.from(new Set(values));
-}
-
 function buildGoogleMapsSearchStrings(filters: GoogleMapsFilters): string[] {
-  const searchTerms = cleanValues(filters.searchTerms);
-  const categories = cleanValues(filters.categoryFilters);
-  const companyTypes = cleanValues(filters.companyTypes);
-  const locations = cleanValues(filters.locations);
-  const baseSearches = [...searchTerms, ...categories, ...companyTypes];
-
-  if (!locations.length) return uniqueValues([...searchTerms, ...companyTypes]);
-
-  return uniqueValues(
-    baseSearches.flatMap((search) => locations.map((location) => `${search} ${location}`))
-  );
+  return buildGoogleMapsSearchQueries({ ...filters, locationQuery: undefined });
 }
 
 function buildGoogleMapsShardSearchStrings(filters: GoogleMapsFilters): string[] {
-  const searchTerms = cleanValues(filters.searchTerms);
-  const categories = cleanValues(filters.categoryFilters);
-  const companyTypes = cleanValues(filters.companyTypes);
-  const locations = cleanValues(filters.locations);
-  const baseSearches = [...searchTerms, ...categories, ...companyTypes];
-
-  if (!locations.length) return buildGoogleMapsSearchStrings(filters);
-  return uniqueValues(
-    locations.flatMap((location) => baseSearches.map((search) => `${search} ${location}`))
-  );
+  return buildGoogleMapsSearchQueries(filters);
 }
 
 function chunkSearchStrings(searchStrings: string[], chunkCount: number): string[][] {

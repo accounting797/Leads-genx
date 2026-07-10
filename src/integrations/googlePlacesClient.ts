@@ -1,4 +1,5 @@
 import { GoogleMapsFilters } from '../domain/types';
+import { buildGoogleMapsSearchQueries } from '../domain/googleMapsQueryBuilder';
 
 export interface GooglePlacesSearchInput {
   apiKey: string;
@@ -11,30 +12,9 @@ export interface GooglePlacesClient {
   search(input: GooglePlacesSearchInput): Promise<unknown[]>;
 }
 
-function cleanValues(values?: string[]): string[] {
-  return (values ?? []).map((value) => value.trim()).filter(Boolean);
-}
-
-function buildQueries(filters: GoogleMapsFilters): string[] {
-  const terms = cleanValues(filters.searchTerms);
-  const categories = cleanValues(filters.categoryFilters);
-  const companyTypes = cleanValues(filters.companyTypes);
-  const locations = cleanValues(filters.locations);
-  const base = [...terms, ...categories, ...companyTypes];
-
-  if (filters.locationQuery?.trim()) {
-    return base.length
-      ? base.map((query) => `${query} ${filters.locationQuery}`)
-      : [filters.locationQuery.trim()];
-  }
-
-  if (!locations.length) return base;
-  return base.flatMap((query) => locations.map((location) => `${query} ${location}`));
-}
-
 export class GooglePlacesApiClient implements GooglePlacesClient {
   async search({ apiKey, apiKeys, filters, maxResults }: GooglePlacesSearchInput): Promise<unknown[]> {
-    const queries = buildQueries(filters);
+    const queries = buildGoogleMapsSearchQueries(filters);
     const places: unknown[] = [];
     const keyPool = apiKeys?.length ? apiKeys : [apiKey];
 

@@ -91,4 +91,39 @@ describe('GooglePlacesApiClient', () => {
 
     expect(keys).toEqual(['google-one', 'google-two', 'google-one', 'google-two']);
   });
+
+  it('expands Google Places queries across terms, categories, company types, and locations', async () => {
+    const queries: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        queries.push(body.textQuery);
+        return Response.json({ places: [] });
+      })
+    );
+
+    const client = new GooglePlacesApiClient();
+    await client.search({
+      apiKey: 'google-one',
+      maxResults: 1000,
+      filters: {
+        searchTerms: ['oilfield services'],
+        categoryFilters: ['Oil & Gas'],
+        companyTypes: ['Wholesaler'],
+        locations: ['Houston, TX', 'Tulsa, OK'],
+      },
+    });
+
+    expect(queries).toEqual(
+      expect.arrayContaining([
+        'oilfield services Houston, TX',
+        'Oil & Gas Wholesaler Houston, TX',
+        'oilfield services Oil & Gas Houston, TX',
+        'oilfield services Wholesaler Tulsa, OK',
+      ])
+    );
+    expect(queries).toHaveLength(12);
+    expect(new Set(queries).size).toBe(queries.length);
+  });
 });

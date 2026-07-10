@@ -70,7 +70,13 @@ describe('buildGoogleMapsInput', () => {
     });
 
     expect(input).toMatchObject({
-      searchStringsArray: ['dentist', 'orthodontist'],
+      searchStringsArray: [
+        'dentist',
+        'orthodontist',
+        'Dental clinic',
+        'dentist Dental clinic',
+        'orthodontist Dental clinic',
+      ],
       locationQuery: 'Austin, TX',
       maxCrawledPlacesPerSearch: 500,
       placeMinimumStars: '4',
@@ -90,8 +96,8 @@ describe('buildGoogleMapsInput', () => {
       skipClosedPlaces: true,
     });
 
-    expect(input).toMatchObject({
-      searchStringsArray: [
+    expect(input.searchStringsArray).toEqual(
+      expect.arrayContaining([
         'dentist Austin, TX',
         'dentist Phoenix, AZ',
         'roofer Austin, TX',
@@ -100,7 +106,11 @@ describe('buildGoogleMapsInput', () => {
         'Dental clinic Phoenix, AZ',
         'Public Company Austin, TX',
         'Public Company Phoenix, AZ',
-      ],
+        'dentist Dental clinic Austin, TX',
+        'Dental clinic Public Company Phoenix, AZ',
+      ])
+    );
+    expect(input).toMatchObject({
       maxCrawledPlacesPerSearch: 5000,
     });
     expect(input).not.toHaveProperty('categoryFilterWords');
@@ -117,16 +127,41 @@ describe('buildGoogleMapsInput', () => {
       skipClosedPlaces: true,
     });
 
-    expect(input).toMatchObject({
-      searchStringsArray: [
+    expect(input.searchStringsArray).toEqual(
+      expect.arrayContaining([
         'aviation maintenance Detroit, MI',
         'Aerospace & Defense Detroit, MI',
         'Manufacturing Detroit, MI',
         'Wholesaler Detroit, MI',
-      ],
+        'aviation maintenance Aerospace & Defense Detroit, MI',
+        'Manufacturing Wholesaler Detroit, MI',
+      ])
+    );
+    expect(input).toMatchObject({
       maxCrawledPlacesPerSearch: 50000,
     });
     expect(input).not.toHaveProperty('categoryFilterWords');
+  });
+
+  it('multiplies Google Maps terms, categories, company types, and locations for max-output searches', () => {
+    const input = buildGoogleMapsInput({
+      searchTerms: ['oilfield services'],
+      categoryFilters: ['Oil & Gas'],
+      companyTypes: ['Wholesaler'],
+      locations: ['Houston, TX', 'Tulsa, OK'],
+      maxPlaces: 5000,
+      skipClosedPlaces: true,
+    });
+
+    expect(input.searchStringsArray).toEqual(
+      expect.arrayContaining([
+        'oilfield services Houston, TX',
+        'Oil & Gas Wholesaler Houston, TX',
+        'oilfield services Oil & Gas Houston, TX',
+        'oilfield services Wholesaler Tulsa, OK',
+      ])
+    );
+    expect(input.searchStringsArray).toHaveLength(12);
   });
 });
 
