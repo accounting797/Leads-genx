@@ -3,6 +3,7 @@ import { createRunService, RunStore } from '../../src/domain/runService';
 import { ActorClient } from '../../src/integrations/actorClient';
 import { NormalizedLead } from '../../src/domain/types';
 import { GooglePlacesClient } from '../../src/integrations/googlePlacesClient';
+import { EmailExtractor } from '../../src/domain/emailExtractor';
 
 function createStore(): RunStore & {
   runs: Array<Record<string, any>>;
@@ -38,7 +39,7 @@ function createStore(): RunStore & {
 }
 
 describe('createRunService', () => {
-  it('records a completed Google Maps run with events and normalized leads', async () => {
+  it('records a completed Google Maps run with email-only enriched leads', async () => {
     const store = createStore();
     let datasetToken: string | undefined;
     const actorClient: ActorClient = {
@@ -51,13 +52,25 @@ describe('createRunService', () => {
       async getDatasetItems(_datasetId, token) {
         datasetToken = token;
         return [
-          { title: 'Austin Dental Co', categoryName: 'Dental clinic', phone: '(512) 555-0100' },
+          {
+            title: 'Austin Dental Co',
+            categoryName: 'Dental clinic',
+            phone: '(512) 555-0100',
+            website: 'https://dental.example.com',
+          },
           { title: 'South Austin Smiles', categoryName: 'Dentist', phone: '(512) 555-0101' },
         ];
       },
     };
+    const emailExtractor: EmailExtractor = {
+      async extract(url) {
+        return url === 'https://dental.example.com'
+          ? ['sales@dental.example.com', 'ops@dental.example.com']
+          : [];
+      },
+    };
 
-    const service = createRunService({ store, actorClient });
+    const service = createRunService({ store, actorClient, emailExtractor });
     const run = await service.startRun(
       {
         apifyToken: 'token',
@@ -83,10 +96,10 @@ describe('createRunService', () => {
       'leads_saved',
       'run_completed',
     ]);
-    expect(store.leads[0]).toMatchObject({
-      leadType: 'business',
-      companyName: 'Austin Dental Co',
-    });
+    expect(store.leads.map((lead) => lead.email)).toEqual([
+      'sales@dental.example.com',
+      'ops@dental.example.com',
+    ]);
     expect(datasetToken).toBe('token');
   });
 
@@ -155,8 +168,13 @@ describe('createRunService', () => {
         ];
       },
     };
+    const emailExtractor: EmailExtractor = {
+      async extract() {
+        return ['contact@permian.example.com'];
+      },
+    };
 
-    const service = createRunService({ store, actorClient, googlePlacesClient });
+    const service = createRunService({ store, actorClient, googlePlacesClient, emailExtractor });
     await service.startRun(
       {
         googleApiKey: 'google-secret-key',
@@ -184,6 +202,7 @@ describe('createRunService', () => {
       companyName: 'Permian Aviation Services',
       categoryName: 'Aviation',
       phone: '(432) 555-0100',
+      email: 'contact@permian.example.com',
     });
   });
 });

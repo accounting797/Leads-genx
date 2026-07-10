@@ -125,13 +125,16 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
             orderBy: { createdAt: 'desc' },
           })
         : [];
-      const format = typeof req.query.format === 'string' ? req.query.format : 'full';
+      const format = typeof req.query.format === 'string' ? req.query.format : 'emails';
       if (format !== 'full' && format !== 'emails') {
         res.status(400).json({ error: 'Unsupported download format.' });
         return;
       }
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.setHeader('Content-Disposition', 'attachment; filename="leads-genx-leads.txt"');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${format === 'emails' ? 'leads-genx-emails.txt' : 'leads-genx-leads.txt'}"`
+      );
       if (format === 'emails') {
         res.send(formatEmailsTxt(leads));
       } else {

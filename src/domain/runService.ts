@@ -1,5 +1,6 @@
 import { ActorClient } from '../integrations/actorClient';
 import { GooglePlacesClient } from '../integrations/googlePlacesClient';
+import { EmailExtractor, keepEmailLeadsOnly } from './emailExtractor';
 import { buildActorInput } from './sourceInputBuilder';
 import { safeErrorMessage } from './errorLogger';
 import { normalizeLead } from './leadNormalizer';
@@ -38,6 +39,7 @@ export interface RunServiceDeps {
   store: RunStore;
   actorClient: ActorClient;
   googlePlacesClient?: GooglePlacesClient;
+  emailExtractor?: EmailExtractor;
 }
 
 export interface StartRunOptions {
@@ -55,7 +57,12 @@ function isGooglePlacesRun(input: ValidatedRunInput): boolean {
   return input.leadSource === 'google_maps' && input.googleMaps?.provider === 'google_places';
 }
 
-export function createRunService({ store, actorClient, googlePlacesClient }: RunServiceDeps) {
+export function createRunService({
+  store,
+  actorClient,
+  googlePlacesClient,
+  emailExtractor,
+}: RunServiceDeps) {
   async function executeRun(run: RunRecord, input: ValidatedRunInput) {
     try {
       if (isGooglePlacesRun(input)) {
@@ -76,10 +83,13 @@ export function createRunService({ store, actorClient, googlePlacesClient }: Run
           filters: input.googleMaps ?? {},
           maxResults: input.maxResults,
         });
-        const leads = items.map((item) => normalizeLead(item, input.leadSource));
+        const leads = await keepEmailLeadsOnly(
+          items.map((item) => normalizeLead(item, input.leadSource)),
+          emailExtractor
+        );
 
         await store.addLeads(run.id, leads);
-        await store.addEvent(run.id, 'leads_saved', `Saved ${leads.length} leads.`, {
+        await store.addEvent(run.id, 'leads_saved', `Saved ${leads.length} email leads.`, {
           leadCount: leads.length,
         });
         await store.updateRun(run.id, {
@@ -122,10 +132,13 @@ export function createRunService({ store, actorClient, googlePlacesClient }: Run
       const items = actorRun.datasetId
         ? await actorClient.getDatasetItems(actorRun.datasetId, actorInput.token)
         : [];
-      const leads = items.map((item) => normalizeLead(item, input.leadSource));
+      const leads = await keepEmailLeadsOnly(
+        items.map((item) => normalizeLead(item, input.leadSource)),
+        emailExtractor
+      );
 
       await store.addLeads(run.id, leads);
-      await store.addEvent(run.id, 'leads_saved', `Saved ${leads.length} leads.`, {
+      await store.addEvent(run.id, 'leads_saved', `Saved ${leads.length} email leads.`, {
         leadCount: leads.length,
       });
       await store.updateRun(run.id, {

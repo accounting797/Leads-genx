@@ -3,6 +3,8 @@ import { RunRecord, RunStore } from './runService';
 import { NormalizedLead } from './types';
 import { redactSecrets } from './redact';
 
+const LEAD_INSERT_BATCH_SIZE = 1000;
+
 function toRunRecord(run: {
   id: number;
   status: string;
@@ -57,30 +59,33 @@ export class PrismaRunStore implements RunStore {
 
   async addLeads(runId: number, leads: NormalizedLead[]): Promise<void> {
     if (!leads.length) return;
-    await this.prisma.lead.createMany({
-      data: leads.map((lead) => ({
-        runId,
-        leadSource: lead.leadSource,
-        leadType: lead.leadType,
-        fullName: lead.fullName,
-        firstName: lead.firstName,
-        lastName: lead.lastName,
-        jobTitle: lead.jobTitle,
-        companyName: lead.companyName,
-        email: lead.email,
-        phone: lead.phone,
-        location: lead.location,
-        profileUrl: lead.profileUrl,
-        connectionDegree: lead.connectionDegree,
-        categoryName: lead.categoryName,
-        address: lead.address,
-        website: lead.website,
-        rating: lead.rating,
-        reviewsCount: lead.reviewsCount,
-        placeUrl: lead.placeUrl,
-        rawJson: lead.rawJson,
-      })),
-    });
+    for (let index = 0; index < leads.length; index += LEAD_INSERT_BATCH_SIZE) {
+      const batch = leads.slice(index, index + LEAD_INSERT_BATCH_SIZE);
+      await this.prisma.lead.createMany({
+        data: batch.map((lead) => ({
+          runId,
+          leadSource: lead.leadSource,
+          leadType: lead.leadType,
+          fullName: lead.fullName,
+          firstName: lead.firstName,
+          lastName: lead.lastName,
+          jobTitle: lead.jobTitle,
+          companyName: lead.companyName,
+          email: lead.email,
+          phone: lead.phone,
+          location: lead.location,
+          profileUrl: lead.profileUrl,
+          connectionDegree: lead.connectionDegree,
+          categoryName: lead.categoryName,
+          address: lead.address,
+          website: lead.website,
+          rating: lead.rating,
+          reviewsCount: lead.reviewsCount,
+          placeUrl: lead.placeUrl,
+          rawJson: lead.rawJson,
+        })),
+      });
+    }
   }
 
   async addErrorLog(error: {

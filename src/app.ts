@@ -3,6 +3,7 @@ import path from 'path';
 import { prisma } from './db/client';
 import { PrismaRunStore } from './domain/prismaRunStore';
 import { createRunService } from './domain/runService';
+import { WebsiteEmailExtractor } from './domain/emailExtractor';
 import { ApifyActorClient } from './integrations/apifyActorClient';
 import { GooglePlacesApiClient } from './integrations/googlePlacesClient';
 import { ApiDeps, createApiRouter } from './routes/api';
@@ -16,6 +17,7 @@ export function createApp(deps: ApiDeps = {}) {
       store: new PrismaRunStore(runtimePrisma),
       actorClient: new ApifyActorClient(),
       googlePlacesClient: new GooglePlacesApiClient(),
+      emailExtractor: new WebsiteEmailExtractor(),
     });
 
   app.use(express.json({ limit: '1mb' }));

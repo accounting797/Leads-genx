@@ -9,18 +9,18 @@ function readPublicFile(fileName: string): string {
 }
 
 describe('static dashboard downloads', () => {
-  it('exposes separate email-only and full TXT download controls', () => {
+  it('exposes an email-only TXT download control', () => {
     const html = readPublicFile('index.html');
 
     expect(html).toContain('id="downloadEmails"');
-    expect(html).toContain('id="downloadFullLeads"');
+    expect(html).not.toContain('id="downloadFullLeads"');
   });
 
-  it('requests explicit download formats from the UI', () => {
+  it('requests the email TXT download format from the UI', () => {
     const appJs = readPublicFile('app.js');
 
     expect(appJs).toContain("api.downloadLeads($('leadRunFilter').value, 'emails')");
-    expect(appJs).toContain("api.downloadLeads($('leadRunFilter').value, 'full')");
+    expect(appJs).not.toContain("api.downloadLeads($('leadRunFilter').value, 'full')");
   });
 });
 

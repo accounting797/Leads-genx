@@ -120,7 +120,7 @@ describe('API', () => {
     });
   });
 
-  it('downloads full TXT leads when format is omitted', async () => {
+  it('downloads email-only TXT leads when format is omitted', async () => {
     const app = createApp({
       prisma: createPrismaStub([
         {
@@ -137,8 +137,8 @@ describe('API', () => {
 
     const res = await request(app).get('/api/leads/download').expect(200);
 
-    expect(res.text).toContain('Type | Name | Title/Category');
-    expect(res.text).toContain('jane@example.com');
+    expect(res.headers['content-disposition']).toContain('leads-genx-emails.txt');
+    expect(res.text).toBe('jane@example.com');
   });
 
   it('downloads email-only leads when format is emails', async () => {

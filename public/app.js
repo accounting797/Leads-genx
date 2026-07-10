@@ -204,7 +204,6 @@
     $('refreshLogs').addEventListener('click', loadLogs);
     $('leadRunFilter').addEventListener('change', loadLeads);
     $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
-    $('downloadFullLeads').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'full'));
     $('runsTable').addEventListener('click', (event) => {
       const id = event.target.dataset ? event.target.dataset.viewRun : undefined;
       if (id) {

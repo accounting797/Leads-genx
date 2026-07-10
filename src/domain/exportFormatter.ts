@@ -4,10 +4,18 @@ function text(value: unknown): string {
 }
 
 export function formatEmailsTxt(leads: Record<string, unknown>[]): string {
-  return leads
-    .map((lead) => text(lead.email))
-    .filter(Boolean)
-    .join('\n');
+  const emails: string[] = [];
+  const seen = new Set<string>();
+
+  for (const lead of leads) {
+    const email = text(lead.email).trim().toLowerCase();
+    if (email && !seen.has(email)) {
+      seen.add(email);
+      emails.push(email);
+    }
+  }
+
+  return emails.join('\n');
 }
 
 type ExportableLead = Record<string, unknown>;

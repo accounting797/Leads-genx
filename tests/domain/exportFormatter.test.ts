@@ -37,9 +37,10 @@ describe('formatLeadsTxt', () => {
 });
 
 describe('formatEmailsTxt', () => {
-  it('exports only non-empty email addresses', () => {
+  it('exports one normalized unique email address per line', () => {
     const txt = formatEmailsTxt([
       { email: 'jane@example.com', fullName: 'Jane Doe' },
+      { email: 'JANE@example.com', fullName: 'Duplicate Jane' },
       { email: '', fullName: 'No Email' },
       { companyName: 'No Email Co' },
       { email: 'ops@example.com', companyName: 'Ops Co' },
