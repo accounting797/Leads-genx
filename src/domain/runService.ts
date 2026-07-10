@@ -1,4 +1,5 @@
 import { ActorClient } from '../integrations/actorClient';
+import { GooglePlacesClient } from '../integrations/googlePlacesClient';
 import { buildActorInput } from './sourceInputBuilder';
 import { safeErrorMessage } from './errorLogger';
 import { normalizeLead } from './leadNormalizer';
@@ -36,6 +37,7 @@ export interface RunStore {
 export interface RunServiceDeps {
   store: RunStore;
   actorClient: ActorClient;
+  googlePlacesClient?: GooglePlacesClient;
 }
 
 export interface StartRunOptions {
@@ -49,9 +51,49 @@ function serializeFilters(input: ValidatedRunInput): string {
   });
 }
 
-export function createRunService({ store, actorClient }: RunServiceDeps) {
+function isGooglePlacesRun(input: ValidatedRunInput): boolean {
+  return input.leadSource === 'google_maps' && input.googleMaps?.provider === 'google_places';
+}
+
+export function createRunService({ store, actorClient, googlePlacesClient }: RunServiceDeps) {
   async function executeRun(run: RunRecord, input: ValidatedRunInput) {
     try {
+      if (isGooglePlacesRun(input)) {
+        if (!googlePlacesClient) throw new Error('Google Places client is not configured');
+        if (!input.googleApiKey) throw new Error('Google API key is required for Google Places runs');
+
+        await store.updateRun(run.id, {
+          status: 'running',
+          actorId: 'google_places',
+        });
+        await store.addEvent(run.id, 'run_started', 'Google Places search started.', {
+          leadSource: input.leadSource,
+          provider: 'google_places',
+        });
+
+        const items = await googlePlacesClient.search({
+          apiKey: input.googleApiKey,
+          filters: input.googleMaps ?? {},
+          maxResults: input.maxResults,
+        });
+        const leads = items.map((item) => normalizeLead(item, input.leadSource));
+
+        await store.addLeads(run.id, leads);
+        await store.addEvent(run.id, 'leads_saved', `Saved ${leads.length} leads.`, {
+          leadCount: leads.length,
+        });
+        await store.updateRun(run.id, {
+          status: 'completed',
+          actorId: 'google_places',
+          datasetId: 'google_places',
+          leadCount: leads.length,
+        });
+        await store.addEvent(run.id, 'run_completed', 'Run completed.', {
+          leadCount: leads.length,
+        });
+        return;
+      }
+
       const actorInput = buildActorInput(input);
       await store.updateRun(run.id, {
         status: 'running',
@@ -111,7 +153,9 @@ export function createRunService({ store, actorClient }: RunServiceDeps) {
   }
 
   async function startRun(input: ValidatedRunInput, options: StartRunOptions = {}) {
-    const actorInput = buildActorInput(input);
+    const actorInput = isGooglePlacesRun(input)
+      ? { actorId: 'google_places' }
+      : buildActorInput(input);
     const run = await store.createRun({
       status: 'queued',
       leadSource: input.leadSource,

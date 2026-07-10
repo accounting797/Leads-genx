@@ -39,7 +39,7 @@
           <div class="form-grid two">
             <label>
               <span>Apify API Token</span>
-              <input id="apifyToken" type="password" autocomplete="off" placeholder="apify_api_..." required>
+              <input id="apifyToken" type="password" autocomplete="off" placeholder="apify_api_...">
             </label>
             <label>
               <span>Max Results</span>
@@ -48,6 +48,19 @@
           </div>
 
           <section id="googleMapsFields" class="source-fields active">
+            <div class="form-grid two compact">
+              <label>
+                <span>Google Maps Provider</span>
+                <select id="gmProvider">
+                  <option value="apify">Apify Bulk</option>
+                  <option value="google_places">Google Places API</option>
+                </select>
+              </label>
+              <label>
+                <span>Google API Key</span>
+                <input id="googleApiKey" type="password" autocomplete="off" placeholder="Required for Google Places API">
+              </label>
+            </div>
             <div class="filter-grid">
               <label>
                 <span>Search Terms</span>
@@ -56,6 +69,10 @@
               <label class="wide">
                 <span>Business Categories</span>
                 <div id="gmCategories" class="chip-input" data-placeholder="Select categories"></div>
+              </label>
+              <label class="wide">
+                <span>Company Types</span>
+                <div id="gmCompanyTypes" class="chip-input" data-placeholder="Select company types"></div>
               </label>
               <label class="wide">
                 <span>Locations</span>
@@ -185,7 +202,8 @@
             <h2>Leads</h2>
             <div class="inline-actions">
               <select id="leadRunFilter"><option value="">All runs</option></select>
-              <button id="downloadLeads" type="button" class="ghost-btn">Download TXT</button>
+              <button id="downloadEmails" type="button" class="ghost-btn">Download Emails</button>
+              <button id="downloadFullLeads" type="button" class="ghost-btn">Download Full TXT</button>
             </div>
           </div>
           <div id="leadsTable"></div>

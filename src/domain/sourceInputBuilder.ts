@@ -26,10 +26,11 @@ function uniqueValues(values: string[]): string[] {
 function buildGoogleMapsSearchStrings(filters: GoogleMapsFilters): string[] {
   const searchTerms = cleanValues(filters.searchTerms);
   const categories = cleanValues(filters.categoryFilters);
+  const companyTypes = cleanValues(filters.companyTypes);
   const locations = cleanValues(filters.locations);
-  const baseSearches = [...searchTerms, ...categories];
+  const baseSearches = [...searchTerms, ...categories, ...companyTypes];
 
-  if (!locations.length) return searchTerms;
+  if (!locations.length) return uniqueValues([...searchTerms, ...companyTypes]);
 
   return uniqueValues(
     baseSearches.flatMap((search) => locations.map((location) => `${search} ${location}`))
@@ -64,9 +65,6 @@ export function buildGoogleMapsInput(filters: GoogleMapsFilters): Record<string,
   const searchStrings = buildGoogleMapsSearchStrings(filters);
   if (searchStrings.length) {
     input.searchStringsArray = searchStrings;
-  }
-  if (filters.categoryFilters?.length) {
-    input.categoryFilterWords = cleanValues(filters.categoryFilters);
   }
   if (filters.locationQuery?.trim()) input.locationQuery = filters.locationQuery.trim();
   if (filters.maxPlaces) input.maxCrawledPlacesPerSearch = filters.maxPlaces;

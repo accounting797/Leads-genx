@@ -122,4 +122,86 @@ describe('validateCreateRunInput', () => {
       },
     });
   });
+
+  it('accepts Google Maps company types as run criteria', () => {
+    const input = validateCreateRunInput(
+      {
+        apifyToken: 'secret-token',
+        leadSource: 'google_maps',
+        googleMaps: {
+          companyTypes: ['Public Company'],
+          locations: ['Austin, TX'],
+        },
+      },
+      false
+    );
+
+    expect(input).toMatchObject({
+      leadSource: 'google_maps',
+      googleMaps: {
+        companyTypes: ['Public Company'],
+        locations: ['Austin, TX'],
+      },
+    });
+  });
+
+  it('accepts Google Places runs with a Google API key and no Apify token', () => {
+    const input = validateCreateRunInput(
+      {
+        googleApiKey: 'google-secret-key',
+        leadSource: 'google_maps',
+        maxResults: 40,
+        googleMaps: {
+          provider: 'google_places',
+          searchTerms: ['oilfield services'],
+          locations: ['Houston, TX'],
+        },
+      },
+      false
+    );
+
+    expect(input).toMatchObject({
+      googleApiKey: 'google-secret-key',
+      leadSource: 'google_maps',
+      maxResults: 40,
+      googleMaps: {
+        provider: 'google_places',
+        searchTerms: ['oilfield services'],
+        locations: ['Houston, TX'],
+      },
+    });
+    expect(input.apifyToken).toBeUndefined();
+  });
+
+  it('rejects Google Places runs without a Google API key', () => {
+    expect(() =>
+      validateCreateRunInput(
+        {
+          leadSource: 'google_maps',
+          googleMaps: {
+            provider: 'google_places',
+            searchTerms: ['aviation maintenance'],
+            locations: ['Dallas, TX'],
+          },
+        },
+        false
+      )
+    ).toThrow(/Google API key/i);
+  });
+
+  it('rejects Google Places runs with only a Maps URL', () => {
+    expect(() =>
+      validateCreateRunInput(
+        {
+          googleApiKey: 'google-secret-key',
+          leadSource: 'google_maps',
+          googleMaps: {
+            provider: 'google_places',
+            mapsUrl: 'https://www.google.com/maps/search/oilfield+services',
+          },
+        },
+        false
+      )
+    ).toThrow(/search term/i);
+  });
 });

@@ -22,8 +22,12 @@
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
     listLeads: (runId) => requestJson('/leads' + (runId ? '?runId=' + runId : '')),
     listErrors: () => requestJson('/errors'),
-    downloadLeads: (runId) => {
-      window.location.href = BASE + '/leads/download' + (runId ? '?runId=' + runId : '');
+    downloadLeads: (runId, format) => {
+      const params = new URLSearchParams();
+      if (runId) params.set('runId', runId);
+      if (format) params.set('format', format);
+      const query = params.toString();
+      window.location.href = BASE + '/leads/download' + (query ? '?' + query : '');
     },
   };
 })();

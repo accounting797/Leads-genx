@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createRunService, RunStore } from '../../src/domain/runService';
 import { ActorClient } from '../../src/integrations/actorClient';
 import { NormalizedLead } from '../../src/domain/types';
+import { GooglePlacesClient } from '../../src/integrations/googlePlacesClient';
 
 function createStore(): RunStore & {
   runs: Array<Record<string, any>>;
@@ -119,5 +120,70 @@ describe('createRunService', () => {
     expect(store.errors[0].message).toBe('actor failed with [REDACTED]');
     expect(JSON.stringify(store.errors[0])).not.toContain('super-secret-token-value');
     expect(store.events.at(-1)).toMatchObject({ type: 'run_failed' });
+  });
+
+  it('routes Google Places runs through the Google Places client without Apify', async () => {
+    const store = createStore();
+    let actorCalled = false;
+    let placesApiKey: string | undefined;
+    const actorClient: ActorClient = {
+      async startRun() {
+        actorCalled = true;
+        throw new Error('Apify should not run for Google Places');
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems() {
+        return [];
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search(input) {
+        placesApiKey = input.apiKey;
+        return [
+          {
+            displayName: { text: 'Permian Aviation Services' },
+            primaryTypeDisplayName: { text: 'Aviation' },
+            formattedAddress: '100 Airport Rd, Midland, TX',
+            nationalPhoneNumber: '(432) 555-0100',
+            websiteUri: 'https://example.com',
+            rating: 4.8,
+            userRatingCount: 42,
+            googleMapsUri: 'https://maps.google.com/?cid=places',
+          },
+        ];
+      },
+    };
+
+    const service = createRunService({ store, actorClient, googlePlacesClient });
+    await service.startRun(
+      {
+        googleApiKey: 'google-secret-key',
+        leadSource: 'google_maps',
+        maxResults: 40,
+        googleMaps: {
+          provider: 'google_places',
+          searchTerms: ['aviation maintenance'],
+          locations: ['Midland, TX'],
+        },
+      },
+      { background: false }
+    );
+
+    expect(actorCalled).toBe(false);
+    expect(placesApiKey).toBe('google-secret-key');
+    expect(store.runs[0]).toMatchObject({
+      status: 'completed',
+      actorId: 'google_places',
+      datasetId: 'google_places',
+      leadCount: 1,
+    });
+    expect(store.leads[0]).toMatchObject({
+      leadType: 'business',
+      companyName: 'Permian Aviation Services',
+      categoryName: 'Aviation',
+      phone: '(432) 555-0100',
+    });
   });
 });

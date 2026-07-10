@@ -8,8 +8,21 @@ import { suggestions } from '../../src/domain/suggestions';
 
 describe('suggestions', () => {
   it('exposes curated Google Maps suggestion groups', () => {
-    expect(suggestions.googleMaps.businessCategories.length).toBeGreaterThanOrEqual(25);
-    expect(suggestions.googleMaps.searchTemplates.length).toBeGreaterThanOrEqual(15);
+    expect(suggestions.googleMaps.searchTemplates).toHaveLength(20);
+    expect(suggestions.googleMaps.businessCategories).toHaveLength(20);
+    expect(suggestions.googleMaps.companyTypes).toHaveLength(20);
+    expect(suggestions.googleMaps.searchTemplates).toEqual(
+      expect.arrayContaining(['oilfield services', 'aviation maintenance', 'data center contractor'])
+    );
+    expect(suggestions.googleMaps.businessCategories).toEqual(
+      expect.arrayContaining(['Oil & Gas', 'Mining', 'Aviation'])
+    );
+    expect(suggestions.googleMaps.companyTypes).toEqual(
+      expect.arrayContaining(['Public Company', 'Partnership', 'Insurance Carrier'])
+    );
+    expect(suggestions.googleMaps.companyTypes).not.toEqual(
+      expect.arrayContaining(['Private Practice', 'Medical Group', 'Dental Group'])
+    );
     expect(suggestions.googleMaps.locations.length).toBeGreaterThanOrEqual(20);
   });
 
@@ -57,7 +70,6 @@ describe('buildGoogleMapsInput', () => {
 
     expect(input).toMatchObject({
       searchStringsArray: ['dentist', 'orthodontist'],
-      categoryFilterWords: ['Dental clinic'],
       locationQuery: 'Austin, TX',
       maxCrawledPlacesPerSearch: 500,
       placeMinimumStars: '4',
@@ -71,6 +83,7 @@ describe('buildGoogleMapsInput', () => {
     const input = buildGoogleMapsInput({
       searchTerms: ['dentist', 'roofer'],
       categoryFilters: ['Dental clinic'],
+      companyTypes: ['Public Company'],
       locations: ['Austin, TX', 'Phoenix, AZ'],
       maxPlaces: 5000,
       skipClosedPlaces: true,
@@ -84,11 +97,35 @@ describe('buildGoogleMapsInput', () => {
         'roofer Phoenix, AZ',
         'Dental clinic Austin, TX',
         'Dental clinic Phoenix, AZ',
+        'Public Company Austin, TX',
+        'Public Company Phoenix, AZ',
       ],
-      categoryFilterWords: ['Dental clinic'],
       maxCrawledPlacesPerSearch: 5000,
     });
+    expect(input).not.toHaveProperty('categoryFilterWords');
     expect(input).not.toHaveProperty('locationQuery');
+  });
+
+  it('uses broad industry categories as search strings instead of strict Apify category filters', () => {
+    const input = buildGoogleMapsInput({
+      searchTerms: ['aviation maintenance'],
+      categoryFilters: ['Aerospace & Defense', 'Manufacturing'],
+      companyTypes: ['Wholesaler'],
+      locations: ['Detroit, MI'],
+      maxPlaces: 50000,
+      skipClosedPlaces: true,
+    });
+
+    expect(input).toMatchObject({
+      searchStringsArray: [
+        'aviation maintenance Detroit, MI',
+        'Aerospace & Defense Detroit, MI',
+        'Manufacturing Detroit, MI',
+        'Wholesaler Detroit, MI',
+      ],
+      maxCrawledPlacesPerSearch: 50000,
+    });
+    expect(input).not.toHaveProperty('categoryFilterWords');
   });
 });
 

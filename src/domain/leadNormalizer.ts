@@ -22,25 +22,30 @@ function numberValue(...values: unknown[]): number | undefined {
   return undefined;
 }
 
+function nestedText(value: unknown): string | undefined {
+  const obj = record(value);
+  return stringValue(obj.text);
+}
+
 export function normalizeLead(item: unknown, leadSource: LeadSource): NormalizedLead {
   const obj = record(item);
   const rawJson = JSON.stringify(obj);
 
   if (leadSource === 'google_maps') {
-    const companyName = stringValue(obj.title, obj.name, obj.companyName);
-    const address = stringValue(obj.address, obj.location);
+    const companyName = stringValue(obj.title, obj.name, obj.companyName, nestedText(obj.displayName));
+    const address = stringValue(obj.address, obj.location, obj.formattedAddress);
     return {
       leadSource,
       leadType: 'business',
       companyName,
-      categoryName: stringValue(obj.categoryName, obj.category),
+      categoryName: stringValue(obj.categoryName, obj.category, nestedText(obj.primaryTypeDisplayName), obj.primaryType),
       address,
       location: address,
-      website: stringValue(obj.website, obj.websiteUrl),
-      phone: stringValue(obj.phone, obj.phoneUnformatted),
+      website: stringValue(obj.website, obj.websiteUrl, obj.websiteUri),
+      phone: stringValue(obj.phone, obj.phoneUnformatted, obj.internationalPhoneNumber, obj.nationalPhoneNumber),
       rating: numberValue(obj.totalScore, obj.rating, obj.stars),
-      reviewsCount: numberValue(obj.reviewsCount, obj.reviewCount),
-      placeUrl: stringValue(obj.url, obj.placeUrl, obj.googleMapsUrl),
+      reviewsCount: numberValue(obj.reviewsCount, obj.reviewCount, obj.userRatingCount),
+      placeUrl: stringValue(obj.url, obj.placeUrl, obj.googleMapsUrl, obj.googleMapsUri),
       rawJson,
     };
   }

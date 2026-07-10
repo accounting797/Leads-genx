@@ -3,6 +3,13 @@ function text(value: unknown): string {
   return String(value);
 }
 
+export function formatEmailsTxt(leads: Record<string, unknown>[]): string {
+  return leads
+    .map((lead) => text(lead.email))
+    .filter(Boolean)
+    .join('\n');
+}
+
 type ExportableLead = Record<string, unknown>;
 
 export function formatLeadsTxt(leads: ExportableLead[]): string {

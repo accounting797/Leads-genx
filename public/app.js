@@ -36,6 +36,7 @@
   function buildBody() {
     const body = {
       apifyToken: $('apifyToken').value.trim(),
+      googleApiKey: $('googleApiKey').value.trim() || undefined,
       leadSource: activeSource,
       actorId: $('actorId').value.trim() || undefined,
       maxResults: numberValue('maxResults') || 100,
@@ -43,8 +44,10 @@
 
     if (activeSource === 'google_maps') {
       body.googleMaps = {
+        provider: $('gmProvider').value,
         searchTerms: chips.gmSearchTerms.getValue(),
         categoryFilters: chips.gmCategories.getValue(),
+        companyTypes: chips.gmCompanyTypes.getValue(),
         locations: chips.gmLocations.getValue(),
         mapsUrl: $('gmMapsUrl').value.trim() || undefined,
         maxPlaces: numberValue('maxResults') || 100,
@@ -164,6 +167,9 @@
     chips.gmCategories = window.LeadsGenXChips.createChipInput($('gmCategories'), {
       suggestions: suggestions.googleMaps.businessCategories,
     });
+    chips.gmCompanyTypes = window.LeadsGenXChips.createChipInput($('gmCompanyTypes'), {
+      suggestions: suggestions.googleMaps.companyTypes,
+    });
     chips.gmLocations = window.LeadsGenXChips.createChipInput($('gmLocations'), {
       suggestions: suggestions.googleMaps.locations,
     });
@@ -197,7 +203,8 @@
     $('refreshRuns').addEventListener('click', loadRuns);
     $('refreshLogs').addEventListener('click', loadLogs);
     $('leadRunFilter').addEventListener('change', loadLeads);
-    $('downloadLeads').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value));
+    $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
+    $('downloadFullLeads').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'full'));
     $('runsTable').addEventListener('click', (event) => {
       const id = event.target.dataset ? event.target.dataset.viewRun : undefined;
       if (id) {
