@@ -79,11 +79,20 @@ describe('buildGoogleMapsInput', () => {
       ],
       locationQuery: 'Austin, TX',
       maxCrawledPlacesPerSearch: 500,
-      placeMinimumStars: '4',
+      placeMinimumStars: 'four',
       reviewsCountMin: 20,
       skipClosedPlaces: true,
       language: 'en',
     });
+  });
+
+  it('maps numeric minimum ratings to the Apify Google Maps actor enum', () => {
+    expect(buildGoogleMapsInput({ minimumStars: 2 }).placeMinimumStars).toBe('two');
+    expect(buildGoogleMapsInput({ minimumStars: 2.5 }).placeMinimumStars).toBe('twoAndHalf');
+    expect(buildGoogleMapsInput({ minimumStars: 3 }).placeMinimumStars).toBe('three');
+    expect(buildGoogleMapsInput({ minimumStars: 3.5 }).placeMinimumStars).toBe('threeAndHalf');
+    expect(buildGoogleMapsInput({ minimumStars: 4 }).placeMinimumStars).toBe('four');
+    expect(buildGoogleMapsInput({ minimumStars: 4.5 }).placeMinimumStars).toBe('fourAndHalf');
   });
 
   it('generates Google Maps search strings from terms, categories, and locations', () => {

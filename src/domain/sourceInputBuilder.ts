@@ -32,6 +32,18 @@ function chunkSearchStrings(searchStrings: string[], chunkCount: number): string
   return chunks.filter((chunk) => chunk.length);
 }
 
+function toApifyMinimumStars(value?: number): string | undefined {
+  const allowed = new Map<number, string>([
+    [2, 'two'],
+    [2.5, 'twoAndHalf'],
+    [3, 'three'],
+    [3.5, 'threeAndHalf'],
+    [4, 'four'],
+    [4.5, 'fourAndHalf'],
+  ]);
+  return value ? allowed.get(value) : undefined;
+}
+
 export function buildSalesNavigatorUrl(filters: SalesNavigatorFilters): string {
   const parts: string[] = ['spellCorrectionEnabled:true'];
 
@@ -63,7 +75,8 @@ export function buildGoogleMapsInput(filters: GoogleMapsFilters): Record<string,
   }
   if (filters.locationQuery?.trim()) input.locationQuery = filters.locationQuery.trim();
   if (filters.maxPlaces) input.maxCrawledPlacesPerSearch = filters.maxPlaces;
-  if (filters.minimumStars) input.placeMinimumStars = String(filters.minimumStars);
+  const minimumStars = toApifyMinimumStars(filters.minimumStars);
+  if (minimumStars) input.placeMinimumStars = minimumStars;
   if (filters.minimumReviews) input.reviewsCountMin = filters.minimumReviews;
 
   return input;
