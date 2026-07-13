@@ -51,6 +51,33 @@ describe('WebsiteEmailExtractor', () => {
       global.fetch = originalFetch;
     }
   });
+
+  it('discovers sales, quote, branch, and directory pages from internal links', async () => {
+    const originalFetch = global.fetch;
+    const pages = new Map([
+      [
+        'https://example.com/',
+        '<a href="/request-quote">Quote</a><a href="/branch-directory">Branches</a><a href="/privacy">Privacy</a>',
+      ],
+      ['https://example.com/request-quote', 'Quotes: quote@example.com'],
+      ['https://example.com/branch-directory', 'Branches: branches@example.com'],
+      ['https://example.com/privacy', 'Privacy: privacy@example.com'],
+    ]);
+    global.fetch = (async (input) => {
+      const html = pages.get(String(input));
+      return new Response(html ?? '', { status: html ? 200 : 404 });
+    }) as typeof fetch;
+
+    try {
+      const extractor = new WebsiteEmailExtractor({ maxPagesPerSite: 5 });
+      await expect(extractor.extract('https://example.com')).resolves.toEqual([
+        'quote@example.com',
+        'branches@example.com',
+      ]);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });
 
 describe('keepEmailLeadsOnly', () => {

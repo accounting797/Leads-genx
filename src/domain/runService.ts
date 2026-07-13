@@ -223,6 +223,43 @@ export function createRunService({
       apiKeys: googleApiKeys,
       filters: input.googleMaps ?? {},
       maxResults: input.maxResults,
+      onShardEvent: async (event) => {
+        if (event.type === 'started') {
+          await store.addEvent(
+            run.id,
+            'google_places_shard_started',
+            `Google Places shard ${event.shard}/${event.shardCount} started.`,
+            event
+          );
+          return;
+        }
+
+        if (event.type === 'completed') {
+          await store.addEvent(
+            run.id,
+            'google_places_shard_completed',
+            `Google Places shard ${event.shard}/${event.shardCount} returned ${event.itemCount ?? 0} businesses.`,
+            event
+          );
+          return;
+        }
+
+        await store.addErrorLog({
+          runId: run.id,
+          source: 'runService',
+          severity: 'warn',
+          message: event.errorMessage ?? 'Google Places shard failed',
+          details: event,
+        });
+        await store.addEvent(
+          run.id,
+          'google_places_shard_failed',
+          `Google Places shard ${event.shard}/${event.shardCount} failed: ${
+            event.errorMessage ?? 'unknown error'
+          }`,
+          event
+        );
+      },
     });
     const normalizedLeads = items.map((item) => normalizeLead(item, input.leadSource));
     await store.addEvent(
@@ -234,6 +271,22 @@ export function createRunService({
       { provider: 'google_places', itemCount: normalizedLeads.length, websiteCount: websiteCount(normalizedLeads) }
     );
     return saveEmailLeadsInBatches(run.id, normalizedLeads, seenEmails, startingTotal);
+  }
+
+  async function recordGooglePlacesFailure(run: RunRecord, error: unknown): Promise<void> {
+    const message = safeErrorMessage(error);
+    await store.addErrorLog({
+      runId: run.id,
+      source: 'runService',
+      severity: 'warn',
+      message,
+      details: {
+        provider: 'google_places',
+      },
+    });
+    await store.addEvent(run.id, 'google_places_failed', `Google Places failed: ${message}`, {
+      provider: 'google_places',
+    });
   }
 
   async function executeRun(run: RunRecord, input: ValidatedRunInput) {
@@ -260,7 +313,12 @@ export function createRunService({
           leadCount = result.leadCount;
         }
         if (input.googleApiKey) {
-          leadCount = await runGooglePlaces(run, input, seenEmails, leadCount);
+          try {
+            leadCount = await runGooglePlaces(run, input, seenEmails, leadCount);
+          } catch (error) {
+            if (!input.apifyToken) throw error;
+            await recordGooglePlacesFailure(run, error);
+          }
         }
         if (leadCount === 0) {
           await store.addEvent(run.id, 'leads_saved', 'Saved 0 email leads.', { leadCount: 0 });

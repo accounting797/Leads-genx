@@ -92,6 +92,102 @@ describe('GooglePlacesApiClient', () => {
     expect(keys).toEqual(['google-one', 'google-two', 'google-one', 'google-two']);
   });
 
+  it('tries the next Google API key when one request fails', async () => {
+    const keys: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const key = (init.headers as Record<string, string>)['X-Goog-Api-Key'];
+        keys.push(key);
+        if (key === 'google-one') {
+          return new Response(JSON.stringify({ error: { message: 'quota exhausted' } }), { status: 429 });
+        }
+        return Response.json({ places: [{ id: 'place-1' }] });
+      })
+    );
+
+    const client = new GooglePlacesApiClient();
+    const places = await client.search({
+      apiKey: 'google-one',
+      apiKeys: ['google-one', 'google-two'],
+      maxResults: 5,
+      filters: {
+        searchTerms: ['oilfield services'],
+        locations: ['Houston, TX'],
+      },
+    });
+
+    expect(places).toEqual([{ id: 'place-1' }]);
+    expect(keys).toEqual(['google-one', 'google-two']);
+  });
+
+  it('dedupes Google Places results across overlapping shards', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        return Response.json({
+          places: [
+            {
+              id: 'same-place',
+              displayName: { text: `Shared ${body.textQuery}` },
+              websiteUri: 'https://shared.example.com',
+            },
+          ],
+        });
+      })
+    );
+
+    const client = new GooglePlacesApiClient();
+    const places = await client.search({
+      apiKey: 'google-one',
+      maxResults: 100,
+      filters: {
+        searchTerms: ['oilfield services'],
+        categoryFilters: ['Oil & Gas'],
+        locations: ['Houston, TX'],
+      },
+    });
+
+    expect(places).toHaveLength(1);
+    expect(places[0]).toMatchObject({ id: 'same-place' });
+  });
+
+  it('reports shard progress and continues after one shard fails', async () => {
+    const events: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        if (body.textQuery.includes('Oil & Gas')) {
+          return new Response(JSON.stringify({ error: { message: 'temporary quota' } }), { status: 429 });
+        }
+        return Response.json({
+          places: [{ id: body.textQuery, websiteUri: `https://${encodeURIComponent(body.textQuery)}.example.com` }],
+        });
+      })
+    );
+
+    const client = new GooglePlacesApiClient();
+    const places = await client.search({
+      apiKey: 'google-one',
+      maxResults: 100,
+      filters: {
+        searchTerms: ['oilfield services'],
+        categoryFilters: ['Oil & Gas'],
+        locations: ['Houston, TX'],
+      },
+      onShardEvent: (event) => events.push(event),
+    });
+
+    expect(places.length).toBeGreaterThan(0);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'started', shard: 1 }));
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'failed', errorMessage: 'Google Places request failed with status 429' })
+    );
+    expect(events).toContainEqual(expect.objectContaining({ type: 'completed', itemCount: 1 }));
+  });
+
   it('expands Google Places queries across terms, categories, company types, and locations', async () => {
     const queries: string[] = [];
     vi.stubGlobal(

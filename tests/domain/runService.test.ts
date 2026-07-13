@@ -527,4 +527,130 @@ describe('createRunService', () => {
     );
     expect(JSON.stringify(store.events)).not.toContain('bad-apify');
   });
+
+  it('completes hybrid runs with Apify email leads when Google Places fails', async () => {
+    const store = createStore();
+    const actorClient: ActorClient = {
+      async startRun() {
+        return {
+          runId: 'apify-run-good',
+          status: 'SUCCEEDED',
+          datasetId: 'dataset-good',
+        };
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems() {
+        return [{ title: 'Reliable Apify Lead', website: 'https://reliable-apify.example.com' }];
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search() {
+        throw new Error('fetch failed');
+      },
+    };
+    const emailExtractor: EmailExtractor = {
+      async extract() {
+        return ['reliable@example.com'];
+      },
+    };
+
+    const service = createRunService({ store, actorClient, googlePlacesClient, emailExtractor });
+    await service.startRun(
+      {
+        apifyToken: 'apify-good',
+        googleApiKey: 'google-one',
+        leadSource: 'google_maps',
+        maxResults: 1000,
+        googleMaps: {
+          provider: 'hybrid',
+          searchTerms: ['oilfield services'],
+          locations: ['Houston, TX'],
+        },
+      },
+      { background: false }
+    );
+
+    expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 1 });
+    expect(store.leads.map((lead) => lead.email)).toEqual(['reliable@example.com']);
+    expect(store.events).toContainEqual(
+      expect.objectContaining({
+        type: 'google_places_failed',
+        message: 'Google Places failed: fetch failed',
+      })
+    );
+    expect(store.errors).toContainEqual(
+      expect.objectContaining({
+        severity: 'warn',
+        message: 'fetch failed',
+      })
+    );
+  });
+
+  it('records Google Places shard progress for Google-only runs', async () => {
+    const store = createStore();
+    const actorClient: ActorClient = {
+      async startRun() {
+        throw new Error('Apify should not run for Google Places');
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems() {
+        return [];
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search(input) {
+        await input.onShardEvent?.({
+          type: 'started',
+          shard: 1,
+          shardCount: 2,
+          query: 'oilfield services Houston, TX',
+        });
+        await input.onShardEvent?.({
+          type: 'completed',
+          shard: 1,
+          shardCount: 2,
+          query: 'oilfield services Houston, TX',
+          itemCount: 2,
+          totalItemCount: 2,
+        });
+        await input.onShardEvent?.({
+          type: 'failed',
+          shard: 2,
+          shardCount: 2,
+          query: 'Oil & Gas Houston, TX',
+          errorMessage: 'Google Places request failed with status 429',
+        });
+        return [{ displayName: { text: 'Gulf Energy' }, websiteUri: 'https://gulf.example.com' }];
+      },
+    };
+    const emailExtractor: EmailExtractor = {
+      async extract() {
+        return ['sales@gulf.example.com'];
+      },
+    };
+
+    const service = createRunService({ store, actorClient, googlePlacesClient, emailExtractor });
+    await service.startRun(
+      {
+        googleApiKey: 'google-one',
+        leadSource: 'google_maps',
+        maxResults: 1000,
+        googleMaps: {
+          provider: 'google_places',
+          searchTerms: ['oilfield services'],
+          locations: ['Houston, TX'],
+        },
+      },
+      { background: false }
+    );
+
+    expect(store.events).toContainEqual(expect.objectContaining({ type: 'google_places_shard_started' }));
+    expect(store.events).toContainEqual(expect.objectContaining({ type: 'google_places_shard_completed' }));
+    expect(store.events).toContainEqual(expect.objectContaining({ type: 'google_places_shard_failed' }));
+    expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 1 });
+  });
 });

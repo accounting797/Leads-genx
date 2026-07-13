@@ -11,6 +11,11 @@ const CONTACT_PATHS = [
   '/contact',
   '/contact-us',
   '/contacts',
+  '/request-quote',
+  '/quote',
+  '/get-a-quote',
+  '/branches',
+  '/branch-directory',
   '/about',
   '/about-us',
   '/team',
@@ -19,8 +24,12 @@ const CONTACT_PATHS = [
   '/sales',
   '/support',
   '/locations',
+  '/services',
+  '/service-areas',
+  '/directory',
+  '/locations/contact',
 ];
-const CONTACT_LINK_PATTERN = /\b(contact|about|team|staff|sales|support|location|leadership)\b/i;
+const CONTACT_LINK_PATTERN = /\b(contact|about|team|staff|sales|support|location|locations|leadership|quote|request quote|get a quote|service|services|branch|branches|directory|office|offices)\b/i;
 const HREF_PATTERN = /\bhref\s*=\s*["']([^"']+)["']/gi;
 
 function normalizeEmail(email: string): string | undefined {
@@ -178,9 +187,11 @@ export class WebsiteEmailExtractor implements EmailExtractor {
         for (const email of extractEmailsFromText(source)) emails.add(email);
         for (const email of extractMailtoEmails(source)) emails.add(email);
         if (index === 0) {
-          const discoveredUrls = discoverInternalContactUrls(source, new URL(pageUrl)).filter(
-            (discoveredUrl) => !urls.includes(discoveredUrl)
-          );
+          const discoveredUrls = discoverInternalContactUrls(source, new URL(pageUrl));
+          for (const discoveredUrl of discoveredUrls) {
+            const existingIndex = urls.indexOf(discoveredUrl);
+            if (existingIndex !== -1) urls.splice(existingIndex, 1);
+          }
           urls.splice(index + 1, 0, ...discoveredUrls);
         }
       } finally {
