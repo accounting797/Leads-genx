@@ -5,13 +5,12 @@ services:
     image: gosom/google-maps-scraper
     container_name: leads-genx-gmaps-scraper
     restart: unless-stopped
-    command: ["-web", "-data-folder", "/gmapsdata"]
+    entrypoint: ["sh", "-c"]
+    command: ["rm -rf /opt/ms-playwright-go && exec google-maps-scraper -web -data-folder /gmapsdata"]
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - leads_genx_gmaps_data:/gmapsdata
-      - leads_genx_gmaps_cache:/opt
 
 volumes:
   leads_genx_gmaps_data:
-  leads_genx_gmaps_cache:

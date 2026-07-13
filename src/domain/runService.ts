@@ -44,6 +44,7 @@ export interface RunServiceDeps {
   emailExtractor?: EmailExtractor;
   emailLeadBatchSize?: number;
   emailExtractionConcurrency?: number;
+  enableLocalMapsScraper?: boolean;
 }
 
 export interface StartRunOptions {
@@ -81,6 +82,7 @@ export function createRunService({
   emailExtractor,
   emailLeadBatchSize = 100,
   emailExtractionConcurrency = 50,
+  enableLocalMapsScraper = true,
 }: RunServiceDeps) {
   async function saveEmailLeadsInBatches(
     runId: number,
@@ -264,10 +266,31 @@ export function createRunService({
         );
       },
     });
+    const googleLeads = items.map((item) => normalizeLead(item, input.leadSource));
+    await store.addEvent(
+      run.id,
+      'source_results',
+      `Google Places returned ${googleLeads.length} businesses; ${websiteCount(
+        googleLeads
+      )} had websites to scan.`,
+      { provider: 'google_places', itemCount: googleLeads.length, websiteCount: websiteCount(googleLeads) }
+    );
+    let leadCount = await saveEmailLeadsInBatches(run.id, googleLeads, seenEmails, startingTotal);
+
+    if (!enableLocalMapsScraper) {
+      await store.addEvent(
+        run.id,
+        'local_maps_scraper_skipped',
+        'Local Google Maps scraper-kit supplementation is disabled.',
+        { provider: 'local_maps_scraper' }
+      );
+      return leadCount;
+    }
+
     const localItems = localMapsScraperClient
       ? await localMapsScraperClient.search({
           filters: input.googleMaps ?? {},
-          maxResults: input.maxResults,
+          maxResults: Math.max(0, input.maxResults - googleLeads.length),
           onEvent: async (event) => {
             if (event.type === 'started') {
               await store.addEvent(run.id, 'local_maps_scraper_started', 'Local Google Maps scraper-kit job started.', event);
@@ -310,17 +333,19 @@ export function createRunService({
           },
         })
       : [];
-    const combinedItems = [...items, ...localItems];
-    const normalizedLeads = combinedItems.map((item) => normalizeLead(item, input.leadSource));
+    if (!localItems.length) return leadCount;
+
+    const localLeads = localItems.map((item) => normalizeLead(item, input.leadSource));
     await store.addEvent(
       run.id,
       'source_results',
-      `Google Places returned ${normalizedLeads.length} businesses; ${websiteCount(
-        normalizedLeads
+      `Local Google Maps scraper-kit returned ${localLeads.length} businesses; ${websiteCount(
+        localLeads
       )} had websites to scan.`,
-      { provider: 'google_places', itemCount: normalizedLeads.length, websiteCount: websiteCount(normalizedLeads) }
+      { provider: 'local_maps_scraper', itemCount: localLeads.length, websiteCount: websiteCount(localLeads) }
     );
-    return saveEmailLeadsInBatches(run.id, normalizedLeads, seenEmails, startingTotal);
+    leadCount = await saveEmailLeadsInBatches(run.id, localLeads, seenEmails, leadCount);
+    return leadCount;
   }
 
   async function recordGooglePlacesFailure(run: RunRecord, error: unknown): Promise<void> {

@@ -712,4 +712,120 @@ describe('createRunService', () => {
     expect(store.events).toContainEqual(expect.objectContaining({ type: 'local_maps_scraper_completed' }));
     expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 2 });
   });
+
+  it('saves Google Places email leads before waiting on local scraper-kit supplementation', async () => {
+    const store = createStore();
+    const actorClient: ActorClient = {
+      async startRun() {
+        throw new Error('Apify should not run for Google Places');
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems() {
+        return [];
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search() {
+        return [{ displayName: { text: 'Google API Lead' }, websiteUri: 'https://google-api.example.com' }];
+      },
+    };
+    const localMapsScraperClient: LocalMapsScraperClient = {
+      async search(input) {
+        expect(store.operations).toContain('addLeads:1');
+        await input.onEvent?.({ type: 'completed', itemCount: 0 });
+        return [];
+      },
+    };
+    const emailExtractor: EmailExtractor = {
+      async extract() {
+        return ['google@example.com'];
+      },
+    };
+
+    const service = createRunService({
+      store,
+      actorClient,
+      googlePlacesClient,
+      localMapsScraperClient,
+      emailExtractor,
+    });
+    await service.startRun(
+      {
+        googleApiKey: 'google-one',
+        leadSource: 'google_maps',
+        maxResults: 1000,
+        googleMaps: {
+          provider: 'google_places',
+          searchTerms: ['construction contractor'],
+          locations: ['Dallas, TX'],
+        },
+      },
+      { background: false }
+    );
+
+    expect(store.operations.indexOf('addLeads:1')).toBeLessThan(
+      store.operations.indexOf('addEvent:local_maps_scraper_completed')
+    );
+    expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 1 });
+  });
+
+  it('skips local scraper-kit supplementation unless explicitly enabled', async () => {
+    const store = createStore();
+    const actorClient: ActorClient = {
+      async startRun() {
+        throw new Error('Apify should not run for Google Places');
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems() {
+        return [];
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search() {
+        return [{ displayName: { text: 'Google API Lead' }, websiteUri: 'https://google-api.example.com' }];
+      },
+    };
+    let localCalled = false;
+    const localMapsScraperClient: LocalMapsScraperClient = {
+      async search() {
+        localCalled = true;
+        return [];
+      },
+    };
+    const emailExtractor: EmailExtractor = {
+      async extract() {
+        return ['google@example.com'];
+      },
+    };
+
+    const service = createRunService({
+      store,
+      actorClient,
+      googlePlacesClient,
+      localMapsScraperClient,
+      emailExtractor,
+      enableLocalMapsScraper: false,
+    });
+    await service.startRun(
+      {
+        googleApiKey: 'google-one',
+        leadSource: 'google_maps',
+        maxResults: 1000,
+        googleMaps: {
+          provider: 'google_places',
+          searchTerms: ['construction contractor'],
+          locations: ['Dallas, TX'],
+        },
+      },
+      { background: false }
+    );
+
+    expect(localCalled).toBe(false);
+    expect(store.events).toContainEqual(expect.objectContaining({ type: 'local_maps_scraper_skipped' }));
+    expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 1 });
+  });
 });

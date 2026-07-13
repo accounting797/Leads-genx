@@ -17,7 +17,7 @@
       </div>
       <div class="metrics">
         <div><strong id="metricRuns">0</strong><span>Runs</span></div>
-        <div><strong id="metricLeads">0</strong><span>Leads</span></div>
+        <button id="metricLeadsCard" type="button"><strong id="metricLeads">0</strong><span>Leads</span></button>
         <div><strong id="metricActive">0</strong><span>Active</span></div>
       </div>
     </header>
@@ -200,7 +200,10 @@
 
         <div id="leadsTab" class="tab-page">
           <div class="table-actions">
-            <h2>Leads</h2>
+            <div>
+              <h2>Leads</h2>
+              <p id="leadSummary">All runs: 0 email leads</p>
+            </div>
             <div class="inline-actions">
               <select id="leadRunFilter"><option value="">All runs</option></select>
               <button id="downloadEmails" type="button" class="ghost-btn">Download Emails TXT</button>

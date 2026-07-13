@@ -9,6 +9,23 @@ function readPublicFile(fileName: string): string {
 }
 
 describe('static dashboard downloads', () => {
+  it('makes the top leads metric open the all-runs leads view', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+
+    expect(html).toContain('id="metricLeadsCard"');
+    expect(appJs).toContain("openAllLeads");
+    expect(appJs).toContain("$('metricLeadsCard').addEventListener('click', openAllLeads)");
+  });
+
+  it('shows an all-runs email lead count in the leads tab', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+
+    expect(html).toContain('id="leadSummary"');
+    expect(appJs).toContain("$('leadSummary').textContent");
+  });
+
   it('exposes an email-only TXT download control', () => {
     const html = readPublicFile('index.html');
 

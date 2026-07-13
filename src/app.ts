@@ -18,8 +18,9 @@ export function createApp(deps: ApiDeps = {}) {
       store: new PrismaRunStore(runtimePrisma),
       actorClient: new ApifyActorClient(),
       googlePlacesClient: new GooglePlacesApiClient(),
-      localMapsScraperClient: new LocalMapsScraperKitClient(),
+      localMapsScraperClient: new LocalMapsScraperKitClient({ maxPolls: 30 }),
       emailExtractor: new WebsiteEmailExtractor(),
+      enableLocalMapsScraper: process.env.ENABLE_LOCAL_MAPS_SCRAPER === 'true',
     });
 
   app.use(express.json({ limit: '1mb' }));

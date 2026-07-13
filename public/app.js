@@ -92,6 +92,7 @@
         seniorities: chips.snSeniorities.getValue(),
         functions: chips.snFunctions.getValue(),
         headcounts: chips.snHeadcounts.getValue(),
+        cookies: $('snCookies').value.trim() || undefined,
       };
     }
 
@@ -136,7 +137,14 @@
   async function loadLeads() {
     const runId = $('leadRunFilter').value;
     const leads = await api.listLeads(runId);
+    $('leadSummary').textContent = (runId ? 'Selected run: ' : 'All runs: ') + leads.length + ' email leads';
     $('leadsTable').innerHTML = window.LeadsGenXUi.renderLeads(leads);
+  }
+
+  async function openAllLeads() {
+    $('leadRunFilter').value = '';
+    setTab('leads');
+    await loadLeads();
   }
 
   async function loadLogs() {
@@ -265,6 +273,7 @@
     $('runForm').addEventListener('submit', submitRun);
     $('refreshRuns').addEventListener('click', loadRuns);
     $('refreshLogs').addEventListener('click', loadLogs);
+    $('metricLeadsCard').addEventListener('click', openAllLeads);
     $('leadRunFilter').addEventListener('change', loadLeads);
     $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
     $('runsTable').addEventListener('click', (event) => {

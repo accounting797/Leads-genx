@@ -98,4 +98,96 @@ describe('LocalMapsScraperClient', () => {
       })
     );
   });
+
+  it('creates one scraper-kit job per supported location with location-specific coordinates', async () => {
+    const requests: Array<{ url: string; method?: string; body?: Record<string, unknown> }> = [];
+    let nextJobId = 1;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({
+          url,
+          method: init?.method,
+          body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        });
+
+        if (url.endsWith('/api/v1/jobs') && !init?.method) {
+          return Response.json([]);
+        }
+        if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
+          return Response.json({ id: `job-${nextJobId++}` }, { status: 201 });
+        }
+        if (url.includes('/api/v1/jobs/job-') && !url.endsWith('/download')) {
+          return Response.json({ Status: 'ok' });
+        }
+        if (url.endsWith('/download')) {
+          return new Response('title,phone,emails,website,category,address,review_rating,review_count\n');
+        }
+
+        return new Response('not found', { status: 404 });
+      })
+    );
+
+    const client = new LocalMapsScraperClient({ pollIntervalMs: 1 });
+    await client.search({
+      filters: {
+        searchTerms: ['commercial real estate'],
+        locations: ['Houston, TX', 'Dallas, TX'],
+      },
+      maxResults: 100,
+    });
+
+    const postBodies = requests
+      .filter((request) => request.method === 'POST')
+      .map((request) => request.body);
+    expect(postBodies).toHaveLength(2);
+    expect(postBodies[0]).toMatchObject({
+      keywords: ['commercial real estate Houston, TX'],
+      lat: '29.7604',
+      lon: '-95.3698',
+    });
+    expect(postBodies[1]).toMatchObject({
+      keywords: ['commercial real estate Dallas, TX'],
+      lat: '32.7767',
+      lon: '-96.7970',
+    });
+  });
+
+  it('emits a failed event when a scraper-kit job never finishes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/api/v1/jobs') && !init?.method) {
+          return Response.json([]);
+        }
+        if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
+          return Response.json({ id: 'job-stuck' }, { status: 201 });
+        }
+        if (url.endsWith('/api/v1/jobs/job-stuck')) {
+          return Response.json({ Status: 'working' });
+        }
+        return new Response('not found', { status: 404 });
+      })
+    );
+
+    const events: unknown[] = [];
+    const client = new LocalMapsScraperClient({ pollIntervalMs: 1, maxPolls: 2 });
+    const items = await client.search({
+      filters: {
+        searchTerms: ['commercial real estate'],
+        locations: ['Houston, TX'],
+      },
+      maxResults: 100,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(items).toEqual([]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'failed',
+        jobId: 'job-stuck',
+        message: 'Local Google Maps scraper-kit job did not finish before the polling limit',
+      })
+    );
+  });
 });

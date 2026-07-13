@@ -18,6 +18,11 @@ export interface LocalMapsScraperClient {
   search(input: LocalMapsScraperSearchInput): Promise<unknown[]>;
 }
 
+interface LocalMapsScraperLocationPlan {
+  filters: GoogleMapsFilters;
+  coords: { lat: string; lon: string };
+}
+
 const DEFAULT_BASE_URL = 'http://localhost:8080';
 const DEFAULT_COORDINATES: Record<string, { lat: string; lon: string }> = {
   'austin, tx': { lat: '30.2672', lon: '-97.7431' },
@@ -111,6 +116,23 @@ function coordinatesFor(filters: GoogleMapsFilters): { lat: string; lon: string 
   return location ? DEFAULT_COORDINATES[location.trim().toLowerCase()] : undefined;
 }
 
+function locationPlans(filters: GoogleMapsFilters): LocalMapsScraperLocationPlan[] {
+  const locations = filters.locations?.length ? filters.locations : filters.locationQuery ? [filters.locationQuery] : [];
+  const plans: LocalMapsScraperLocationPlan[] = [];
+  for (const location of locations) {
+    const coords = DEFAULT_COORDINATES[location.trim().toLowerCase()];
+    if (!coords) continue;
+    plans.push({
+      filters: { ...filters, locations: [location], locationQuery: undefined },
+      coords,
+    });
+  }
+
+  if (plans.length) return plans;
+  const coords = coordinatesFor(filters);
+  return coords ? [{ filters, coords }] : [];
+}
+
 function toLeadRows(rows: Record<string, string>[], maxResults: number): unknown[] {
   const leads: unknown[] = [];
   for (const row of rows) {
@@ -153,8 +175,8 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
 
   async search({ filters, maxResults, onEvent }: LocalMapsScraperSearchInput): Promise<unknown[]> {
     const baseUrl = this.options.baseUrl ?? process.env.LOCAL_MAPS_SCRAPER_URL ?? DEFAULT_BASE_URL;
-    const coords = coordinatesFor(filters);
-    if (!coords) return [];
+    const plans = locationPlans(filters);
+    if (!plans.length) return [];
 
     try {
       const health = await fetch(`${baseUrl}/api/v1/jobs`);
@@ -167,65 +189,86 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
       return [];
     }
 
-    const keywords = buildGoogleMapsSearchQueries(filters).slice(0, 100);
-    if (!keywords.length) return [];
+    const allItems: unknown[] = [];
 
-    const createResponse = await fetch(`${baseUrl}/api/v1/jobs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'leads-genx-local-google',
-        keywords,
-        lang: 'en',
-        zoom: 15,
-        lat: coords.lat,
-        lon: coords.lon,
-        fast_mode: false,
-        radius: 10000,
-        depth: this.options.depth ?? 10,
-        email: true,
-        max_time: this.options.maxTimeSeconds ?? 900,
-      }),
-    });
+    for (const plan of plans) {
+      if (allItems.length >= maxResults) break;
+      const keywords = buildGoogleMapsSearchQueries(plan.filters).slice(0, 100);
+      if (!keywords.length) continue;
 
-    if (!createResponse.ok) {
-      await onEvent?.({
-        type: 'failed',
-        message: `Local Google Maps scraper-kit create failed with status ${createResponse.status}`,
+      const createResponse = await fetch(`${baseUrl}/api/v1/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'leads-genx-local-google',
+          keywords,
+          lang: 'en',
+          zoom: 15,
+          lat: plan.coords.lat,
+          lon: plan.coords.lon,
+          fast_mode: false,
+          radius: 10000,
+          depth: this.options.depth ?? 10,
+          email: true,
+          max_time: this.options.maxTimeSeconds ?? 900,
+        }),
       });
-      return [];
-    }
 
-    const createData = (await createResponse.json()) as { id?: string };
-    const jobId = createData.id;
-    if (!jobId) return [];
-    await onEvent?.({ type: 'started', jobId });
-
-    const maxPolls = this.options.maxPolls ?? 120;
-    for (let poll = 0; poll < maxPolls; poll += 1) {
-      const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}`);
-      const statusData = statusResponse.ok ? ((await statusResponse.json()) as { Status?: string }) : {};
-      if (statusData.Status === 'failed') {
-        await onEvent?.({ type: 'failed', jobId, message: 'Local Google Maps scraper-kit job failed' });
-        return [];
+      if (!createResponse.ok) {
+        await onEvent?.({
+          type: 'failed',
+          message: `Local Google Maps scraper-kit create failed with status ${createResponse.status}`,
+        });
+        continue;
       }
-      if (statusData.Status === 'ok') break;
-      await wait(this.options.pollIntervalMs ?? 8000);
+
+      const createData = (await createResponse.json()) as { id?: string };
+      const jobId = createData.id;
+      if (!jobId) continue;
+      await onEvent?.({ type: 'started', jobId });
+
+      const maxPolls = this.options.maxPolls ?? 120;
+      let completed = false;
+      for (let poll = 0; poll < maxPolls; poll += 1) {
+        const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}`);
+        const statusData = statusResponse.ok ? ((await statusResponse.json()) as { Status?: string }) : {};
+        const status = statusData.Status?.toLowerCase();
+        if (status === 'failed' || status === 'error') {
+          await onEvent?.({ type: 'failed', jobId, message: 'Local Google Maps scraper-kit job failed' });
+          completed = false;
+          break;
+        }
+        if (status === 'ok') {
+          completed = true;
+          break;
+        }
+        await wait(this.options.pollIntervalMs ?? 8000);
+      }
+
+      if (!completed) {
+        await onEvent?.({
+          type: 'failed',
+          jobId,
+          message: 'Local Google Maps scraper-kit job did not finish before the polling limit',
+        });
+        continue;
+      }
+
+      const downloadResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}/download`);
+      if (!downloadResponse.ok) {
+        await onEvent?.({
+          type: 'failed',
+          jobId,
+          message: `Local Google Maps scraper-kit download failed with status ${downloadResponse.status}`,
+        });
+        continue;
+      }
+
+      allItems.push(...toLeadRows(parseCsv(await downloadResponse.text()), maxResults - allItems.length));
     }
 
-    const downloadResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}/download`);
-    if (!downloadResponse.ok) {
-      await onEvent?.({
-        type: 'failed',
-        jobId,
-        message: `Local Google Maps scraper-kit download failed with status ${downloadResponse.status}`,
-      });
-      return [];
-    }
-
-    const items = toLeadRows(parseCsv(await downloadResponse.text()), maxResults);
-    await onEvent?.({ type: 'completed', jobId, itemCount: items.length });
-    return items;
+    await onEvent?.({ type: 'completed', itemCount: allItems.length });
+    return allItems;
   }
 }
 
