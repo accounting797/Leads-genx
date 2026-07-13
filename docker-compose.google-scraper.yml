@@ -1,0 +1,17 @@
+# Local Google Maps scraper-kit provider for Leads-GenX.
+# Wraps gosom/google-maps-scraper and binds only to localhost.
+services:
+  google-maps-scraper:
+    image: gosom/google-maps-scraper:v1.15.0
+    container_name: leads-genx-gmaps-scraper
+    restart: unless-stopped
+    command: ["-web", "-data-folder", "/gmapsdata"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - leads_genx_gmaps_data:/gmapsdata
+      - leads_genx_gmaps_cache:/opt
+
+volumes:
+  leads_genx_gmaps_data:
+  leads_genx_gmaps_cache:

@@ -41,6 +41,7 @@ export function normalizeLead(item: unknown, leadSource: LeadSource): Normalized
       categoryName: stringValue(obj.categoryName, obj.category, nestedText(obj.primaryTypeDisplayName), obj.primaryType),
       address,
       location: address,
+      email: stringValue(obj.email, obj.emails),
       website: stringValue(obj.website, obj.websiteUrl, obj.websiteUri),
       phone: stringValue(obj.phone, obj.phoneUnformatted, obj.internationalPhoneNumber, obj.nationalPhoneNumber),
       rating: numberValue(obj.totalScore, obj.rating, obj.stars),

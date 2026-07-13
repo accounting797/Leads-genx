@@ -9,6 +9,8 @@
     "dev:watch": "nodemon --exec ts-node src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "scraper:up": "docker compose -f docker-compose.google-scraper.yml up -d",
+    "scraper:down": "docker compose -f docker-compose.google-scraper.yml down",
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",

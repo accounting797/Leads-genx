@@ -1,5 +1,6 @@
 import { ActorClient } from '../integrations/actorClient';
 import { GooglePlacesClient } from '../integrations/googlePlacesClient';
+import { LocalMapsScraperClient } from '../integrations/localMapsScraperClient';
 import { EmailExtractor, keepEmailLeadsOnly } from './emailExtractor';
 import { buildActorInput, buildActorInputsForApifyTokens } from './sourceInputBuilder';
 import { safeErrorMessage } from './errorLogger';
@@ -39,6 +40,7 @@ export interface RunServiceDeps {
   store: RunStore;
   actorClient: ActorClient;
   googlePlacesClient?: GooglePlacesClient;
+  localMapsScraperClient?: LocalMapsScraperClient;
   emailExtractor?: EmailExtractor;
   emailLeadBatchSize?: number;
   emailExtractionConcurrency?: number;
@@ -75,6 +77,7 @@ export function createRunService({
   store,
   actorClient,
   googlePlacesClient,
+  localMapsScraperClient,
   emailExtractor,
   emailLeadBatchSize = 100,
   emailExtractionConcurrency = 50,
@@ -261,7 +264,54 @@ export function createRunService({
         );
       },
     });
-    const normalizedLeads = items.map((item) => normalizeLead(item, input.leadSource));
+    const localItems = localMapsScraperClient
+      ? await localMapsScraperClient.search({
+          filters: input.googleMaps ?? {},
+          maxResults: input.maxResults,
+          onEvent: async (event) => {
+            if (event.type === 'started') {
+              await store.addEvent(run.id, 'local_maps_scraper_started', 'Local Google Maps scraper-kit job started.', event);
+              return;
+            }
+
+            if (event.type === 'completed') {
+              await store.addEvent(
+                run.id,
+                'local_maps_scraper_completed',
+                `Local Google Maps scraper-kit returned ${event.itemCount ?? 0} records.`,
+                event
+              );
+              return;
+            }
+
+            if (event.type === 'unavailable') {
+              await store.addEvent(
+                run.id,
+                'local_maps_scraper_unavailable',
+                event.message ?? 'Local Google Maps scraper-kit is not available.',
+                event
+              );
+              return;
+            }
+
+            await store.addErrorLog({
+              runId: run.id,
+              source: 'runService',
+              severity: 'warn',
+              message: event.message ?? 'Local Google Maps scraper-kit failed',
+              details: event,
+            });
+            await store.addEvent(
+              run.id,
+              'local_maps_scraper_failed',
+              event.message ?? 'Local Google Maps scraper-kit failed.',
+              event
+            );
+          },
+        })
+      : [];
+    const combinedItems = [...items, ...localItems];
+    const normalizedLeads = combinedItems.map((item) => normalizeLead(item, input.leadSource));
     await store.addEvent(
       run.id,
       'source_results',

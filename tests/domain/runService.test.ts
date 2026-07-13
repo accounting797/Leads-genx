@@ -4,6 +4,7 @@ import { ActorClient } from '../../src/integrations/actorClient';
 import { NormalizedLead } from '../../src/domain/types';
 import { GooglePlacesClient } from '../../src/integrations/googlePlacesClient';
 import { EmailExtractor } from '../../src/domain/emailExtractor';
+import { LocalMapsScraperClient } from '../../src/integrations/localMapsScraperClient';
 
 function createStore(): RunStore & {
   runs: Array<Record<string, any>>;
@@ -652,5 +653,63 @@ describe('createRunService', () => {
     expect(store.events).toContainEqual(expect.objectContaining({ type: 'google_places_shard_completed' }));
     expect(store.events).toContainEqual(expect.objectContaining({ type: 'google_places_shard_failed' }));
     expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 1 });
+  });
+
+  it('supplements Google-only runs with local scraper-kit results when available', async () => {
+    const store = createStore();
+    const actorClient: ActorClient = {
+      async startRun() {
+        throw new Error('Apify should not run for Google Places');
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems() {
+        return [];
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search() {
+        return [{ displayName: { text: 'Google API Lead' }, websiteUri: 'https://google-api.example.com' }];
+      },
+    };
+    const localMapsScraperClient: LocalMapsScraperClient = {
+      async search(input) {
+        await input.onEvent?.({ type: 'started', jobId: 'local-job-1' });
+        await input.onEvent?.({ type: 'completed', jobId: 'local-job-1', itemCount: 1 });
+        return [{ title: 'Local Scraper Lead', website: 'https://local-scraper.example.com', email: 'local@example.com' }];
+      },
+    };
+    const emailExtractor: EmailExtractor = {
+      async extract(url) {
+        return url.includes('google-api') ? ['google@example.com'] : [];
+      },
+    };
+
+    const service = createRunService({
+      store,
+      actorClient,
+      googlePlacesClient,
+      localMapsScraperClient,
+      emailExtractor,
+    });
+    await service.startRun(
+      {
+        googleApiKey: 'google-one',
+        leadSource: 'google_maps',
+        maxResults: 1000,
+        googleMaps: {
+          provider: 'google_places',
+          searchTerms: ['oilfield services'],
+          locations: ['Houston, TX'],
+        },
+      },
+      { background: false }
+    );
+
+    expect(store.leads.map((lead) => lead.email)).toEqual(['google@example.com', 'local@example.com']);
+    expect(store.events).toContainEqual(expect.objectContaining({ type: 'local_maps_scraper_started' }));
+    expect(store.events).toContainEqual(expect.objectContaining({ type: 'local_maps_scraper_completed' }));
+    expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 2 });
   });
 });

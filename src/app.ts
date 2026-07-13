@@ -6,6 +6,7 @@ import { createRunService } from './domain/runService';
 import { WebsiteEmailExtractor } from './domain/emailExtractor';
 import { ApifyActorClient } from './integrations/apifyActorClient';
 import { GooglePlacesApiClient } from './integrations/googlePlacesClient';
+import { LocalMapsScraperKitClient } from './integrations/localMapsScraperClient';
 import { ApiDeps, createApiRouter } from './routes/api';
 
 export function createApp(deps: ApiDeps = {}) {
@@ -17,6 +18,7 @@ export function createApp(deps: ApiDeps = {}) {
       store: new PrismaRunStore(runtimePrisma),
       actorClient: new ApifyActorClient(),
       googlePlacesClient: new GooglePlacesApiClient(),
+      localMapsScraperClient: new LocalMapsScraperKitClient(),
       emailExtractor: new WebsiteEmailExtractor(),
     });
 
