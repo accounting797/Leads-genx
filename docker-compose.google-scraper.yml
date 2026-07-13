@@ -2,7 +2,7 @@
 # Wraps gosom/google-maps-scraper and binds only to localhost.
 services:
   google-maps-scraper:
-    image: gosom/google-maps-scraper:v1.15.0
+    image: gosom/google-maps-scraper
     container_name: leads-genx-gmaps-scraper
     restart: unless-stopped
     command: ["-web", "-data-folder", "/gmapsdata"]
