@@ -187,6 +187,24 @@ The dashboard adds or exposes:
 
 Events remain bounded and must not include raw HTML, CSV data, keys, usernames, passwords, or complete proxy URLs.
 
+## Visual Design and Interaction Quality
+
+The implementation preserves the existing dark operator-console identity while making the local-first workflow feel deliberate, modern, and easy to scan. This is a focused refinement of the current vanilla HTML/CSS interface, not a framework migration or decorative redesign.
+
+- Retain the charcoal background and green-to-cyan accent palette, but formalize color, spacing, radius, shadow, and typography tokens so every control and panel feels related.
+- Keep the desktop workspace in a clear two-column hierarchy: run configuration on the left, live run health on the right, and full-width results below. Collapse to one column without horizontal page scrolling on smaller screens.
+- Give local-first mode a concise source summary showing `Docker primary` and `Google fallback` before submission, including the API request budget and direct-routing warning.
+- Present the most important live metrics as compact cards: unique businesses, emails, local batches, API requests, duplicates removed, and current route.
+- Use consistent status badges for `direct`, `9Proxy`, `paused`, `running`, `cooling`, `completed`, and `failed`, with both text and color so state never depends on color alone.
+- Make the progress panel visually dominant during an active run, with phase, completed/total batches, elapsed time, current route, and the latest actionable event.
+- Keep credentials and advanced routing controls behind progressive disclosure. Their labels must explain memory-only handling without revealing entered values after submission.
+- Add polished loading, empty, success, warning, paused, and failure states instead of leaving blank panels or raw error strings.
+- Improve table readability with sticky headers, restrained row hover, aligned numeric columns, and clear source/status badges. Preserve horizontal table scrolling only inside the table container.
+- Use subtle transitions for progress and status changes, honor `prefers-reduced-motion`, and avoid animations that delay interaction.
+- Maintain visible keyboard focus, semantic labels, adequate contrast, touch-friendly controls, and an `aria-live` region for run-state changes.
+- Avoid external UI frameworks, icon CDNs, and font dependencies. The dashboard must remain fast, self-contained, and usable when the internet connection is degraded.
+- Verify the finished layout at approximately 1440 px, 1024 px, 768 px, and 390 px widths, with no clipped controls, overlapping content, or secret values visible in the DOM after submission.
+
 ## Testing Strategy
 
 ### Leads-GenX automated tests
@@ -228,6 +246,7 @@ Events remain bounded and must not include raw HTML, CSV data, keys, usernames, 
 - Cancel and resume checkpointed work.
 - Confirm the dashboard's counts match persisted output.
 - Run a controlled performance benchmark before enabling concurrency `2`.
+- Inspect the dashboard at desktop, tablet, and mobile widths and verify keyboard navigation, focus visibility, reduced-motion behavior, readable statuses, and bounded table overflow.
 
 ## Acceptance Criteria
 
@@ -245,6 +264,7 @@ Events remain bounded and must not include raw HTML, CSV data, keys, usernames, 
 - Google keys and proxy credentials are absent from logs, events, databases, job responses, run history, and exports.
 - Docker exposes only `127.0.0.1:8080`, and Leads-GenX remains available on `localhost:4177`.
 - Existing Apify and Sales Navigator behavior remains intact.
+- The dashboard presents the local-first workflow with a cohesive responsive hierarchy, accessible state indicators, polished loading/error/empty states, and no visual regressions at the required viewport widths.
 - All applicable Go tests, Vitest tests, TypeScript build checks, Docker smoke tests, and end-to-end checks pass before completion is claimed.
 
 ## Operational Caveats
