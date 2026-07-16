@@ -6,3 +6,5 @@ dist/
 *.log
 logs/
 coverage/
+.superpowers/
+.worktrees/
