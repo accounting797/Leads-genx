@@ -60,12 +60,13 @@ interface RunGooglePlacesOptions {
   supplementLocal?: boolean;
 }
 
-function serializeFilters(input: ValidatedRunInput): string {
+export function serializeSafeFilters(input: ValidatedRunInput): string {
   const { cookies: _cookies, userAgent: _userAgent, ...safeSalesNavigator } =
     input.salesNavigator ?? {};
   return JSON.stringify({
     googleMaps: input.googleMaps,
     salesNavigator: input.salesNavigator ? safeSalesNavigator : undefined,
+    routeMode: input.routeMode ?? 'direct',
   });
 }
 
@@ -546,7 +547,7 @@ export function createRunService({
       status: 'queued',
       leadSource: input.leadSource,
       searchUrl: input.searchUrl,
-      filterJson: serializeFilters(input),
+      filterJson: serializeSafeFilters(input),
       actorId: actorInput.actorId,
       maxResults: input.maxResults,
       leadCount: 0,

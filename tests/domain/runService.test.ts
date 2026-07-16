@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRunService, RunStore } from '../../src/domain/runService';
+import { createRunService, RunStore, serializeSafeFilters } from '../../src/domain/runService';
 import { ActorClient } from '../../src/integrations/actorClient';
 import { NormalizedLead } from '../../src/domain/types';
 import { GooglePlacesClient } from '../../src/integrations/googlePlacesClient';
@@ -47,6 +47,26 @@ function createStore(): RunStore & {
 }
 
 describe('createRunService', () => {
+  it('exports secret-safe persisted filters for restart recovery', () => {
+    const serialized = serializeSafeFilters({
+      apifyToken: 'apify-secret',
+      googleApiKey: 'google-secret',
+      proxyUrls: ['socks5h://user:proxy-secret@127.0.0.1:60001'],
+      routeMode: 'proxy',
+      leadSource: 'google_maps',
+      maxResults: 100,
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], apiRequestBudget: 25 },
+    });
+
+    expect(serialized).not.toContain('apify-secret');
+    expect(serialized).not.toContain('google-secret');
+    expect(serialized).not.toContain('proxy-secret');
+    expect(JSON.parse(serialized)).toMatchObject({
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], apiRequestBudget: 25 },
+      routeMode: 'proxy',
+    });
+  });
+
   it('does not persist Sales Navigator cookies or browser user agent in run filters', async () => {
     const store = createStore();
     const actorClient: ActorClient = {
