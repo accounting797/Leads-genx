@@ -56,6 +56,37 @@ describe('normalizeLead', () => {
     });
   });
 
+  it('normalizes HarvestAPI Sales Navigator profiles and email arrays', () => {
+    const lead = normalizeLead(
+      {
+        firstName: 'Jane',
+        lastName: 'Doe',
+        headline: 'VP Sales at Example Inc',
+        location: 'Austin, Texas, United States',
+        linkedinUrl: 'https://www.linkedin.com/in/janedoe',
+        emails: ['Jane.Doe@example.com'],
+        currentPosition: {
+          position: 'VP Sales',
+          companyName: 'Example Inc',
+        },
+      },
+      'sales_navigator'
+    );
+
+    expect(lead).toMatchObject({
+      leadSource: 'sales_navigator',
+      leadType: 'person',
+      firstName: 'Jane',
+      lastName: 'Doe',
+      fullName: 'Jane Doe',
+      jobTitle: 'VP Sales',
+      companyName: 'Example Inc',
+      email: 'Jane.Doe@example.com',
+      location: 'Austin, Texas, United States',
+      profileUrl: 'https://www.linkedin.com/in/janedoe',
+    });
+  });
+
   it('normalizes Google Places business leads', () => {
     const lead = normalizeLead(
       {

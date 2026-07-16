@@ -27,6 +27,11 @@ function nestedText(value: unknown): string | undefined {
   return stringValue(obj.text);
 }
 
+function firstString(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return stringValue(...value);
+}
+
 export function normalizeLead(item: unknown, leadSource: LeadSource): NormalizedLead {
   const obj = record(item);
   const rawJson = JSON.stringify(obj);
@@ -51,17 +56,65 @@ export function normalizeLead(item: unknown, leadSource: LeadSource): Normalized
     };
   }
 
-  const fullName = stringValue(obj.fullName, obj.name);
+  const snl = record(obj.salesNavLead);
+  const currentPosition = record(obj.currentPosition);
+  const profileData = record(obj.profileData);
+  const profile = record(profileData.profile);
+  const firstName = stringValue(snl.firstName, obj.firstName);
+  const lastName = stringValue(snl.lastName, obj.lastName);
+  const fullName = stringValue(obj.fullName, obj.name, firstName && lastName ? `${firstName} ${lastName}` : undefined);
+
+  let positionTitle: string | undefined;
+  let positionCompany: string | undefined;
+  if (Array.isArray(snl.currentPositions) && snl.currentPositions.length > 0) {
+    const firstPos = record(snl.currentPositions[0]);
+    positionTitle = stringValue(firstPos.title);
+    positionCompany = stringValue(firstPos.companyName);
+  }
+
   return {
     leadSource,
     leadType: 'person',
     fullName,
-    jobTitle: stringValue(obj.jobTitle, obj.title, obj.headline),
-    companyName: stringValue(obj.companyName, obj.company, obj.currentCompany),
-    email: stringValue(obj.email, obj.workEmail),
+    firstName,
+    lastName,
+    jobTitle: stringValue(
+      obj.jobTitle,
+      obj.title,
+      currentPosition.position,
+      currentPosition.title,
+      positionTitle,
+      obj.headline,
+      snl.headline,
+      profile.headline
+    ),
+    companyName: stringValue(
+      obj.companyName,
+      obj.company,
+      obj.currentCompany,
+      currentPosition.companyName,
+      snl.companyName,
+      positionCompany,
+      profile.companyName
+    ),
+    email: stringValue(
+      obj.email,
+      obj.workEmail,
+      obj.emailAddress,
+      firstString(obj.emails),
+      profile.email,
+      profile.workEmail,
+      firstString(profile.emails)
+    ),
     phone: stringValue(obj.phone),
-    profileUrl: stringValue(obj.profileUrl, obj.linkedinUrl, obj.url),
-    location: stringValue(obj.location),
+    profileUrl: stringValue(
+      obj.profileUrl,
+      obj.linkedinUrl,
+      obj.url,
+      obj.linkedInProfileUrl,
+      profile.linkedinUrl
+    ),
+    location: stringValue(obj.location, snl.geoRegion, profile.location),
     connectionDegree: stringValue(obj.connectionDegree),
     rawJson,
   };

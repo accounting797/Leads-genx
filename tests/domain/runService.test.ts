@@ -47,6 +47,43 @@ function createStore(): RunStore & {
 }
 
 describe('createRunService', () => {
+  it('does not persist Sales Navigator cookies or browser user agent in run filters', async () => {
+    const store = createStore();
+    const actorClient: ActorClient = {
+      async startRun() {
+        return { runId: 'sales-run', datasetId: 'sales-dataset', status: 'SUCCEEDED' };
+      },
+      async getRun() {
+        return { runId: 'sales-run', datasetId: 'sales-dataset', status: 'SUCCEEDED' };
+      },
+      async getDatasetItems() {
+        return [{ firstName: 'Jane', lastName: 'Doe', email: 'jane@example.com' }];
+      },
+    };
+    const service = createRunService({ store, actorClient });
+
+    await service.startRun(
+      {
+        apifyToken: 'token',
+        leadSource: 'sales_navigator',
+        searchUrl: 'https://www.linkedin.com/sales/search/people?query=test',
+        maxResults: 25,
+        salesNavigator: {
+          keywords: 'SaaS',
+          cookies: '[{"name":"li_at","value":"COOKIE_SECRET_MARKER"}]',
+          userAgent: 'USER_AGENT_MARKER',
+        },
+      },
+      { background: false }
+    );
+
+    expect(store.runs[0].filterJson).not.toContain('COOKIE_SECRET_MARKER');
+    expect(store.runs[0].filterJson).not.toContain('USER_AGENT_MARKER');
+    expect(JSON.parse(store.runs[0].filterJson ?? '{}')).toMatchObject({
+      salesNavigator: { keywords: 'SaaS' },
+    });
+  });
+
   it('records a completed Google Maps run with email-only enriched leads', async () => {
     const store = createStore();
     let datasetToken: string | undefined;

@@ -85,6 +85,8 @@ describe('validateCreateRunInput', () => {
           seniorities: ['Director'],
           functions: ['Sales'],
           headcounts: ['51-200'],
+          cookies: '[{"name":"li_at","value":"dummy"}]',
+          userAgent: 'Mozilla/5.0 test-agent',
         },
       },
       false
@@ -96,8 +98,78 @@ describe('validateCreateRunInput', () => {
         seniorities: ['Director'],
         functions: ['Sales'],
         headcounts: ['51-200'],
+        cookies: '[{"name":"li_at","value":"dummy"}]',
+        userAgent: 'Mozilla/5.0 test-agent',
       },
     });
+  });
+
+  it('rejects Sales Navigator runs with malformed cookie JSON', () => {
+    expect(() =>
+      validateCreateRunInput(
+        {
+          apifyToken: 'secret-token',
+          leadSource: 'sales_navigator',
+          searchUrl: 'https://www.linkedin.com/sales/search/people?query=test',
+          salesNavigator: {
+            cookies: '{not-json}',
+            userAgent: 'Mozilla/5.0 test-agent',
+          },
+        },
+        false
+      )
+    ).toThrow(/cookie JSON/i);
+  });
+
+  it('rejects Sales Navigator runs without a browser user agent', () => {
+    expect(() =>
+      validateCreateRunInput(
+        {
+          apifyToken: 'secret-token',
+          leadSource: 'sales_navigator',
+          searchUrl: 'https://www.linkedin.com/sales/search/people?query=test',
+          salesNavigator: {
+            cookies: '[{"name":"li_at","value":"dummy"}]',
+          },
+        },
+        false
+      )
+    ).toThrow(/user agent/i);
+  });
+
+  it('rejects non-Sales-Navigator URLs for Sales Navigator runs', () => {
+    expect(() =>
+      validateCreateRunInput(
+        {
+          apifyToken: 'secret-token',
+          leadSource: 'sales_navigator',
+          searchUrl: 'https://example.com/search',
+          salesNavigator: {
+            cookies: '[{"name":"li_at","value":"dummy"}]',
+            userAgent: 'Mozilla/5.0 test-agent',
+          },
+        },
+        false
+      )
+    ).toThrow(/Sales Navigator people-search URL/i);
+  });
+
+  it('rejects Sales Navigator result requests above 2500 profiles', () => {
+    expect(() =>
+      validateCreateRunInput(
+        {
+          apifyToken: 'secret-token',
+          leadSource: 'sales_navigator',
+          maxResults: 2501,
+          searchUrl: 'https://www.linkedin.com/sales/search/people?query=test',
+          salesNavigator: {
+            cookies: '[{"name":"li_at","value":"dummy"}]',
+            userAgent: 'Mozilla/5.0 test-agent',
+          },
+        },
+        false
+      )
+    ).toThrow(/2500/i);
   });
 
   it('parses comma-separated Apify tokens and Google API keys', () => {

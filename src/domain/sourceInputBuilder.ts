@@ -7,7 +7,7 @@ import {
 import { buildGoogleMapsSearchQueries } from './googleMapsQueryBuilder';
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID = 'compass/google-maps-extractor';
-const DEFAULT_SALES_NAVIGATOR_ACTOR_ID = 'harvestapi/linkedin-profile-search';
+const DEFAULT_SALES_NAVIGATOR_ACTOR_ID = 'harvestapi/linkedin-sales-navigator-lead-search-cookie';
 
 function addRepeated(parts: string[], key: string, values?: string[]) {
   for (const value of values ?? []) {
@@ -60,6 +60,20 @@ export function buildSalesNavigatorUrl(filters: SalesNavigatorFilters): string {
   return `https://www.linkedin.com/sales/search/people?query=${query}`;
 }
 
+function buildSalesNavigatorSearchQuery(filters: SalesNavigatorFilters): string | undefined {
+  const values = [
+    filters.keywords,
+    ...(filters.industries ?? []),
+    ...(filters.companies ?? []),
+    ...(filters.seniorities ?? []),
+    ...(filters.functions ?? []),
+    ...(filters.headcounts ?? []),
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  return values.length ? Array.from(new Set(values)).join(' ') : undefined;
+}
+
 export function buildGoogleMapsInput(filters: GoogleMapsFilters): Record<string, unknown> {
   const input: Record<string, unknown> = {
     language: 'en',
@@ -106,7 +120,28 @@ export function buildActorInput(input: ValidatedRunInput): ActorRunInput {
     };
   }
 
-  const searchUrl = input.searchUrl ?? buildSalesNavigatorUrl(input.salesNavigator ?? {});
+  const filters = input.salesNavigator ?? {};
+  if (!filters.cookies || !filters.userAgent) {
+    throw new Error('Sales Navigator cookies and browser user agent are required');
+  }
+
+  const snInput: Record<string, unknown> = {
+    profileScraperMode: 'Full + email search',
+    cookie: filters.cookies,
+    userAgent: filters.userAgent,
+    startPage: 1,
+    takePages: Math.min(Math.ceil(input.maxResults / 25), 100),
+  };
+
+  if (input.searchUrl) {
+    snInput.salesNavUrl = input.searchUrl;
+  } else {
+    const searchQuery = buildSalesNavigatorSearchQuery(filters);
+    if (searchQuery) snInput.searchQuery = searchQuery;
+    if (filters.titles?.length) snInput.currentJobTitles = filters.titles;
+    if (filters.geographies?.length) snInput.locations = filters.geographies;
+  }
+
   return {
     token: input.apifyToken,
     leadSource: 'sales_navigator',
@@ -114,10 +149,7 @@ export function buildActorInput(input: ValidatedRunInput): ActorRunInput {
       input.actorId ??
       process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID ??
       DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
-    input: {
-      searchUrl,
-      maxResults: input.maxResults,
-    },
+    input: snInput,
     maxResults: input.maxResults,
   };
 }

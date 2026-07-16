@@ -1,6 +1,7 @@
 (function () {
   const api = window.LeadsGenXApi;
   const chips = {};
+  const maxResultsBySource = {};
   let activeSource = 'google_maps';
   let activeRunId = null;
   let progressTimer = null;
@@ -41,8 +42,22 @@
     }
   }
 
+  function applySourceLimits(source) {
+    const maxResults = $('maxResults');
+    if (source === 'sales_navigator') {
+      maxResults.max = '2500';
+      if (Number(maxResults.value || 0) > 2500) maxResults.value = '2500';
+      return;
+    }
+    maxResults.removeAttribute('max');
+  }
+
   function setSource(source) {
+    const maxResults = $('maxResults');
+    maxResultsBySource[activeSource] = maxResults.value;
     activeSource = source;
+    if (maxResultsBySource[source]) maxResults.value = maxResultsBySource[source];
+    applySourceLimits(source);
     document.querySelectorAll('.source-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.source === source);
     });
@@ -93,6 +108,7 @@
         functions: chips.snFunctions.getValue(),
         headcounts: chips.snHeadcounts.getValue(),
         cookies: $('snCookies').value.trim() || undefined,
+        userAgent: $('snUserAgent').value.trim() || undefined,
       };
     }
 

@@ -111,7 +111,45 @@ function parseSalesNavigator(value: unknown): SalesNavigatorFilters | undefined 
     seniorities: asStringArray(obj.seniorities),
     functions: asStringArray(obj.functions),
     headcounts: asStringArray(obj.headcounts),
+    cookies: asString(obj.cookies),
+    userAgent: asString(obj.userAgent),
   };
+}
+
+function hasValidCookieJson(value?: string): boolean {
+  if (!value) return false;
+  try {
+    const cookies = JSON.parse(value);
+    return (
+      Array.isArray(cookies) &&
+      cookies.length > 0 &&
+      cookies.every(
+        (cookie) =>
+          cookie &&
+          typeof cookie === 'object' &&
+          typeof cookie.name === 'string' &&
+          cookie.name.trim() &&
+          typeof cookie.value === 'string' &&
+          cookie.value.trim()
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isSalesNavigatorPeopleSearchUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === 'https:' &&
+      (hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com')) &&
+      url.pathname.startsWith('/sales/search/people')
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): ValidatedRunInput {
@@ -182,6 +220,26 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
 
   if (leadSource === 'sales_navigator' && !searchUrl && !hasSalesNavigatorFilters(salesNavigator)) {
     fields.salesNavigator = 'Sales Navigator runs need a search URL or professional filters.';
+  }
+
+  if (leadSource === 'sales_navigator' && !salesNavigator?.cookies) {
+    fields.cookies = 'LinkedIn cookies are required for Sales Navigator runs.';
+  }
+
+  if (leadSource === 'sales_navigator' && salesNavigator?.cookies && !hasValidCookieJson(salesNavigator.cookies)) {
+    fields.cookies = 'LinkedIn cookie JSON must be a non-empty array of cookies with name and value fields.';
+  }
+
+  if (leadSource === 'sales_navigator' && !salesNavigator?.userAgent) {
+    fields.userAgent = 'Browser user agent is required for Sales Navigator runs.';
+  }
+
+  if (leadSource === 'sales_navigator' && searchUrl && !isSalesNavigatorPeopleSearchUrl(searchUrl)) {
+    fields.searchUrl = 'Search URL must be a LinkedIn Sales Navigator people-search URL.';
+  }
+
+  if (leadSource === 'sales_navigator' && maxResults > 2500) {
+    fields.maxResults = 'Sales Navigator maxResults cannot exceed 2500 profiles per run.';
   }
 
   if (Object.keys(fields).length) {

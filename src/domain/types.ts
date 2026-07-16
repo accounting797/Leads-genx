@@ -11,6 +11,8 @@ export interface SalesNavigatorFilters {
   seniorities?: string[];
   functions?: string[];
   headcounts?: string[];
+  cookies?: string;
+  userAgent?: string;
 }
 
 export interface GoogleMapsFilters {

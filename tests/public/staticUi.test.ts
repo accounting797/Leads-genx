@@ -128,3 +128,30 @@ describe('static dashboard credential entry', () => {
     expect(appJs).toContain("normalizeCredentialBox($('googleApiKey'))");
   });
 });
+
+describe('static dashboard Sales Navigator credentials', () => {
+  it('collects exported cookies and the matching browser user agent', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+
+    expect(html).toContain('id="snCookies"');
+    expect(html).toContain('id="snUserAgent"');
+    expect(appJs).toContain("cookies: $('snCookies').value.trim()");
+    expect(appJs).toContain("userAgent: $('snUserAgent').value.trim()");
+  });
+
+  it('applies the 2500 result ceiling only to Sales Navigator', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('applySourceLimits');
+    expect(appJs).toContain("maxResults.max = '2500'");
+    expect(appJs).toContain("maxResults.removeAttribute('max')");
+  });
+
+  it('restores the previous max result value when switching back to Google Maps', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('maxResultsBySource[activeSource] = maxResults.value');
+    expect(appJs).toContain('maxResults.value = maxResultsBySource[source]');
+  });
+});

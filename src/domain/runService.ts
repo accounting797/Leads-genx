@@ -56,9 +56,11 @@ interface RunApifyShardsOptions {
 }
 
 function serializeFilters(input: ValidatedRunInput): string {
+  const { cookies: _cookies, userAgent: _userAgent, ...safeSalesNavigator } =
+    input.salesNavigator ?? {};
   return JSON.stringify({
     googleMaps: input.googleMaps,
-    salesNavigator: input.salesNavigator,
+    salesNavigator: input.salesNavigator ? safeSalesNavigator : undefined,
   });
 }
 

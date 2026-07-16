@@ -197,11 +197,12 @@ describe('buildActorInput', () => {
     });
   });
 
-  it('maps the expanded Sales Navigator filters into a generated query URL', () => {
+  it('maps Sales Navigator filters into the HarvestAPI email-search contract', () => {
+    const cookies = '[{"name":"li_at","value":"session-value"}]';
     const result = buildActorInput({
       apifyToken: 'token',
       leadSource: 'sales_navigator',
-      maxResults: 100,
+      maxResults: 2500,
       salesNavigator: {
         keywords: 'SaaS',
         titles: ['VP Sales'],
@@ -211,10 +212,46 @@ describe('buildActorInput', () => {
         seniorities: ['Director'],
         functions: ['Sales'],
         headcounts: ['51-200'],
+        cookies,
+        userAgent: 'Mozilla/5.0 test-agent',
       },
     });
 
-    expect(result.input).toMatchObject({ searchUrl: expect.any(String), maxResults: 100 });
+    expect(result.actorId).toBe('harvestapi/linkedin-sales-navigator-lead-search-cookie');
+    expect(result.input).toEqual({
+      profileScraperMode: 'Full + email search',
+      cookie: cookies,
+      userAgent: 'Mozilla/5.0 test-agent',
+      startPage: 1,
+      takePages: 100,
+      searchQuery: 'SaaS Software Development Enterprise Director Sales 51-200',
+      currentJobTitles: ['VP Sales'],
+      locations: ['United States'],
+    });
+  });
+
+  it('uses a supplied Sales Navigator URL instead of structured search fields', () => {
+    const result = buildActorInput({
+      apifyToken: 'token',
+      leadSource: 'sales_navigator',
+      searchUrl: 'https://www.linkedin.com/sales/search/people?query=test',
+      maxResults: 26,
+      salesNavigator: {
+        keywords: 'ignored when URL is present',
+        titles: ['VP Sales'],
+        cookies: '[{"name":"li_at","value":"session-value"}]',
+        userAgent: 'Mozilla/5.0 test-agent',
+      },
+    });
+
+    expect(result.input).toEqual({
+      profileScraperMode: 'Full + email search',
+      cookie: '[{"name":"li_at","value":"session-value"}]',
+      userAgent: 'Mozilla/5.0 test-agent',
+      startPage: 1,
+      takePages: 2,
+      salesNavUrl: 'https://www.linkedin.com/sales/search/people?query=test',
+    });
   });
 });
 
