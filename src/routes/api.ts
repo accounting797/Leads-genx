@@ -12,11 +12,19 @@ export interface ApiRunService {
     status: string;
     leadSource: string;
   }>;
+  resumeRun?(runId: number, credentials: {
+    googleApiKey?: string;
+    googleApiKeys?: string[];
+    proxyUrls?: string[];
+  }): Promise<{ id: number; status: string }>;
+  scraperHealth?(): Promise<{ ok: boolean; route: string; healthyProxyCount: number }>;
+  recoverInterruptedRuns?(): Promise<void>;
 }
 
 export interface ApiDeps {
   prisma?: PrismaClient;
   runService?: ApiRunService;
+  recoverOnStartup?: boolean;
 }
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
@@ -40,6 +48,17 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
   router.get('/suggestions', (_req, res) => {
     res.json({ data: suggestions });
   });
+
+  router.get(
+    '/scraper/health',
+    asyncHandler(async (_req, res) => {
+      if (!runService?.scraperHealth) {
+        res.status(503).json({ error: 'Scraper health unavailable' });
+        return;
+      }
+      res.json({ data: await runService.scraperHealth() });
+    })
+  );
 
   router.post(
     '/runs',
@@ -87,6 +106,29 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
         return;
       }
       res.json({ data: run });
+    })
+  );
+
+  router.post(
+    '/runs/:id/resume',
+    asyncHandler(async (req, res) => {
+      if (!runService?.resumeRun) {
+        res.status(503).json({ error: 'Run recovery unavailable' });
+        return;
+      }
+      const parsed = validateCreateRunInput({
+        leadSource: 'google_maps',
+        maxResults: 1,
+        googleApiKey: req.body?.googleApiKey,
+        proxyUrls: req.body?.proxyUrls,
+        googleMaps: { provider: 'local_first', searchTerms: ['resume'], apiRequestBudget: 0 },
+      }, false);
+      const resumed = await runService.resumeRun(Number(req.params.id), {
+        googleApiKey: parsed.googleApiKey,
+        googleApiKeys: parsed.googleApiKeys,
+        proxyUrls: parsed.proxyUrls,
+      });
+      res.status(202).json({ data: { id: resumed.id, status: resumed.status } });
     })
   );
 

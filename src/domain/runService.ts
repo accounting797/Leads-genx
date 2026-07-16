@@ -8,7 +8,7 @@ import { normalizeLead } from './leadNormalizer';
 import { executeLocalFirstRun } from './localFirstRunService';
 import type { LocalFirstRunStore } from './prismaRunStore';
 import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
-import { LeadSource, NormalizedLead, ValidatedRunInput } from './types';
+import { GoogleMapsFilters, LeadSource, NormalizedLead, RouteMode, ValidatedRunInput } from './types';
 
 export interface RunRecord {
   id: number;
@@ -80,6 +80,12 @@ export function serializeSafeFilters(input: ValidatedRunInput): string {
     salesNavigator: input.salesNavigator ? safeSalesNavigator : undefined,
     routeMode: input.routeMode ?? 'direct',
   });
+}
+
+export interface ResumeCredentials {
+  googleApiKey?: string;
+  googleApiKeys?: string[];
+  proxyUrls?: string[];
 }
 
 function isGooglePlacesRun(input: ValidatedRunInput): boolean {
@@ -559,6 +565,72 @@ export function createRunService({
     }
   }
 
+  function recoveredInput(run: RunRecord, credentials: ResumeCredentials = {}): ValidatedRunInput {
+    let persisted: { googleMaps?: GoogleMapsFilters; routeMode?: RouteMode } = {};
+    try {
+      persisted = JSON.parse(run.filterJson ?? '{}') as typeof persisted;
+    } catch {
+      persisted = {};
+    }
+    const googleApiKeys = credentials.googleApiKeys?.length
+      ? credentials.googleApiKeys
+      : credentials.googleApiKey
+        ? [credentials.googleApiKey]
+        : undefined;
+    return {
+      leadSource: run.leadSource,
+      maxResults: run.maxResults,
+      googleMaps: persisted.googleMaps,
+      routeMode: credentials.proxyUrls?.length ? 'proxy' : persisted.routeMode ?? 'direct',
+      proxyUrls: credentials.proxyUrls,
+      googleApiKey: googleApiKeys?.[0],
+      googleApiKeys,
+    };
+  }
+
+  async function resumeRun(runId: number, credentials: ResumeCredentials = {}): Promise<{ id: number; status: string }> {
+    const checkpointStore = store as Partial<LocalFirstRunStore>;
+    if (!checkpointStore.getRun) throw new Error('Run recovery is not configured');
+    const run = await checkpointStore.getRun(runId);
+    if (!run) throw new Error('Run not found');
+    if (!['waiting_for_scraper', 'waiting_for_credentials', 'cooling_down', 'failed'].includes(run.status)) {
+      throw new Error('Run is not waiting for recovery');
+    }
+    const input = recoveredInput(run, credentials);
+    if (input.routeMode === 'proxy' && !input.proxyUrls?.length) throw new Error('Proxy credentials must be re-entered');
+    const queued = await store.updateRun(run.id, { status: 'queued', errorMessage: undefined });
+    void executeRun(queued, input);
+    return { id: run.id, status: 'queued' };
+  }
+
+  async function recoverInterruptedRuns(): Promise<void> {
+    const checkpointStore = store as Partial<LocalFirstRunStore>;
+    if (!checkpointStore.listRecoverableRuns || !checkpointStore.listBatches || !checkpointStore.upsertBatch) return;
+    const runs = await checkpointStore.listRecoverableRuns();
+    for (const run of runs) {
+      const input = recoveredInput(run);
+      if (input.routeMode === 'proxy') {
+        await store.updateRun(run.id, { status: 'waiting_for_credentials' });
+        await store.addEvent(run.id, 'run_waiting_for_credentials', 'Proxy credentials must be re-entered after restart.');
+        continue;
+      }
+      const batches = await checkpointStore.listBatches(run.id);
+      for (const batch of batches.filter((candidate) => candidate.status === 'running')) {
+        await checkpointStore.upsertBatch(run.id, { ...batch, status: 'retry', errorCode: 'interrupted' });
+      }
+      void executeRun(run, input);
+    }
+  }
+
+  async function scraperHealth(): Promise<{ ok: boolean; route: string; healthyProxyCount: number }> {
+    const client = localMapsScraperClient as Partial<ResumableLocalMapsScraperClient> | undefined;
+    return {
+      ok: client?.health ? await client.health() : false,
+      route: 'direct',
+      healthyProxyCount: 0,
+    };
+  }
+
   async function startRun(input: ValidatedRunInput, options: StartRunOptions = {}) {
     const actorInput = isLocalFirstRun(input)
       ? { actorId: 'local_first' }
@@ -598,5 +670,8 @@ export function createRunService({
   return {
     startRun,
     executeRun,
+    resumeRun,
+    recoverInterruptedRuns,
+    scraperHealth,
   };
 }

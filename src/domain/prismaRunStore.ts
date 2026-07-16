@@ -66,6 +66,7 @@ export interface LocalFirstRunStore extends RunStore {
   upsertBusiness(runId: number, business: DiscoveredBusinessWrite): Promise<'inserted' | 'merged'>;
   listBusinesses(runId: number): Promise<DiscoveredBusinessRecord[]>;
   listRecoverableRuns(): Promise<RunRecord[]>;
+  getRun(runId: number): Promise<RunRecord | undefined>;
 }
 
 function toRunRecord(run: {
@@ -282,5 +283,10 @@ export class PrismaRunStore implements LocalFirstRunStore {
       orderBy: { id: 'asc' },
     });
     return runs.map(toRunRecord);
+  }
+
+  async getRun(runId: number): Promise<RunRecord | undefined> {
+    const run = await this.prisma.run.findUnique({ where: { id: runId } });
+    return run ? toRunRecord(run) : undefined;
   }
 }

@@ -33,6 +33,7 @@ function fakeStore(run: RunRecord, seeded: { batches?: RunBatchRecord[]; busines
     },
     async listBusinesses() { return businesses; },
     async listRecoverableRuns() { return []; },
+    async getRun() { return run; },
   };
   return { store, calls, batches, businesses, leads };
 }

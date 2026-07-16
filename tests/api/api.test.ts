@@ -206,4 +206,51 @@ describe('API', () => {
 
     expect(res.body).toEqual({ error: 'Run not found' });
   });
+
+  it('reports local scraper health without exposing route credentials', async () => {
+    const app = createApp({
+      runService: {
+        async startRun() { throw new Error('not used'); },
+        async scraperHealth() { return { ok: true, route: 'direct', healthyProxyCount: 0 }; },
+      },
+    });
+
+    const res = await request(app).get('/api/scraper/health').expect(200);
+    expect(res.body).toEqual({ data: { ok: true, route: 'direct', healthyProxyCount: 0 } });
+  });
+
+  it('resumes a checkpointed run without echoing request-scoped credentials', async () => {
+    let received: unknown;
+    const app = createApp({
+      runService: {
+        async startRun() { throw new Error('not used'); },
+        async resumeRun(runId, credentials) {
+          received = { runId, credentials };
+          return { id: runId, status: 'queued' };
+        },
+      },
+    });
+
+    const res = await request(app).post('/api/runs/12/resume').send({
+      googleApiKey: 'google-key-sentinel',
+      proxyUrls: 'socks5h://user:proxy-password-sentinel@127.0.0.1:60001',
+    }).expect(202);
+
+    expect(received).toMatchObject({ runId: 12, credentials: { googleApiKey: 'google-key-sentinel' } });
+    expect(JSON.stringify(res.body)).not.toContain('google-key-sentinel');
+    expect(JSON.stringify(res.body)).not.toContain('proxy-password-sentinel');
+  });
+
+  it('queues interrupted-run recovery once when startup recovery is enabled', async () => {
+    let recoveries = 0;
+    createApp({
+      recoverOnStartup: true,
+      runService: {
+        async startRun() { throw new Error('not used'); },
+        async recoverInterruptedRuns() { recoveries += 1; },
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(recoveries).toBe(1);
+  });
 });

@@ -8,6 +8,7 @@ import { ApifyActorClient } from './integrations/apifyActorClient';
 import { GooglePlacesApiClient } from './integrations/googlePlacesClient';
 import { LocalMapsScraperKitClient } from './integrations/localMapsScraperClient';
 import { ApiDeps, createApiRouter } from './routes/api';
+import { safeErrorMessage } from './domain/errorLogger';
 
 export function createApp(deps: ApiDeps = {}) {
   const app = express();
@@ -22,6 +23,14 @@ export function createApp(deps: ApiDeps = {}) {
       emailExtractor: new WebsiteEmailExtractor(),
       enableLocalMapsScraper: process.env.ENABLE_LOCAL_MAPS_SCRAPER === 'true',
     });
+
+  if (deps.recoverOnStartup && runService.recoverInterruptedRuns) {
+    setImmediate(() => {
+      void runService.recoverInterruptedRuns?.().catch((error) => {
+        console.error(`Local-first recovery failed: ${safeErrorMessage(error)}`);
+      });
+    });
+  }
 
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', createApiRouter({ prisma: runtimePrisma, runService }));
