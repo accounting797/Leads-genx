@@ -61,6 +61,7 @@ export interface DiscoveredBusinessRecord extends DiscoveredBusinessWrite {
 
 export interface LocalFirstRunStore extends RunStore {
   upsertBatch(runId: number, batch: RunBatchWrite): Promise<RunBatchRecord>;
+  listBatches(runId: number): Promise<RunBatchRecord[]>;
   listRunnableBatches(runId: number, now: Date): Promise<RunBatchRecord[]>;
   upsertBusiness(runId: number, business: DiscoveredBusinessWrite): Promise<'inserted' | 'merged'>;
   listBusinesses(runId: number): Promise<DiscoveredBusinessRecord[]>;
@@ -213,6 +214,11 @@ export class PrismaRunStore implements LocalFirstRunStore {
       },
       orderBy: { id: 'asc' },
     });
+    return batches.map((batch) => ({ ...batch, nextAttemptAt: batch.nextAttemptAt ?? undefined, errorCode: batch.errorCode ?? undefined }));
+  }
+
+  async listBatches(runId: number): Promise<RunBatchRecord[]> {
+    const batches = await this.prisma.runBatch.findMany({ where: { runId }, orderBy: { id: 'asc' } });
     return batches.map((batch) => ({ ...batch, nextAttemptAt: batch.nextAttemptAt ?? undefined, errorCode: batch.errorCode ?? undefined }));
   }
 

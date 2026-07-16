@@ -5,6 +5,9 @@ import { EmailExtractor, keepEmailLeadsOnly } from './emailExtractor';
 import { buildActorInput, buildActorInputsForApifyTokens } from './sourceInputBuilder';
 import { safeErrorMessage } from './errorLogger';
 import { normalizeLead } from './leadNormalizer';
+import { executeLocalFirstRun } from './localFirstRunService';
+import type { LocalFirstRunStore } from './prismaRunStore';
+import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
 import { LeadSource, NormalizedLead, ValidatedRunInput } from './types';
 
 export interface RunRecord {
@@ -393,6 +396,18 @@ export function createRunService({
     try {
       if (isLocalFirstRun(input)) {
         if (!localMapsScraperClient) throw new Error('Local Google Maps scraper client is not configured');
+        const checkpointStore = store as Partial<LocalFirstRunStore>;
+        const resumableClient = localMapsScraperClient as Partial<ResumableLocalMapsScraperClient>;
+        if (typeof checkpointStore.listBatches === 'function' && typeof resumableClient.searchBatch === 'function') {
+          await executeLocalFirstRun({
+            store: store as LocalFirstRunStore,
+            localClient: localMapsScraperClient as ResumableLocalMapsScraperClient,
+            googleClient: googlePlacesClient,
+            emailExtractor,
+            emailConcurrency: emailExtractionConcurrency,
+          }, run, input);
+          return;
+        }
         const seenEmails = new Set<string>();
         let leadCount = 0;
 
@@ -560,6 +575,9 @@ export function createRunService({
       actorId: actorInput.actorId,
       maxResults: input.maxResults,
       leadCount: 0,
+      apiRequestBudget: input.googleMaps?.apiRequestBudget ?? 0,
+      currentRoute: input.routeMode ?? 'direct',
+      localConcurrency: 1,
     });
     const queuedRun = { ...run };
 
