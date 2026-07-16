@@ -1,4 +1,5 @@
 import { buildGoogleMapsSearchQueries } from '../domain/googleMapsQueryBuilder';
+import { LOCAL_DISCOVERY_COORDINATES } from '../domain/localDiscoveryBatch';
 import { GoogleMapsFilters } from '../domain/types';
 
 export interface LocalMapsScraperEvent {
@@ -25,38 +26,7 @@ interface LocalMapsScraperLocationPlan {
 }
 
 const DEFAULT_BASE_URL = 'http://localhost:8080';
-const DEFAULT_COORDINATES: Record<string, { lat: string; lon: string }> = {
-  'austin, tx': { lat: '30.2672', lon: '-97.7431' },
-  'phoenix, az': { lat: '33.4484', lon: '-112.0740' },
-  'miami, fl': { lat: '25.7617', lon: '-80.1918' },
-  'dallas, tx': { lat: '32.7767', lon: '-96.7970' },
-  'los angeles, ca': { lat: '34.0522', lon: '-118.2437' },
-  'new york, ny': { lat: '40.7128', lon: '-74.0060' },
-  'atlanta, ga': { lat: '33.7490', lon: '-84.3880' },
-  'chicago, il': { lat: '41.8781', lon: '-87.6298' },
-  'houston, tx': { lat: '29.7604', lon: '-95.3698' },
-  'san antonio, tx': { lat: '29.4241', lon: '-98.4936' },
-  'san diego, ca': { lat: '32.7157', lon: '-117.1611' },
-  'san jose, ca': { lat: '37.3382', lon: '-121.8863' },
-  'jacksonville, fl': { lat: '30.3322', lon: '-81.6557' },
-  'tampa, fl': { lat: '27.9506', lon: '-82.4572' },
-  'orlando, fl': { lat: '28.5383', lon: '-81.3792' },
-  'charlotte, nc': { lat: '35.2271', lon: '-80.8431' },
-  'raleigh, nc': { lat: '35.7796', lon: '-78.6382' },
-  'nashville, tn': { lat: '36.1627', lon: '-86.7816' },
-  'denver, co': { lat: '39.7392', lon: '-104.9903' },
-  'las vegas, nv': { lat: '36.1699', lon: '-115.1398' },
-  'seattle, wa': { lat: '47.6062', lon: '-122.3321' },
-  'portland, or': { lat: '45.5152', lon: '-122.6784' },
-  'boston, ma': { lat: '42.3601', lon: '-71.0589' },
-  'philadelphia, pa': { lat: '39.9526', lon: '-75.1652' },
-  'washington, dc': { lat: '38.9072', lon: '-77.0369' },
-  'minneapolis, mn': { lat: '44.9778', lon: '-93.2650' },
-  'detroit, mi': { lat: '42.3314', lon: '-83.0458' },
-  'columbus, oh': { lat: '39.9612', lon: '-82.9988' },
-  'tulsa, ok': { lat: '36.1540', lon: '-95.9928' },
-  'midland, tx': { lat: '31.9973', lon: '-102.0779' },
-};
+const DEFAULT_COORDINATES = LOCAL_DISCOVERY_COORDINATES;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
