@@ -10,6 +10,12 @@ The app runs locally at `http://localhost:4177` and stores runs, leads, events, 
 
 This is the recommended higher-volume source. Use business search terms, categories, and one or more locations to collect company-level leads such as business name, category, address, website, phone, rating, review count, and Google Maps URL. A pasted Google Maps URL is optional and only needed as an advanced override.
 
+`Docker Local-First` is the recommended provider. It submits deterministic, one-location browser batches to the locally built scraper on `127.0.0.1:8080`, checkpoints each batch in SQLite, merges duplicate businesses, and only uses Google Places for the remaining target. The Google fallback defaults to 25 HTTP requests and is capped at 500. Set its budget to `0` for browser-only discovery.
+
+Local-first runs accept up to 10,000 target businesses. This is a target, not a guaranteed result count: Google availability, search coverage, websites, and published email addresses determine the actual output. Browser concurrency remains at 1 while direct-mode reliability is being established.
+
+API keys and proxy URLs are request-scoped. They are never written to run filters, events, or scraper job records, and the dashboard clears them after an accepted request. Direct mode uses the host's public IP. If a run is interrupted, direct batches resume from their stored checkpoints; secret-dependent runs wait for credential re-entry.
+
 Default actor: `compass/google-maps-extractor`
 
 ### LinkedIn Sales Navigator
@@ -30,6 +36,15 @@ npm run prisma:generate
 npm run prisma:migrate
 npm run dev
 ```
+
+Build and start the pinned local scraper image before a local-first run:
+
+```powershell
+npm.cmd run scraper:build
+npm.cmd run scraper:up
+```
+
+The scraper source defaults to `C:\Users\Lenovo\Downloads\New folder\google-maps-scraper` and the image is pinned as `leads-genx/google-maps-scraper:1.16.3-local`. Its API is intentionally bound only to `127.0.0.1:8080`.
 
 Open:
 
@@ -60,7 +75,18 @@ Optional `.env` overrides:
 PORT=4177
 DEFAULT_GOOGLE_MAPS_ACTOR_ID="compass/google-maps-extractor"
 DEFAULT_SALES_NAVIGATOR_ACTOR_ID="harvestapi/linkedin-sales-navigator-lead-search-cookie"
+GOOGLE_MAPS_SCRAPER_SOURCE="C:\Users\Lenovo\Downloads\New folder\google-maps-scraper"
 ```
+
+Runtime health checks:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:4177/api/health
+Invoke-RestMethod http://127.0.0.1:4177/api/scraper/health
+Invoke-RestMethod http://127.0.0.1:8080/api/v1/jobs
+```
+
+When the local SOCKS ports are online, enter full URLs such as `socks5h://user:password@127.0.0.1:60001` in the request-scoped proxy box. Leads-GenX translates loopback to `host.docker.internal` for the container. Leave the box empty while the ports are offline; proxy supervision and rotation remain dormant.
 
 ## Export
 
