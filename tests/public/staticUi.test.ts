@@ -85,14 +85,14 @@ describe('static dashboard live progress', () => {
 });
 
 describe('static dashboard Google Maps providers', () => {
-  it('exposes Apify bulk and Google Places provider controls', () => {
+  it('locks Google Maps runs to the automatic Docker-primary pipeline', () => {
     const html = readPublicFile('index.html');
 
     expect(html).toContain('id="gmProvider"');
-    expect(html).toContain('value="apify"');
-    expect(html).toContain('value="google_places"');
-    expect(html).toContain('value="hybrid"');
-    expect(html).toContain('value="local_first"');
+    expect(html).toContain('type="hidden" value="local_first"');
+    expect(html).toContain('Docker scraper primary');
+    expect(html).toContain('Google Places fallback');
+    expect(html).not.toContain('<select id="gmProvider"');
     expect(html).toContain('id="googleApiKey"');
     expect(html).toContain('id="gmApiBudget"');
     expect(html).toContain('id="gmProxyUrls"');
@@ -107,12 +107,11 @@ describe('static dashboard Google Maps providers', () => {
     expect(appJs).toContain("proxyUrls: $('gmProxyUrls').value.trim()");
   });
 
-  it('raises the target result count when Hybrid Max Output is selected', () => {
+  it('forces the local-first provider in every submitted Google Maps run', () => {
     const appJs = readPublicFile('app.js');
 
-    expect(appJs).toContain('applyProviderDefaults');
-    expect(appJs).toContain("if ($('gmProvider').value === 'hybrid'");
-    expect(appJs).toContain("$('maxResults').value = '5000'");
+    expect(appJs).toContain("$('gmProvider').value = 'local_first'");
+    expect(appJs).not.toContain("$('gmProvider').addEventListener('change'");
   });
 });
 

@@ -49,15 +49,12 @@
 
           <section id="googleMapsFields" class="source-fields active">
             <div class="form-grid two compact">
-              <label>
-                <span>Google Maps Provider</span>
-                <select id="gmProvider">
-                  <option value="local_first">Docker Local-First</option>
-                  <option value="apify">Apify Bulk</option>
-                  <option value="google_places">Google Places API</option>
-                  <option value="hybrid">Hybrid Max Output</option>
-                </select>
-              </label>
+              <div class="pipeline-card">
+                <input id="gmProvider" type="hidden" value="local_first">
+                <span class="pipeline-kicker">Automatic pipeline</span>
+                <strong>Docker scraper primary</strong>
+                <p>Google Places fallback fills the remaining target within your request budget.</p>
+              </div>
               <label>
                 <span>Google API Keys</span>
                 <textarea id="googleApiKey" rows="3" autocomplete="off" spellcheck="false" placeholder="Paste Google API keys, one per line"></textarea>

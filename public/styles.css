@@ -253,6 +253,26 @@ input:focus, select:focus, .chip-box:focus-within {
 
 .form-status { color: var(--muted); font-size: 12px; }
 
+.pipeline-card {
+  display: grid;
+  gap: 4px;
+  min-height: 78px;
+  padding: 12px 14px;
+  border: 1px solid rgba(73, 222, 167, 0.3);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(38, 194, 129, 0.12), rgba(48, 183, 214, 0.08));
+}
+
+.pipeline-card strong { color: var(--text); font-size: 14px; }
+.pipeline-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.pipeline-kicker {
+  color: #8ef0ca;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .chip-box {
   position: relative;
   display: flex;

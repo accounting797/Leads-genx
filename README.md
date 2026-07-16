@@ -10,7 +10,7 @@ The app runs locally at `http://localhost:4177` and stores runs, leads, events, 
 
 This is the recommended higher-volume source. Use business search terms, categories, and one or more locations to collect company-level leads such as business name, category, address, website, phone, rating, review count, and Google Maps URL. A pasted Google Maps URL is optional and only needed as an advanced override.
 
-`Docker Local-First` is the recommended provider. It submits deterministic, one-location browser batches to the locally built scraper on `127.0.0.1:8080`, checkpoints each batch in SQLite, merges duplicate businesses, and only uses Google Places for the remaining target. The Google fallback defaults to 25 HTTP requests and is capped at 500. Set its budget to `0` for browser-only discovery.
+Google Maps runs automatically use Docker Local-First; there is no provider selection step. The pipeline submits deterministic, one-location browser batches to the locally built scraper on `127.0.0.1:8080`, checkpoints each batch in SQLite, merges duplicate businesses, and only uses Google Places for the remaining target. The Google fallback defaults to 25 HTTP requests and is capped at 500. Set its budget to `0` for browser-only discovery.
 
 Local-first runs accept up to 10,000 target businesses. This is a target, not a guaranteed result count: Google availability, search coverage, websites, and published email addresses determine the actual output. Browser concurrency remains at 1 while direct-mode reliability is being established.
 
