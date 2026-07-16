@@ -1,5 +1,5 @@
 import { buildGoogleMapsSearchQueries } from '../domain/googleMapsQueryBuilder';
-import { LOCAL_DISCOVERY_COORDINATES } from '../domain/localDiscoveryBatch';
+import { LocalDiscoveryBatch, LOCAL_DISCOVERY_COORDINATES } from '../domain/localDiscoveryBatch';
 import { GoogleMapsFilters } from '../domain/types';
 
 export interface LocalMapsScraperEvent {
@@ -18,6 +18,27 @@ export interface LocalMapsScraperSearchInput {
 
 export interface LocalMapsScraperClient {
   search(input: LocalMapsScraperSearchInput): Promise<unknown[]>;
+}
+
+export interface LocalBatchResult {
+  batchKey: string;
+  jobId: string;
+  items: unknown[];
+  rawBusinessCount: number;
+}
+
+export type LocalScraperErrorCode = 'unavailable' | 'unsupported_location' | 'create' | 'timeout' | 'failed' | 'download';
+
+export class LocalScraperError extends Error {
+  constructor(public readonly code: LocalScraperErrorCode, message: string) {
+    super(message);
+    this.name = 'LocalScraperError';
+  }
+}
+
+export interface ResumableLocalMapsScraperClient extends LocalMapsScraperClient {
+  health(): Promise<boolean>;
+  searchBatch(input: { batch: LocalDiscoveryBatch; proxies?: string[] }): Promise<LocalBatchResult>;
 }
 
 interface LocalMapsScraperLocationPlan {
@@ -144,8 +165,80 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
     } = {}
   ) {}
 
+  private baseUrl(): string {
+    return this.options.baseUrl ?? process.env.LOCAL_MAPS_SCRAPER_URL ?? DEFAULT_BASE_URL;
+  }
+
+  private containerProxies(proxies: string[]): string[] {
+    return proxies.map((proxy) => {
+      const url = new URL(proxy);
+      if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') url.hostname = 'host.docker.internal';
+      return url.toString();
+    });
+  }
+
+  async health(): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.baseUrl()}/api/v1/jobs`);
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async searchBatch({ batch, proxies = [] }: { batch: LocalDiscoveryBatch; proxies?: string[] }): Promise<LocalBatchResult> {
+    if (!batch.lat || !batch.lon) throw new LocalScraperError('unsupported_location', 'Local scraper coordinates are unavailable for this location');
+    const baseUrl = this.baseUrl();
+    const response = await fetch(`${baseUrl}/api/v1/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `leads-genx-${batch.key.slice(0, 32)}`,
+        keywords: [batch.query],
+        lang: 'en',
+        zoom: 15,
+        lat: batch.lat,
+        lon: batch.lon,
+        fast_mode: false,
+        radius: 10000,
+        depth: batch.depth,
+        email: true,
+        max_time: this.options.maxTimeSeconds ?? 900,
+        proxies: proxies.length ? this.containerProxies(proxies) : undefined,
+      }),
+    }).catch(() => { throw new LocalScraperError('unavailable', 'Local Google Maps scraper-kit is unavailable'); });
+    if (!response.ok) throw new LocalScraperError('create', `Local scraper job creation failed with status ${response.status}`);
+    const created = await response.json() as { id?: string };
+    if (!created.id) throw new LocalScraperError('create', 'Local scraper job creation returned no job id');
+
+    const maxPolls = this.options.maxPolls ?? 120;
+    let completed = false;
+    for (let poll = 0; poll < maxPolls; poll += 1) {
+      const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${created.id}`);
+      const payload = statusResponse.ok ? await statusResponse.json() as { Status?: string; status?: string } : {};
+      const status = (payload.Status ?? payload.status)?.toLowerCase();
+      if (status === 'ok') {
+        completed = true;
+        break;
+      }
+      if (status === 'failed' || status === 'error') throw new LocalScraperError('failed', 'Local scraper job failed');
+      await wait(this.options.pollIntervalMs ?? 8000);
+    }
+    if (!completed) throw new LocalScraperError('timeout', 'Local scraper job reached its polling limit');
+
+    const download = await fetch(`${baseUrl}/api/v1/jobs/${created.id}/download`);
+    if (!download.ok) throw new LocalScraperError('download', `Local scraper download failed with status ${download.status}`);
+    const rows = parseCsv(await download.text());
+    return {
+      batchKey: batch.key,
+      jobId: created.id,
+      items: toLeadRows(rows, batch.maxResults),
+      rawBusinessCount: rows.length,
+    };
+  }
+
   async search({ filters, maxResults, proxyUrls, onEvent }: LocalMapsScraperSearchInput): Promise<unknown[]> {
-    const baseUrl = this.options.baseUrl ?? process.env.LOCAL_MAPS_SCRAPER_URL ?? DEFAULT_BASE_URL;
+    const baseUrl = this.baseUrl();
     const plans = locationPlans(filters);
     if (!plans.length) return [];
 
@@ -182,15 +275,7 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
           depth: this.options.depth ?? 10,
           email: true,
           max_time: this.options.maxTimeSeconds ?? 900,
-          proxies: proxyUrls?.length
-            ? proxyUrls.map((proxy) => {
-                const url = new URL(proxy);
-                if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
-                  url.hostname = 'host.docker.internal';
-                }
-                return url.toString();
-              })
-            : undefined,
+          proxies: proxyUrls?.length ? this.containerProxies(proxyUrls) : undefined,
         }),
       });
 

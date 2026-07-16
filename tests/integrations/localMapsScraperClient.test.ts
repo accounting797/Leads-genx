@@ -192,4 +192,44 @@ describe('LocalMapsScraperClient', () => {
       })
     );
   });
+
+  it('runs one deterministic resumable batch and accepts lowercase status payloads', async () => {
+    let postBody: Record<string, unknown> | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
+        postBody = JSON.parse(String(init.body));
+        return Response.json({ id: 'batch-job' }, { status: 201 });
+      }
+      if (url.endsWith('/api/v1/jobs/batch-job')) return Response.json({ status: 'ok' });
+      if (url.endsWith('/api/v1/jobs/batch-job/download')) {
+        return new Response('title,emails,website\n"Batch Lead","hello@example.com","https://example.com"');
+      }
+      return Response.json([]);
+    }));
+
+    const client = new LocalMapsScraperClient({ pollIntervalMs: 1 });
+    const result = await client.searchBatch({
+      batch: {
+        key: 'batch-key-1',
+        query: 'dentist Austin, TX',
+        location: 'Austin, TX',
+        lat: '30.2672',
+        lon: '-97.7431',
+        depth: 10,
+        maxResults: 100,
+      },
+      proxies: [],
+    });
+
+    expect(postBody).toMatchObject({
+      name: 'leads-genx-batch-key-1',
+      keywords: ['dentist Austin, TX'],
+      lat: '30.2672',
+      lon: '-97.7431',
+      depth: 10,
+      email: true,
+    });
+    expect(result).toMatchObject({ batchKey: 'batch-key-1', jobId: 'batch-job', rawBusinessCount: 1 });
+    expect(result.items).toHaveLength(1);
+  });
 });
