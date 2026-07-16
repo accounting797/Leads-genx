@@ -123,7 +123,11 @@
     $('formStatus').textContent = 'Starting...';
     try {
       const run = await api.createRun(buildBody());
+      $('apifyToken').value = '';
+      $('googleApiKey').value = '';
       $('gmProxyUrls').value = '';
+      $('snCookies').value = '';
+      $('snUserAgent').value = '';
       window.LeadsGenXUi.toast('Run #' + run.id + ' queued');
       $('formStatus').textContent = 'Run #' + run.id + ' queued';
       startProgress(run.id);

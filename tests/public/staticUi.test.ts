@@ -131,6 +131,14 @@ describe('static dashboard credential entry', () => {
     expect(appJs).toContain("normalizeCredentialBox($('apifyToken'))");
     expect(appJs).toContain("normalizeCredentialBox($('googleApiKey'))");
   });
+
+  it('clears request-scoped secrets immediately after a run is accepted', () => {
+    const appJs = readPublicFile('app.js');
+    expect(appJs).toContain("$('googleApiKey').value = ''");
+    expect(appJs).toContain("$('gmProxyUrls').value = ''");
+    expect(appJs).toContain("$('snCookies').value = ''");
+    expect(appJs).toContain("$('snUserAgent').value = ''");
+  });
 });
 
 describe('static dashboard Sales Navigator credentials', () => {
