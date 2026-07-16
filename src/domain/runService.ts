@@ -18,6 +18,15 @@ export interface RunRecord {
   apifyRunId?: string;
   datasetId?: string;
   leadCount?: number;
+  businessCount?: number;
+  localBusinessCount?: number;
+  googleBusinessCount?: number;
+  duplicateCount?: number;
+  websiteCount?: number;
+  apiRequestBudget?: number;
+  apiRequestsUsed?: number;
+  currentRoute?: string;
+  localConcurrency?: number;
   errorMessage?: string;
 }
 
