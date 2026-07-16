@@ -6,6 +6,7 @@ export interface GooglePlacesSearchInput {
   apiKeys?: string[];
   filters: GoogleMapsFilters;
   maxResults: number;
+  requestBudget?: number;
   onShardEvent?: (event: GooglePlacesShardEvent) => Promise<void> | void;
 }
 
@@ -24,11 +25,13 @@ export interface GooglePlacesClient {
 }
 
 export class GooglePlacesApiClient implements GooglePlacesClient {
-  async search({ apiKey, apiKeys, filters, maxResults, onShardEvent }: GooglePlacesSearchInput): Promise<unknown[]> {
+  async search({ apiKey, apiKeys, filters, maxResults, requestBudget, onShardEvent }: GooglePlacesSearchInput): Promise<unknown[]> {
     const queries = buildGoogleMapsSearchQueries(filters);
     const places: unknown[] = [];
     const seenPlaces = new Set<string>();
     const keyPool = apiKeys?.length ? apiKeys : [apiKey];
+    const budget = requestBudget ?? Number.MAX_SAFE_INTEGER;
+    let requestCount = 0;
 
     function placeKey(place: unknown): string {
       const item = place && typeof place === 'object' ? (place as Record<string, unknown>) : {};
@@ -65,6 +68,8 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
       let lastError: unknown;
 
       for (let attempt = 0; attempt < keyPool.length; attempt += 1) {
+        if (requestCount >= budget) throw new Error('Google Places request budget exhausted');
+        requestCount += 1;
         const queryApiKey = keyPool[(startKeyIndex + attempt) % keyPool.length];
         try {
           const response = await fetch('https://places.googleapis.com/v1/places:searchText', {

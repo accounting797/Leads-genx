@@ -52,6 +52,7 @@
               <label>
                 <span>Google Maps Provider</span>
                 <select id="gmProvider">
+                  <option value="local_first">Docker Local-First</option>
                   <option value="apify">Apify Bulk</option>
                   <option value="google_places">Google Places API</option>
                   <option value="hybrid">Hybrid Max Output</option>
@@ -96,6 +97,17 @@
             </div>
             <details class="advanced">
               <summary>Advanced</summary>
+              <div class="form-grid two compact">
+                <label>
+                  <span>Google Fallback Request Budget</span>
+                  <input id="gmApiBudget" type="number" min="0" max="500" value="25">
+                </label>
+                <label>
+                  <span>Optional Proxy URLs (request-scoped)</span>
+                  <textarea id="gmProxyUrls" rows="3" autocomplete="off" spellcheck="false" placeholder="socks5h://user:password@127.0.0.1:60001"></textarea>
+                </label>
+              </div>
+              <p class="form-status">Direct mode uses your public IP. Proxy credentials are never saved and must be re-entered after restart.</p>
               <label>
                 <span>Direct Google Maps URL</span>
                 <input id="gmMapsUrl" type="url" placeholder="https://www.google.com/maps/search/...">

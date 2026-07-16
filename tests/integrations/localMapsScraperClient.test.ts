@@ -47,6 +47,7 @@ describe('LocalMapsScraperClient', () => {
         locations: ['Houston, TX'],
       },
       maxResults: 100,
+      proxyUrls: ['socks5h://user:password@host.docker.internal:60001'],
       onEvent: (event) => events.push(event),
     });
 
@@ -64,6 +65,7 @@ describe('LocalMapsScraperClient', () => {
           lat: '29.7604',
           lon: '-95.3698',
           max_time: 900,
+          proxies: ['socks5h://user:password@host.docker.internal:60001'],
         }),
       })
     );

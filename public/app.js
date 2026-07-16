@@ -78,6 +78,7 @@
     const body = {
       apifyToken: $('apifyToken').value.trim(),
       googleApiKey: $('googleApiKey').value.trim() || undefined,
+      proxyUrls: $('gmProxyUrls').value.trim() || undefined,
       leadSource: activeSource,
       actorId: $('actorId').value.trim() || undefined,
       maxResults: numberValue('maxResults') || 100,
@@ -86,6 +87,7 @@
     if (activeSource === 'google_maps') {
       body.googleMaps = {
         provider: $('gmProvider').value,
+        apiRequestBudget: numberValue('gmApiBudget') ?? 25,
         searchTerms: chips.gmSearchTerms.getValue(),
         categoryFilters: chips.gmCategories.getValue(),
         companyTypes: chips.gmCompanyTypes.getValue(),
@@ -121,6 +123,7 @@
     $('formStatus').textContent = 'Starting...';
     try {
       const run = await api.createRun(buildBody());
+      $('gmProxyUrls').value = '';
       window.LeadsGenXUi.toast('Run #' + run.id + ' queued');
       $('formStatus').textContent = 'Run #' + run.id + ' queued';
       startProgress(run.id);

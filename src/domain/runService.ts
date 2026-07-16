@@ -55,6 +55,11 @@ interface RunApifyShardsOptions {
   continueOnShardError?: boolean;
 }
 
+interface RunGooglePlacesOptions {
+  maxResults?: number;
+  supplementLocal?: boolean;
+}
+
 function serializeFilters(input: ValidatedRunInput): string {
   const { cookies: _cookies, userAgent: _userAgent, ...safeSalesNavigator } =
     input.salesNavigator ?? {};
@@ -70,6 +75,10 @@ function isGooglePlacesRun(input: ValidatedRunInput): boolean {
 
 function isHybridRun(input: ValidatedRunInput): boolean {
   return input.leadSource === 'google_maps' && input.googleMaps?.provider === 'hybrid';
+}
+
+function isLocalFirstRun(input: ValidatedRunInput): boolean {
+  return input.leadSource === 'google_maps' && input.googleMaps?.provider === 'local_first';
 }
 
 function websiteCount(leads: NormalizedLead[]): number {
@@ -213,7 +222,8 @@ export function createRunService({
     run: RunRecord,
     input: ValidatedRunInput,
     seenEmails = new Set<string>(),
-    startingTotal = 0
+    startingTotal = 0,
+    options: RunGooglePlacesOptions = {}
   ): Promise<number> {
     if (!googlePlacesClient) throw new Error('Google Places client is not configured');
     if (!input.googleApiKey) throw new Error('Google API key is required for Google Places runs');
@@ -229,7 +239,8 @@ export function createRunService({
       apiKey: input.googleApiKey,
       apiKeys: googleApiKeys,
       filters: input.googleMaps ?? {},
-      maxResults: input.maxResults,
+      maxResults: options.maxResults ?? input.maxResults,
+      requestBudget: input.googleMaps?.apiRequestBudget,
       onShardEvent: async (event) => {
         if (event.type === 'started') {
           await store.addEvent(
@@ -278,6 +289,8 @@ export function createRunService({
       { provider: 'google_places', itemCount: googleLeads.length, websiteCount: websiteCount(googleLeads) }
     );
     let leadCount = await saveEmailLeadsInBatches(run.id, googleLeads, seenEmails, startingTotal);
+
+    if (options.supplementLocal === false) return leadCount;
 
     if (!enableLocalMapsScraper) {
       await store.addEvent(
@@ -368,6 +381,57 @@ export function createRunService({
 
   async function executeRun(run: RunRecord, input: ValidatedRunInput) {
     try {
+      if (isLocalFirstRun(input)) {
+        if (!localMapsScraperClient) throw new Error('Local Google Maps scraper client is not configured');
+        const seenEmails = new Set<string>();
+        let leadCount = 0;
+
+        await store.updateRun(run.id, { status: 'running', actorId: 'local_first' });
+        await store.addEvent(run.id, 'run_started', 'Docker local-first Google Maps run started.', {
+          provider: 'local_first',
+          routeMode: input.routeMode ?? 'direct',
+          googleRequestBudget: input.googleMaps?.apiRequestBudget ?? 0,
+        });
+
+        const localItems = await localMapsScraperClient.search({
+          filters: input.googleMaps ?? {},
+          maxResults: input.maxResults,
+          proxyUrls: input.proxyUrls,
+          onEvent: async (event) => {
+            if (event.type === 'started') {
+              await store.addEvent(run.id, 'local_maps_scraper_started', 'Local Google Maps scraper-kit job started.', event);
+            } else if (event.type === 'completed') {
+              await store.addEvent(run.id, 'local_maps_scraper_completed', `Local scraper returned ${event.itemCount ?? 0} records.`, event);
+            } else {
+              await store.addEvent(run.id, `local_maps_scraper_${event.type}`, event.message ?? `Local scraper ${event.type}.`, event);
+            }
+          },
+        });
+        const localLeads = localItems.map((item) => normalizeLead(item, input.leadSource));
+        await store.addEvent(run.id, 'source_results', `Local scraper returned ${localLeads.length} businesses; ${websiteCount(localLeads)} had websites to scan.`, {
+          provider: 'local_maps_scraper', itemCount: localLeads.length, websiteCount: websiteCount(localLeads),
+        });
+        leadCount = await saveEmailLeadsInBatches(run.id, localLeads, seenEmails, leadCount);
+
+        const remaining = Math.max(0, input.maxResults - localItems.length);
+        if (remaining > 0 && input.googleApiKey && (input.googleMaps?.apiRequestBudget ?? 0) > 0) {
+          try {
+            leadCount = await runGooglePlaces(run, input, seenEmails, leadCount, {
+              maxResults: remaining,
+              supplementLocal: false,
+            });
+          } catch (error) {
+            if (!localItems.length) throw error;
+            await recordGooglePlacesFailure(run, error);
+          }
+        }
+
+        if (leadCount === 0) await store.addEvent(run.id, 'leads_saved', 'Saved 0 email leads.', { leadCount: 0 });
+        await store.updateRun(run.id, { status: 'completed', actorId: 'local_first', datasetId: 'local_first', leadCount });
+        await store.addEvent(run.id, 'run_completed', 'Run completed.', { leadCount });
+        return;
+      }
+
       if (isHybridRun(input)) {
         const seenEmails = new Set<string>();
         let leadCount = 0;
@@ -471,7 +535,9 @@ export function createRunService({
   }
 
   async function startRun(input: ValidatedRunInput, options: StartRunOptions = {}) {
-    const actorInput = isHybridRun(input)
+    const actorInput = isLocalFirstRun(input)
+      ? { actorId: 'local_first' }
+      : isHybridRun(input)
       ? { actorId: 'hybrid' }
       : isGooglePlacesRun(input)
         ? { actorId: 'google_places' }

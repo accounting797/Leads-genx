@@ -29,6 +29,24 @@ function asCredentialList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function asProxyList(value: unknown, fields: Record<string, string>): string[] {
+  const raw = asString(value);
+  if (!raw) return [];
+  const proxies = [...new Set(raw.split(/[\r\n,]+/).map((item) => item.trim()).filter(Boolean))];
+  for (const proxy of proxies) {
+    try {
+      const url = new URL(proxy);
+      if (!['socks5:', 'socks5h:', 'http:', 'https:'].includes(url.protocol) || !url.hostname || !url.port) {
+        throw new Error('unsupported');
+      }
+    } catch {
+      fields.proxyUrls = 'Each proxy must be an HTTP(S) or SOCKS5 URL with a host and port.';
+      return [];
+    }
+  }
+  return proxies;
+}
+
 function asStringArray(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const values = value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
@@ -78,7 +96,7 @@ function parseLeadSource(value: unknown): LeadSource | undefined {
 }
 
 function parseGoogleMapsProvider(value: unknown): GoogleMapsProvider | undefined {
-  return value === 'apify' || value === 'google_places' || value === 'hybrid' ? value : undefined;
+  return value === 'apify' || value === 'google_places' || value === 'local_first' || value === 'hybrid' ? value : undefined;
 }
 
 function parseGoogleMaps(value: unknown): GoogleMapsFilters | undefined {
@@ -86,6 +104,7 @@ function parseGoogleMaps(value: unknown): GoogleMapsFilters | undefined {
   const obj = value as Record<string, unknown>;
   return {
     provider: parseGoogleMapsProvider(obj.provider),
+    apiRequestBudget: asNumber(obj.apiRequestBudget),
     searchTerms: asStringArray(obj.searchTerms),
     categoryFilters: asStringArray(obj.categoryFilters),
     companyTypes: asStringArray(obj.companyTypes),
@@ -160,6 +179,7 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
   const googleApiKeys = asCredentialList(obj.googleApiKey);
   const apifyToken = apifyTokens[0];
   const googleApiKey = googleApiKeys[0];
+  const proxyUrls = asProxyList(obj.proxyUrls, fields);
   const rawGoogleMaps = obj.googleMaps && typeof obj.googleMaps === 'object'
     ? (obj.googleMaps as Record<string, unknown>)
     : {};
@@ -196,6 +216,13 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
   const salesNavigator = parseSalesNavigator(obj.salesNavigator ?? obj.filters);
 
   const googleMapsProvider = googleMaps?.provider ?? 'apify';
+  if (googleMapsProvider === 'local_first' && googleMaps) {
+    googleMaps.apiRequestBudget = googleMaps.apiRequestBudget ?? 25;
+    if (!hasGooglePlacesCriteria(googleMaps)) fields.googleMaps = 'Local-first runs need at least one search term, category, or company type.';
+    if (googleMaps.apiRequestBudget < 0 || googleMaps.apiRequestBudget > 500) fields.apiRequestBudget = 'Google API request budget must be between 0 and 500.';
+    if (googleMaps.apiRequestBudget > 0 && !googleApiKey) fields.googleApiKey = 'Google API key is required when fallback budget is above zero.';
+    if (maxResults > 10000) fields.maxResults = 'Local-first maxResults cannot exceed 10000 businesses.';
+  }
 
   if (leadSource === 'google_maps' && googleMapsProvider === 'google_places' && !hasGooglePlacesCriteria(googleMaps)) {
     fields.googleMaps = 'Google Places runs need at least one search term, category, or company type.';
@@ -251,6 +278,8 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
     apifyTokens: apifyTokens.length ? apifyTokens : undefined,
     googleApiKey,
     googleApiKeys: googleApiKeys.length ? googleApiKeys : undefined,
+    proxyUrls: proxyUrls.length ? proxyUrls : undefined,
+    routeMode: proxyUrls.length ? 'proxy' : 'direct',
     leadSource: leadSource ?? 'google_maps',
     actorId: asString(obj.actorId),
     searchUrl,

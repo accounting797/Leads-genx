@@ -865,4 +865,44 @@ describe('createRunService', () => {
     expect(store.events).toContainEqual(expect.objectContaining({ type: 'local_maps_scraper_skipped' }));
     expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 1 });
   });
+
+  it('runs the Docker scraper first and uses only the bounded Google fallback for the remainder', async () => {
+    const store = createStore();
+    const calls: string[] = [];
+    const actorClient: ActorClient = {
+      async startRun() { throw new Error('Apify must not run in local-first mode'); },
+      async getRun() { throw new Error('not used'); },
+      async getDatasetItems() { return []; },
+    };
+    const localMapsScraperClient: LocalMapsScraperClient = {
+      async search(input) {
+        calls.push('local');
+        expect(input.proxyUrls).toEqual(['socks5h://user:pass@127.0.0.1:60001']);
+        return [{ title: 'Local Lead', email: 'local@example.com' }];
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search(input) {
+        calls.push('google');
+        expect(input.maxResults).toBe(9);
+        expect(input.requestBudget).toBe(3);
+        return [{ displayName: { text: 'Google Lead' }, email: 'google@example.com' }];
+      },
+    };
+    const service = createRunService({ store, actorClient, localMapsScraperClient, googlePlacesClient });
+
+    await service.startRun({
+      leadSource: 'google_maps',
+      maxResults: 10,
+      googleApiKey: 'google-secret',
+      proxyUrls: ['socks5h://user:pass@127.0.0.1:60001'],
+      routeMode: 'proxy',
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], apiRequestBudget: 3 },
+    }, { background: false });
+
+    expect(calls).toEqual(['local', 'google']);
+    expect(store.runs[0]).toMatchObject({ status: 'completed', actorId: 'local_first', leadCount: 2 });
+    expect(store.runs[0].filterJson).not.toContain('google-secret');
+    expect(store.runs[0].filterJson).not.toContain('user:pass');
+  });
 });

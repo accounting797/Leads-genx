@@ -92,7 +92,10 @@ describe('static dashboard Google Maps providers', () => {
     expect(html).toContain('value="apify"');
     expect(html).toContain('value="google_places"');
     expect(html).toContain('value="hybrid"');
+    expect(html).toContain('value="local_first"');
     expect(html).toContain('id="googleApiKey"');
+    expect(html).toContain('id="gmApiBudget"');
+    expect(html).toContain('id="gmProxyUrls"');
     expect(html).toContain('one per line');
   });
 
@@ -101,6 +104,7 @@ describe('static dashboard Google Maps providers', () => {
 
     expect(appJs).toContain("provider: $('gmProvider').value");
     expect(appJs).toContain("googleApiKey: $('googleApiKey').value.trim()");
+    expect(appJs).toContain("proxyUrls: $('gmProxyUrls').value.trim()");
   });
 
   it('raises the target result count when Hybrid Max Output is selected', () => {

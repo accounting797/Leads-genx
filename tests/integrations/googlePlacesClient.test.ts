@@ -222,4 +222,19 @@ describe('GooglePlacesApiClient', () => {
     expect(queries).toHaveLength(12);
     expect(new Set(queries).size).toBe(queries.length);
   });
+
+  it('never exceeds the configured HTTP request budget', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ places: [{ id: 'one' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new GooglePlacesApiClient();
+    await client.search({
+      apiKey: 'google-one',
+      maxResults: 100,
+      requestBudget: 1,
+      filters: { searchTerms: ['dentist', 'plumber'], locations: ['Austin, TX'] },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

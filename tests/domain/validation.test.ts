@@ -334,4 +334,34 @@ describe('validateCreateRunInput', () => {
       )
     ).toThrow(/search term/i);
   });
+
+  it('accepts a secure local-first run with bounded Google fallback and proxies', () => {
+    const input = validateCreateRunInput(
+      {
+        googleApiKey: 'google-secret',
+        proxyUrls: 'socks5h://user:password@127.0.0.1:60001',
+        leadSource: 'google_maps',
+        maxResults: 10000,
+        googleMaps: {
+          provider: 'local_first',
+          searchTerms: ['dentist'],
+          locations: ['Austin, TX'],
+          apiRequestBudget: 25,
+        },
+      },
+      false
+    );
+
+    expect(input.routeMode).toBe('proxy');
+    expect(input.proxyUrls).toEqual(['socks5h://user:password@127.0.0.1:60001']);
+    expect(input.googleMaps?.apiRequestBudget).toBe(25);
+  });
+
+  it('rejects local-first budgets above 500 and targets above 10000', () => {
+    expect(() => validateCreateRunInput({
+      leadSource: 'google_maps',
+      maxResults: 10001,
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], apiRequestBudget: 501 },
+    }, false)).toThrow();
+  });
 });

@@ -11,6 +11,7 @@ export interface LocalMapsScraperEvent {
 export interface LocalMapsScraperSearchInput {
   filters: GoogleMapsFilters;
   maxResults: number;
+  proxyUrls?: string[];
   onEvent?: (event: LocalMapsScraperEvent) => Promise<void> | void;
 }
 
@@ -173,7 +174,7 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
     } = {}
   ) {}
 
-  async search({ filters, maxResults, onEvent }: LocalMapsScraperSearchInput): Promise<unknown[]> {
+  async search({ filters, maxResults, proxyUrls, onEvent }: LocalMapsScraperSearchInput): Promise<unknown[]> {
     const baseUrl = this.options.baseUrl ?? process.env.LOCAL_MAPS_SCRAPER_URL ?? DEFAULT_BASE_URL;
     const plans = locationPlans(filters);
     if (!plans.length) return [];
@@ -211,6 +212,15 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
           depth: this.options.depth ?? 10,
           email: true,
           max_time: this.options.maxTimeSeconds ?? 900,
+          proxies: proxyUrls?.length
+            ? proxyUrls.map((proxy) => {
+                const url = new URL(proxy);
+                if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
+                  url.hostname = 'host.docker.internal';
+                }
+                return url.toString();
+              })
+            : undefined,
         }),
       });
 
