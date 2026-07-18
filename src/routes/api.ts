@@ -1,9 +1,11 @@
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
-import { formatLeadsTxt } from '../domain/exportFormatter';
+import { formatEmailsTxt, formatLeadsTxt } from '../domain/exportFormatter';
 import { suggestions } from '../domain/suggestions';
 import { validateCreateRunInput, ValidationError } from '../domain/validation';
+import { appendErrorLogToFile, safeErrorMessage } from '../domain/errorLogger';
 import { asyncHandler } from '../utils/asyncHandler';
 
 export interface ApiRunService {
@@ -12,11 +14,19 @@ export interface ApiRunService {
     status: string;
     leadSource: string;
   }>;
+  resumeRun?(runId: number, credentials: {
+    googleApiKey?: string;
+    googleApiKeys?: string[];
+    proxyUrls?: string[];
+  }): Promise<{ id: number; status: string }>;
+  scraperHealth?(): Promise<{ ok: boolean; route: string; healthyProxyCount: number }>;
+  recoverInterruptedRuns?(): Promise<void>;
 }
 
 export interface ApiDeps {
   prisma?: PrismaClient;
   runService?: ApiRunService;
+  recoverOnStartup?: boolean;
 }
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
@@ -40,6 +50,17 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
   router.get('/suggestions', (_req, res) => {
     res.json({ data: suggestions });
   });
+
+  router.get(
+    '/scraper/health',
+    asyncHandler(async (_req, res) => {
+      if (!runService?.scraperHealth) {
+        res.status(503).json({ error: 'Scraper health unavailable' });
+        return;
+      }
+      res.json({ data: await runService.scraperHealth() });
+    })
+  );
 
   router.post(
     '/runs',
@@ -68,7 +89,7 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
       const runs = prisma
         ? await prisma.run.findMany({
             orderBy: { createdAt: 'desc' },
-            include: { _count: { select: { leads: true } } },
+            include: { _count: { select: { leads: true, batches: true } } },
           })
         : [];
       res.json({ data: runs });
@@ -80,13 +101,64 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
     asyncHandler(async (req, res) => {
       const id = Number(req.params.id);
       const run = prisma
-        ? await prisma.run.findUnique({ where: { id }, include: { leads: true } })
+        ? await prisma.run.findUnique({
+            where: { id },
+            include: {
+              leads: true,
+              batches: {
+                select: { id: true, status: true, attemptCount: true, resultCount: true, errorCode: true },
+              },
+            },
+          })
         : null;
       if (!run) {
         res.status(404).json({ error: 'Run not found' });
         return;
       }
       res.json({ data: run });
+    })
+  );
+
+  router.post(
+    '/runs/:id/resume',
+    asyncHandler(async (req, res) => {
+      if (!runService?.resumeRun) {
+        res.status(503).json({ error: 'Run recovery unavailable' });
+        return;
+      }
+      const parsed = validateCreateRunInput({
+        leadSource: 'google_maps',
+        maxResults: 1,
+        googleApiKey: req.body?.googleApiKey,
+        proxyUrls: req.body?.proxyUrls,
+        googleMaps: { provider: 'local_first', searchTerms: ['resume'], apiRequestBudget: 0 },
+      }, false);
+      const resumed = await runService.resumeRun(Number(req.params.id), {
+        googleApiKey: parsed.googleApiKey,
+        googleApiKeys: parsed.googleApiKeys,
+        proxyUrls: parsed.proxyUrls,
+      });
+      res.status(202).json({ data: { id: resumed.id, status: resumed.status } });
+    })
+  );
+
+  router.delete(
+    '/runs/:id',
+    asyncHandler(async (req, res) => {
+      if (!prisma) {
+        res.status(503).json({ error: 'Database unavailable' });
+        return;
+      }
+
+      const id = Number(req.params.id);
+      const run = await prisma.run.findUnique({ where: { id } });
+      if (!run) {
+        res.status(404).json({ error: 'Run not found' });
+        return;
+      }
+
+      await prisma.run.delete({ where: { id } });
+      res.status(204).send();
     })
   );
 
@@ -125,9 +197,21 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
             orderBy: { createdAt: 'desc' },
           })
         : [];
+      const format = typeof req.query.format === 'string' ? req.query.format : 'emails';
+      if (format !== 'full' && format !== 'emails') {
+        res.status(400).json({ error: 'Unsupported download format.' });
+        return;
+      }
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.setHeader('Content-Disposition', 'attachment; filename="leads-genx-leads.txt"');
-      res.send(formatLeadsTxt(leads));
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${format === 'emails' ? 'leads-genx-emails.txt' : 'leads-genx-leads.txt'}"`
+      );
+      if (format === 'emails') {
+        res.send(formatEmailsTxt(leads));
+      } else {
+        res.send(formatLeadsTxt(leads));
+      }
     })
   );
 
@@ -171,12 +255,31 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
     res.status(204).send();
   });
 
-  router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  router.use(async (error: unknown, req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof ValidationError) {
       res.status(400).json({ error: error.message, fields: error.fields });
       return;
     }
-    res.status(500).json({ error: 'Internal server error' });
+
+    const requestId = randomUUID();
+    const message = safeErrorMessage(error);
+    const details = { method: req.method, path: req.path };
+    try {
+      await prisma?.errorLog.create({
+        data: {
+          requestId,
+          source: 'api',
+          severity: 'error',
+          message,
+          detailsJson: JSON.stringify(details),
+        },
+      });
+    } catch {
+      appendErrorLogToFile({ requestId, source: 'api', severity: 'error', message, details });
+    }
+
+    const prefix = req.method === 'POST' && req.path === '/runs' ? 'Unable to start run' : 'Request failed';
+    res.status(500).json({ error: `${prefix}: ${message}`, requestId });
   });
 
   return router;

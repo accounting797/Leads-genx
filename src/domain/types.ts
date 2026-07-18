@@ -1,5 +1,7 @@
 export type LeadSource = 'google_maps' | 'sales_navigator';
 export type LeadType = 'business' | 'person';
+export type GoogleMapsProvider = 'apify' | 'google_places' | 'local_first' | 'hybrid';
+export type RouteMode = 'direct' | 'proxy';
 
 export interface SalesNavigatorFilters {
   keywords?: string;
@@ -10,11 +12,17 @@ export interface SalesNavigatorFilters {
   seniorities?: string[];
   functions?: string[];
   headcounts?: string[];
+  cookies?: string;
+  userAgent?: string;
 }
 
 export interface GoogleMapsFilters {
+  provider?: GoogleMapsProvider;
+  apiRequestBudget?: number;
   searchTerms?: string[];
   categoryFilters?: string[];
+  companyTypes?: string[];
+  locations?: string[];
   locationQuery?: string;
   mapsUrl?: string;
   maxPlaces?: number;
@@ -25,6 +33,11 @@ export interface GoogleMapsFilters {
 
 export interface ValidatedRunInput {
   apifyToken?: string;
+  apifyTokens?: string[];
+  googleApiKey?: string;
+  googleApiKeys?: string[];
+  proxyUrls?: string[];
+  routeMode?: RouteMode;
   leadSource: LeadSource;
   actorId?: string;
   searchUrl?: string;

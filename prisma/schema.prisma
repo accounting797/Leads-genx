@@ -18,6 +18,15 @@ model Run {
   datasetId      String?
   maxResults     Int        @default(100)
   leadCount      Int        @default(0)
+  businessCount  Int        @default(0)
+  localBusinessCount Int    @default(0)
+  googleBusinessCount Int   @default(0)
+  duplicateCount Int        @default(0)
+  websiteCount   Int        @default(0)
+  apiRequestBudget Int      @default(0)
+  apiRequestsUsed Int       @default(0)
+  currentRoute   String     @default("direct")
+  localConcurrency Int      @default(1)
   errorMessage   String?
   startedAt      DateTime?
   completedAt    DateTime?
@@ -26,6 +35,49 @@ model Run {
   leads          Lead[]
   events         RunEvent[]
   errorLogs      ErrorLog[]
+  batches        RunBatch[]
+  businesses     DiscoveredBusiness[]
+}
+
+model RunBatch {
+  id            Int      @id @default(autoincrement())
+  runId         Int
+  batchKey      String
+  query         String
+  status        String   @default("pending")
+  attemptCount  Int      @default(0)
+  resultCount   Int      @default(0)
+  nextAttemptAt DateTime?
+  errorCode     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  run           Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, batchKey])
+  @@index([runId, status, nextAttemptAt])
+}
+
+model DiscoveredBusiness {
+  id           Int      @id @default(autoincrement())
+  runId        Int
+  identityKey  String
+  sourceJson   String   @default("[]")
+  companyName  String?
+  categoryName String?
+  address      String?
+  website      String?
+  phone        String?
+  placeUrl     String?
+  rating       Float?
+  reviewsCount Int?
+  emailsJson   String?
+  rawJson      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  run          Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, identityKey])
+  @@index([runId, website])
 }
 
 model Lead {

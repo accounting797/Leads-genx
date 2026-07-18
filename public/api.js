@@ -8,6 +8,13 @@
     return data.data;
   }
 
+  async function requestText(path, options) {
+    const res = await fetch(BASE + path, options);
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || 'Request failed');
+    return text;
+  }
+
   window.LeadsGenXApi = {
     getHealth: () => requestJson('/health'),
     getSuggestions: () => requestJson('/suggestions'),
@@ -19,11 +26,18 @@
       }),
     listRuns: () => requestJson('/runs'),
     getRun: (id) => requestJson('/runs/' + id),
+    deleteRun: (id) => requestJson('/runs/' + id, { method: 'DELETE' }),
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
     listLeads: (runId) => requestJson('/leads' + (runId ? '?runId=' + runId : '')),
+    getLeadEmailsTxt: (runId) =>
+      requestText('/leads/download?format=emails' + (runId ? '&runId=' + runId : '')),
     listErrors: () => requestJson('/errors'),
-    downloadLeads: (runId) => {
-      window.location.href = BASE + '/leads/download' + (runId ? '?runId=' + runId : '');
+    downloadLeads: (runId, format) => {
+      const params = new URLSearchParams();
+      if (runId) params.set('runId', runId);
+      if (format) params.set('format', format);
+      const query = params.toString();
+      window.location.href = BASE + '/leads/download' + (query ? '?' + query : '');
     },
   };
 })();

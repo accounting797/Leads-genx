@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatLeadsTxt } from '../../src/domain/exportFormatter';
+import { formatEmailsTxt, formatLeadsTxt } from '../../src/domain/exportFormatter';
 
 describe('formatLeadsTxt', () => {
   it('formats business and person leads with stable empty fields', () => {
@@ -33,5 +33,19 @@ describe('formatLeadsTxt', () => {
         'person | Jane Doe | VP Sales | Example Inc |  |  | https://linkedin.com/in/janedoe | Austin, TX |  | ',
       ].join('\n')
     );
+  });
+});
+
+describe('formatEmailsTxt', () => {
+  it('exports one normalized unique email address per line', () => {
+    const txt = formatEmailsTxt([
+      { email: 'jane@example.com', fullName: 'Jane Doe' },
+      { email: 'JANE@example.com', fullName: 'Duplicate Jane' },
+      { email: '', fullName: 'No Email' },
+      { companyName: 'No Email Co' },
+      { email: 'ops@example.com', companyName: 'Ops Co' },
+    ]);
+
+    expect(txt).toBe(['jane@example.com', 'ops@example.com'].join('\n'));
   });
 });

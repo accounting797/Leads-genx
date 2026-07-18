@@ -3,8 +3,12 @@ import path from 'path';
 import { prisma } from './db/client';
 import { PrismaRunStore } from './domain/prismaRunStore';
 import { createRunService } from './domain/runService';
+import { WebsiteEmailExtractor } from './domain/emailExtractor';
 import { ApifyActorClient } from './integrations/apifyActorClient';
+import { GooglePlacesApiClient } from './integrations/googlePlacesClient';
+import { LocalMapsScraperKitClient } from './integrations/localMapsScraperClient';
 import { ApiDeps, createApiRouter } from './routes/api';
+import { safeErrorMessage } from './domain/errorLogger';
 
 export function createApp(deps: ApiDeps = {}) {
   const app = express();
@@ -14,7 +18,19 @@ export function createApp(deps: ApiDeps = {}) {
     createRunService({
       store: new PrismaRunStore(runtimePrisma),
       actorClient: new ApifyActorClient(),
+      googlePlacesClient: new GooglePlacesApiClient(),
+      localMapsScraperClient: new LocalMapsScraperKitClient({ maxPolls: 120 }),
+      emailExtractor: new WebsiteEmailExtractor(),
+      enableLocalMapsScraper: process.env.ENABLE_LOCAL_MAPS_SCRAPER === 'true',
     });
+
+  if (deps.recoverOnStartup && runService.recoverInterruptedRuns) {
+    setImmediate(() => {
+      void runService.recoverInterruptedRuns?.().catch((error) => {
+        console.error(`Local-first recovery failed: ${safeErrorMessage(error)}`);
+      });
+    });
+  }
 
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', createApiRouter({ prisma: runtimePrisma, runService }));

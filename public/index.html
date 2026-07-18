@@ -17,7 +17,7 @@
       </div>
       <div class="metrics">
         <div><strong id="metricRuns">0</strong><span>Runs</span></div>
-        <div><strong id="metricLeads">0</strong><span>Leads</span></div>
+        <button id="metricLeadsCard" type="button"><strong id="metricLeads">0</strong><span>Leads</span></button>
         <div><strong id="metricActive">0</strong><span>Active</span></div>
       </div>
     </header>
@@ -38,34 +38,46 @@
         <form id="runForm" class="run-form">
           <div class="form-grid two">
             <label>
-              <span>Apify API Token</span>
-              <input id="apifyToken" type="password" autocomplete="off" placeholder="apify_api_..." required>
+              <span>Apify API Tokens (Hybrid Max Output only)</span>
+              <textarea id="apifyToken" rows="3" autocomplete="off" spellcheck="false" placeholder="Paste Apify tokens, one per line"></textarea>
             </label>
             <label>
               <span>Max Results</span>
-              <input id="maxResults" type="number" min="1" max="1000" value="250">
+              <input id="maxResults" type="number" min="1" value="250">
             </label>
           </div>
 
           <section id="googleMapsFields" class="source-fields active">
-            <div class="form-grid two">
+            <div class="form-grid two compact">
+              <label class="pipeline-card">
+                <span>Output Mode</span>
+                <select id="gmProvider">
+                  <option value="local_first">Standard — Docker + Google</option>
+                  <option value="hybrid">Hybrid Max Output — Docker + Google + Apify</option>
+                </select>
+                <small id="pipelineSummary" class="field-help">Docker runs first; Google fills the remaining target within your request budget.</small>
+              </label>
+              <label>
+                <span>Google API Keys</span>
+                <textarea id="googleApiKey" rows="3" autocomplete="off" spellcheck="false" placeholder="Paste Google API keys, one per line"></textarea>
+              </label>
+            </div>
+            <div class="filter-grid">
               <label>
                 <span>Search Terms</span>
                 <div id="gmSearchTerms" class="chip-input" data-free="true" data-placeholder="dentist, roofer, med spa"></div>
               </label>
-              <label>
-                <span>Location</span>
-                <input id="gmLocation" type="text" placeholder="Austin, TX">
-              </label>
-            </div>
-            <div class="form-grid two">
-              <label>
+              <label class="wide">
                 <span>Business Categories</span>
                 <div id="gmCategories" class="chip-input" data-placeholder="Select categories"></div>
               </label>
-              <label>
-                <span>Direct Google Maps URL</span>
-                <input id="gmMapsUrl" type="url" placeholder="https://www.google.com/maps/search/...">
+              <label class="wide">
+                <span>Company Types</span>
+                <div id="gmCompanyTypes" class="chip-input" data-placeholder="Select company types"></div>
+              </label>
+              <label class="wide">
+                <span>Locations</span>
+                <div id="gmLocations" class="chip-input" data-free="true" data-placeholder="Austin, TX, Phoenix, AZ"></div>
               </label>
             </div>
             <div class="form-grid three compact">
@@ -82,6 +94,24 @@
                 <span>Skip closed businesses</span>
               </label>
             </div>
+            <details class="advanced">
+              <summary>Advanced</summary>
+              <div class="form-grid two compact">
+                <label>
+                  <span>Google Fallback Request Budget</span>
+                  <input id="gmApiBudget" type="number" min="0" max="500" value="25">
+                </label>
+                <label>
+                  <span>Optional Proxy URLs (request-scoped)</span>
+                  <textarea id="gmProxyUrls" rows="3" autocomplete="off" spellcheck="false" placeholder="socks5h://user:password@127.0.0.1:60001"></textarea>
+                </label>
+              </div>
+              <p class="form-status">Direct mode uses your public IP. Proxy credentials are never saved and must be re-entered after restart.</p>
+              <label>
+                <span>Direct Google Maps URL</span>
+                <input id="gmMapsUrl" type="url" placeholder="https://www.google.com/maps/search/...">
+              </label>
+            </details>
           </section>
 
           <section id="salesNavigatorFields" class="source-fields">
@@ -124,6 +154,14 @@
               <label>
                 <span>Override Sales Navigator URL</span>
                 <input id="snUrl" type="url" placeholder="https://www.linkedin.com/sales/search/people?...">
+              </label>
+              <label>
+                <span>LinkedIn Cookies (JSON)</span>
+                <textarea id="snCookies" rows="5" autocomplete="off" spellcheck="false" placeholder='[{"name":"li_at","value":"AQED...","domain":".linkedin.com"},{"name":"JSESSIONID","value":"ajax:...","domain":".linkedin.com"}]'></textarea>
+              </label>
+              <label>
+                <span>Browser User Agent</span>
+                <input id="snUserAgent" type="text" autocomplete="off" spellcheck="false" placeholder="Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...">
               </label>
             </details>
           </section>
@@ -181,10 +219,13 @@
 
         <div id="leadsTab" class="tab-page">
           <div class="table-actions">
-            <h2>Leads</h2>
+            <div>
+              <h2>Leads</h2>
+              <p id="leadSummary">All runs: 0 email leads</p>
+            </div>
             <div class="inline-actions">
               <select id="leadRunFilter"><option value="">All runs</option></select>
-              <button id="downloadLeads" type="button" class="ghost-btn">Download TXT</button>
+              <button id="downloadEmails" type="button" class="ghost-btn">Download Emails TXT</button>
             </div>
           </div>
           <div id="leadsTable"></div>

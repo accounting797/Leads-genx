@@ -1,6 +1,7 @@
 (function () {
   const api = window.LeadsGenXApi;
   const chips = {};
+  const maxResultsBySource = {};
   let activeSource = 'google_maps';
   let activeRunId = null;
   let progressTimer = null;
@@ -15,8 +16,58 @@
     return value ? Number(value) : undefined;
   }
 
+  function normalizeCredentialBox(element) {
+    const credentials = element.value
+      .split(/[\s,]+/)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    element.value = credentials.join('\n');
+  }
+
+  function setupCredentialBox(element) {
+    element.addEventListener('blur', () => normalizeCredentialBox(element));
+    element.addEventListener('paste', () => {
+      setTimeout(() => normalizeCredentialBox(element), 0);
+    });
+    element.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        setTimeout(() => normalizeCredentialBox(element), 0);
+      }
+    });
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function updatePipelineSummary() {
+    const hybrid = $('gmProvider').value === 'hybrid';
+    $('pipelineSummary').textContent = hybrid
+      ? 'Docker runs first, Google fills gaps, then Apify adds maximum coverage. Google and Apify keys are required.'
+      : 'Docker runs first; Google fills the remaining target within your request budget.';
+  }
+
+  function applySourceLimits(source) {
+    const maxResults = $('maxResults');
+    if (source === 'sales_navigator') {
+      maxResults.max = '2500';
+      if (Number(maxResults.value || 0) > 2500) maxResults.value = '2500';
+      return;
+    }
+    maxResults.removeAttribute('max');
+  }
+
   function setSource(source) {
+    const maxResults = $('maxResults');
+    maxResultsBySource[activeSource] = maxResults.value;
     activeSource = source;
+    if (maxResultsBySource[source]) maxResults.value = maxResultsBySource[source];
+    applySourceLimits(source);
     document.querySelectorAll('.source-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.source === source);
     });
@@ -36,6 +87,8 @@
   function buildBody() {
     const body = {
       apifyToken: $('apifyToken').value.trim(),
+      googleApiKey: $('googleApiKey').value.trim() || undefined,
+      proxyUrls: $('gmProxyUrls').value.trim() || undefined,
       leadSource: activeSource,
       actorId: $('actorId').value.trim() || undefined,
       maxResults: numberValue('maxResults') || 100,
@@ -43,9 +96,12 @@
 
     if (activeSource === 'google_maps') {
       body.googleMaps = {
+        provider: $('gmProvider').value,
+        apiRequestBudget: numberValue('gmApiBudget') ?? 25,
         searchTerms: chips.gmSearchTerms.getValue(),
         categoryFilters: chips.gmCategories.getValue(),
-        locationQuery: $('gmLocation').value.trim() || undefined,
+        companyTypes: chips.gmCompanyTypes.getValue(),
+        locations: chips.gmLocations.getValue(),
         mapsUrl: $('gmMapsUrl').value.trim() || undefined,
         maxPlaces: numberValue('maxResults') || 100,
         minimumStars: numberValue('gmMinStars'),
@@ -63,6 +119,8 @@
         seniorities: chips.snSeniorities.getValue(),
         functions: chips.snFunctions.getValue(),
         headcounts: chips.snHeadcounts.getValue(),
+        cookies: $('snCookies').value.trim() || undefined,
+        userAgent: $('snUserAgent').value.trim() || undefined,
       };
     }
 
@@ -75,10 +133,16 @@
     $('formStatus').textContent = 'Starting...';
     try {
       const run = await api.createRun(buildBody());
+      $('apifyToken').value = '';
+      $('googleApiKey').value = '';
+      $('gmProxyUrls').value = '';
+      $('snCookies').value = '';
+      $('snUserAgent').value = '';
       window.LeadsGenXUi.toast('Run #' + run.id + ' queued');
       $('formStatus').textContent = 'Run #' + run.id + ' queued';
       startProgress(run.id);
-      await loadRuns();
+      await loadRuns(String(run.id));
+      await loadLeads();
     } catch (error) {
       $('formStatus').textContent = error.message;
       window.LeadsGenXUi.toast(error.message);
@@ -87,27 +151,65 @@
     }
   }
 
-  async function loadRuns() {
+  async function loadRuns(preferredRunId) {
     const runs = await api.listRuns();
+    const selectedRunId = preferredRunId || $('leadRunFilter').value;
     $('runsTable').innerHTML = window.LeadsGenXUi.renderRuns(runs);
     $('metricRuns').textContent = runs.length;
-    $('metricActive').textContent = runs.filter((run) => ['queued', 'running'].includes(run.status)).length;
+    $('metricActive').textContent = runs.filter((run) =>
+      ['queued', 'running', 'waiting_for_scraper', 'waiting_for_credentials', 'cooling_down'].includes(run.status)
+    ).length;
     const total = runs.reduce((sum, run) => sum + (run._count ? run._count.leads : run.leadCount || 0), 0);
     $('metricLeads').textContent = total;
     $('leadRunFilter').innerHTML =
       '<option value="">All runs</option>' +
       runs.map((run) => '<option value="' + run.id + '">Run #' + run.id + ' - ' + run.leadSource + '</option>').join('');
+    if (selectedRunId && runs.some((run) => String(run.id) === String(selectedRunId))) {
+      $('leadRunFilter').value = selectedRunId;
+    }
   }
 
   async function loadLeads() {
     const runId = $('leadRunFilter').value;
     const leads = await api.listLeads(runId);
+    $('leadSummary').textContent = (runId ? 'Selected run: ' : 'All runs: ') + leads.length + ' email leads';
     $('leadsTable').innerHTML = window.LeadsGenXUi.renderLeads(leads);
+  }
+
+  async function openAllLeads() {
+    $('leadRunFilter').value = '';
+    setTab('leads');
+    await loadLeads();
   }
 
   async function loadLogs() {
     const logs = await api.listErrors();
     $('logsTable').innerHTML = window.LeadsGenXUi.renderLogs(logs);
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'readonly');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+  }
+
+  async function refreshLiveProgressTables(runId) {
+    const currentRunId = $('leadRunFilter').value;
+    await loadRuns(currentRunId || String(runId));
+    if (!$('leadRunFilter').value && runId) $('leadRunFilter').value = String(runId);
+    if (!$('leadRunFilter').value || $('leadRunFilter').value === String(runId)) {
+      await loadLeads();
+    }
   }
 
   function startProgress(runId) {
@@ -122,34 +224,61 @@
     void checkProgress();
   }
 
+  function progressStage(events, status) {
+    const types = events.map((event) => event.type);
+    if (status === 'completed') return 'Completed';
+    if (status === 'failed') return 'Failed — review the error below';
+    if (status === 'waiting_for_scraper') return 'Docker scraper unavailable — waiting to retry';
+    if (status === 'waiting_for_credentials') return 'Credentials required — review the latest message';
+    if (types.includes('apify_shard_started')) return 'Apify is expanding maximum-output coverage';
+    if (types.includes('google_fallback_started')) return 'Google API is filling Docker coverage gaps';
+    if (types.some((type) => type.indexOf('local_batch') === 0)) return 'Docker scraper is processing local batches';
+    return status === 'queued' ? 'Queued for Docker scraper' : status;
+  }
+
   async function checkProgress() {
     if (!activeRunId) return;
     try {
       const run = await api.getRun(activeRunId);
       const events = await api.getRunEvents(activeRunId);
+      const batches = run.batches || [];
+      const completedBatches = batches.filter((batch) => batch.status === 'completed').length;
+      const target = Math.max(1, run.maxResults || run.googleMapsMaxPlaces || 1);
+      const resultCount = Math.max(run.businessCount || 0, run.leadCount || 0);
       const elapsed = Math.floor((Date.now() - progressStartedAt) / 1000);
       $('progressElapsed').textContent = 'Elapsed ' + elapsed + 's';
-      $('progressLabel').textContent = run.status;
-      $('progressLatest').textContent = events.length ? events[events.length - 1].message : 'Waiting';
+      $('progressLabel').textContent = progressStage(events, run.status);
+      $('progressSubhead').textContent = (run.businessCount || 0) + ' businesses · ' + (run.leadCount || 0) +
+        ' emails · ' + completedBatches + '/' + batches.length + ' batches';
+      $('progressLatest').textContent = run.status === 'failed' && run.errorMessage
+        ? run.errorMessage
+        : (events.length ? events[events.length - 1].message : 'Waiting for the first source event');
       $('miniLog').innerHTML = events
         .slice(-5)
         .reverse()
-        .map((event) => '<div>' + event.type + ': ' + event.message + '</div>')
+        .map((event) => '<div>' + escapeHtml(event.type) + ': ' + escapeHtml(event.message) + '</div>')
         .join('');
 
       if (run.status === 'completed') {
         $('progressFill').style.width = '100%';
         clearInterval(progressTimer);
-        await loadRuns();
+        await loadRuns(String(run.id));
         await loadLeads();
       } else if (run.status === 'failed') {
         $('progressFill').style.width = '100%';
         clearInterval(progressTimer);
-        await loadRuns();
+        await loadRuns(String(run.id));
         await loadLogs();
+      } else if (['waiting_for_scraper', 'waiting_for_credentials'].includes(run.status)) {
+        $('progressFill').style.width = Math.min(92, Math.max(12, Math.round((resultCount / target) * 100))) + '%';
+        clearInterval(progressTimer);
+        await refreshLiveProgressTables(run.id);
       } else {
-        const width = Math.min(88, 12 + elapsed);
+        const batchProgress = batches.length ? completedBatches / batches.length : 0;
+        const resultProgress = Math.min(1, resultCount / target);
+        const width = Math.min(94, Math.max(12, Math.round(Math.max(batchProgress, resultProgress) * 100)));
         $('progressFill').style.width = width + '%';
+        await refreshLiveProgressTables(run.id);
       }
     } catch (error) {
       $('progressLatest').textContent = error.message;
@@ -163,6 +292,12 @@
     });
     chips.gmCategories = window.LeadsGenXChips.createChipInput($('gmCategories'), {
       suggestions: suggestions.googleMaps.businessCategories,
+    });
+    chips.gmCompanyTypes = window.LeadsGenXChips.createChipInput($('gmCompanyTypes'), {
+      suggestions: suggestions.googleMaps.companyTypes,
+    });
+    chips.gmLocations = window.LeadsGenXChips.createChipInput($('gmLocations'), {
+      suggestions: suggestions.googleMaps.locations,
     });
     chips.snTitles = window.LeadsGenXChips.createChipInput($('snTitles'), {
       suggestions: suggestions.salesNavigator.titles,
@@ -190,22 +325,57 @@
       btn.addEventListener('click', () => setSource(btn.dataset.source))
     );
     document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
+    $('gmProvider').value = 'local_first';
+    $('gmProvider').addEventListener('change', updatePipelineSummary);
+    updatePipelineSummary();
+    setupCredentialBox($('apifyToken'));
+    setupCredentialBox($('googleApiKey'));
+    normalizeCredentialBox($('apifyToken'));
+    normalizeCredentialBox($('googleApiKey'));
     $('runForm').addEventListener('submit', submitRun);
     $('refreshRuns').addEventListener('click', loadRuns);
     $('refreshLogs').addEventListener('click', loadLogs);
+    $('metricLeadsCard').addEventListener('click', openAllLeads);
     $('leadRunFilter').addEventListener('change', loadLeads);
-    $('downloadLeads').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value));
+    $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
     $('runsTable').addEventListener('click', (event) => {
-      const id = event.target.dataset ? event.target.dataset.viewRun : undefined;
-      if (id) {
-        $('leadRunFilter').value = id;
+      const target = event.target;
+      const viewRunId = target.dataset ? target.dataset.viewRun : undefined;
+      const copyRunEmailsId = target.dataset ? target.dataset.copyRunEmails : undefined;
+      const deleteRunId = target.dataset ? target.dataset.deleteRun : undefined;
+      if (viewRunId) {
+        $('leadRunFilter').value = viewRunId;
         setTab('leads');
       }
+      if (copyRunEmailsId) void copyRunEmails(copyRunEmailsId);
+      if (deleteRunId) void deleteRun(deleteRunId);
     });
 
     await loadRuns();
     await loadLeads();
     await loadLogs();
+  }
+
+  async function deleteRun(runId) {
+    if (!window.confirm('Delete run #' + runId + ' and its email leads?')) return;
+    await api.deleteRun(runId);
+    if (String(activeRunId) === String(runId)) {
+      activeRunId = null;
+      if (progressTimer) clearInterval(progressTimer);
+      $('progressLabel').textContent = 'Idle';
+      $('progressSubhead').textContent = 'No active run.';
+    }
+    if ($('leadRunFilter').value === String(runId)) $('leadRunFilter').value = '';
+    window.LeadsGenXUi.toast('Run #' + runId + ' deleted');
+    await loadRuns();
+    await loadLeads();
+  }
+
+  async function copyRunEmails(runId) {
+    const text = await api.getLeadEmailsTxt(runId);
+    await copyText(text);
+    const count = text.trim() ? text.trim().split('\n').length : 0;
+    window.LeadsGenXUi.toast('Copied ' + count + ' emails from run #' + runId);
   }
 
   void init().catch((error) => window.LeadsGenXUi.toast(error.message));

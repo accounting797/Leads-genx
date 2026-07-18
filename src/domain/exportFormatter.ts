@@ -3,6 +3,21 @@ function text(value: unknown): string {
   return String(value);
 }
 
+export function formatEmailsTxt(leads: Record<string, unknown>[]): string {
+  const emails: string[] = [];
+  const seen = new Set<string>();
+
+  for (const lead of leads) {
+    const email = text(lead.email).trim().toLowerCase();
+    if (email && !seen.has(email)) {
+      seen.add(email);
+      emails.push(email);
+    }
+  }
+
+  return emails.join('\n');
+}
+
 type ExportableLead = Record<string, unknown>;
 
 export function formatLeadsTxt(leads: ExportableLead[]): string {

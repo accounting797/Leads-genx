@@ -1,0 +1,160 @@
+import { describe, expect, it } from 'vitest';
+import {
+  extractEmailsFromText,
+  isQualifiedLeadEmail,
+  keepEmailLeadsOnly,
+  WebsiteEmailExtractor,
+} from '../../src/domain/emailExtractor';
+import { NormalizedLead } from '../../src/domain/types';
+
+describe('extractEmailsFromText', () => {
+  it('extracts, normalizes, and dedupes direct and obfuscated emails', () => {
+    const emails = extractEmailsFromText(
+      'Email Sales@Example.com, sales@example.com, support [at] example [dot] com and logo@example.com.png'
+    );
+
+    expect(emails).toEqual(['sales@example.com', 'support@example.com']);
+  });
+
+  it('rejects telemetry and no-reply addresses', () => {
+    const emails = extractEmailsFromText(
+      'Contact sales@realbusiness.com, noreply@realbusiness.com, ' +
+      'ef5d9bbac3354b759bfd7a23c3313b3f@o244637.ingest.us.sentry.io'
+    );
+
+    expect(emails).toEqual(['sales@realbusiness.com']);
+    expect(isQualifiedLeadEmail('owner@realbusiness.com')).toBe(true);
+    expect(isQualifiedLeadEmail('mailer-daemon@realbusiness.com')).toBe(false);
+  });
+});
+
+describe('WebsiteEmailExtractor', () => {
+  it('extracts decoded mailto emails from fetched pages', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async () =>
+      new Response('<a href="mailto:Sales%40Example.com?subject=Lead">Email sales</a>')) as typeof fetch;
+
+    try {
+      const extractor = new WebsiteEmailExtractor({ maxPagesPerSite: 1 });
+      await expect(extractor.extract('https://example.com')).resolves.toEqual(['sales@example.com']);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('follows contact-like internal links discovered on the home page', async () => {
+    const originalFetch = global.fetch;
+    const pages = new Map([
+      [
+        'https://example.com/',
+        '<a href="/leadership">Leadership</a><a href="/contact-sales">Contact sales</a>',
+      ],
+      ['https://example.com/contact-sales', 'Reach our team at growth@example.com'],
+    ]);
+    global.fetch = (async (input) => {
+      const html = pages.get(String(input));
+      return new Response(html ?? '', { status: html ? 200 : 404 });
+    }) as typeof fetch;
+
+    try {
+      const extractor = new WebsiteEmailExtractor({ maxPagesPerSite: 4 });
+      await expect(extractor.extract('https://example.com')).resolves.toEqual(['growth@example.com']);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it('discovers sales, quote, branch, and directory pages from internal links', async () => {
+    const originalFetch = global.fetch;
+    const pages = new Map([
+      [
+        'https://example.com/',
+        '<a href="/request-quote">Quote</a><a href="/branch-directory">Branches</a><a href="/privacy">Privacy</a>',
+      ],
+      ['https://example.com/request-quote', 'Quotes: quote@example.com'],
+      ['https://example.com/branch-directory', 'Branches: branches@example.com'],
+      ['https://example.com/privacy', 'Privacy: privacy@example.com'],
+    ]);
+    global.fetch = (async (input) => {
+      const html = pages.get(String(input));
+      return new Response(html ?? '', { status: html ? 200 : 404 });
+    }) as typeof fetch;
+
+    try {
+      const extractor = new WebsiteEmailExtractor({ maxPagesPerSite: 5 });
+      await expect(extractor.extract('https://example.com')).resolves.toEqual([
+        'quote@example.com',
+        'branches@example.com',
+      ]);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+describe('keepEmailLeadsOnly', () => {
+  const baseLead: NormalizedLead = {
+    leadSource: 'google_maps',
+    leadType: 'business',
+    companyName: 'Gulf Coast Services',
+    website: 'https://example.com',
+  };
+
+  it('drops leads without an email when no website email is found', async () => {
+    const leads = await keepEmailLeadsOnly([
+      { ...baseLead, website: undefined },
+      { ...baseLead, companyName: 'No Email Co' },
+    ]);
+
+    expect(leads).toEqual([]);
+  });
+
+  it('expands website emails into one lead per unique email', async () => {
+    const leads = await keepEmailLeadsOnly(
+      [baseLead],
+      {
+        async extract() {
+          return ['sales@example.com', 'ops@example.com', 'sales@example.com'];
+        },
+      },
+      2
+    );
+
+    expect(leads.map((lead) => lead.email)).toEqual(['sales@example.com', 'ops@example.com']);
+    expect(leads[0]).toMatchObject({ companyName: 'Gulf Coast Services' });
+  });
+
+  it('dedupes existing and extracted emails globally', async () => {
+    const leads = await keepEmailLeadsOnly(
+      [
+        { ...baseLead, email: 'Sales@Example.com' },
+        { ...baseLead, companyName: 'Duplicate Email Co', email: 'sales@example.com' },
+      ],
+      {
+        async extract() {
+          return ['sales@example.com'];
+        },
+      },
+      2
+    );
+
+    expect(leads.map((lead) => lead.email)).toEqual(['sales@example.com']);
+    expect(leads[0].companyName).toBe('Gulf Coast Services');
+  });
+
+  it('keeps only usable prospect emails from existing and extracted values', async () => {
+    const leads = await keepEmailLeadsOnly(
+      [{ ...baseLead, email: 'noreply@example.com' }],
+      {
+        async extract() {
+          return [
+            'ef5d9bbac3354b759bfd7a23c3313b3f@o244637.ingest.us.sentry.io',
+            'contact@gulfcoastservices.com',
+          ];
+        },
+      }
+    );
+
+    expect(leads.map((lead) => lead.email)).toEqual(['contact@gulfcoastservices.com']);
+  });
+});

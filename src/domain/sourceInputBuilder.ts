@@ -4,15 +4,44 @@ import {
   SalesNavigatorFilters,
   ValidatedRunInput,
 } from './types';
+import { buildGoogleMapsSearchQueries } from './googleMapsQueryBuilder';
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID = 'compass/google-maps-extractor';
-const DEFAULT_SALES_NAVIGATOR_ACTOR_ID = 'harvestapi/linkedin-profile-search';
+const DEFAULT_SALES_NAVIGATOR_ACTOR_ID = 'harvestapi/linkedin-sales-navigator-lead-search-cookie';
 
 function addRepeated(parts: string[], key: string, values?: string[]) {
   for (const value of values ?? []) {
     const trimmed = value.trim();
     if (trimmed) parts.push(`${key}:${trimmed}`);
   }
+}
+
+function buildGoogleMapsSearchStrings(filters: GoogleMapsFilters): string[] {
+  return buildGoogleMapsSearchQueries({ ...filters, locationQuery: undefined });
+}
+
+function buildGoogleMapsShardSearchStrings(filters: GoogleMapsFilters): string[] {
+  return buildGoogleMapsSearchQueries(filters);
+}
+
+function chunkSearchStrings(searchStrings: string[], chunkCount: number): string[][] {
+  const size = Math.ceil(searchStrings.length / chunkCount);
+  const chunks = Array.from({ length: chunkCount }, (_, index) =>
+    searchStrings.slice(index * size, index * size + size)
+  );
+  return chunks.filter((chunk) => chunk.length);
+}
+
+function toApifyMinimumStars(value?: number): string | undefined {
+  const allowed = new Map<number, string>([
+    [2, 'two'],
+    [2.5, 'twoAndHalf'],
+    [3, 'three'],
+    [3.5, 'threeAndHalf'],
+    [4, 'four'],
+    [4.5, 'fourAndHalf'],
+  ]);
+  return value ? allowed.get(value) : undefined;
 }
 
 export function buildSalesNavigatorUrl(filters: SalesNavigatorFilters): string {
@@ -31,6 +60,20 @@ export function buildSalesNavigatorUrl(filters: SalesNavigatorFilters): string {
   return `https://www.linkedin.com/sales/search/people?query=${query}`;
 }
 
+function buildSalesNavigatorSearchQuery(filters: SalesNavigatorFilters): string | undefined {
+  const values = [
+    filters.keywords,
+    ...(filters.industries ?? []),
+    ...(filters.companies ?? []),
+    ...(filters.seniorities ?? []),
+    ...(filters.functions ?? []),
+    ...(filters.headcounts ?? []),
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  return values.length ? Array.from(new Set(values)).join(' ') : undefined;
+}
+
 export function buildGoogleMapsInput(filters: GoogleMapsFilters): Record<string, unknown> {
   const input: Record<string, unknown> = {
     language: 'en',
@@ -40,19 +83,25 @@ export function buildGoogleMapsInput(filters: GoogleMapsFilters): Record<string,
   if (filters.mapsUrl?.trim()) {
     input.startUrls = [{ url: filters.mapsUrl.trim() }];
   }
-  if (filters.searchTerms?.length) {
-    input.searchStringsArray = filters.searchTerms.map((term) => term.trim()).filter(Boolean);
-  }
-  if (filters.categoryFilters?.length) {
-    input.categoryFilterWords = filters.categoryFilters
-      .map((category) => category.trim())
-      .filter(Boolean);
+  const searchStrings = buildGoogleMapsSearchStrings(filters);
+  if (searchStrings.length) {
+    input.searchStringsArray = searchStrings;
   }
   if (filters.locationQuery?.trim()) input.locationQuery = filters.locationQuery.trim();
   if (filters.maxPlaces) input.maxCrawledPlacesPerSearch = filters.maxPlaces;
-  if (filters.minimumStars) input.placeMinimumStars = String(filters.minimumStars);
+  const minimumStars = toApifyMinimumStars(filters.minimumStars);
+  if (minimumStars) input.placeMinimumStars = minimumStars;
   if (filters.minimumReviews) input.reviewsCountMin = filters.minimumReviews;
 
+  return input;
+}
+
+function buildGoogleMapsInputWithSearchStrings(
+  filters: GoogleMapsFilters,
+  searchStrings: string[]
+): Record<string, unknown> {
+  const input = buildGoogleMapsInput(filters);
+  if (searchStrings.length) input.searchStringsArray = searchStrings;
   return input;
 }
 
@@ -71,7 +120,28 @@ export function buildActorInput(input: ValidatedRunInput): ActorRunInput {
     };
   }
 
-  const searchUrl = input.searchUrl ?? buildSalesNavigatorUrl(input.salesNavigator ?? {});
+  const filters = input.salesNavigator ?? {};
+  if (!filters.cookies || !filters.userAgent) {
+    throw new Error('Sales Navigator cookies and browser user agent are required');
+  }
+
+  const snInput: Record<string, unknown> = {
+    profileScraperMode: 'Full + email search',
+    cookie: filters.cookies,
+    userAgent: filters.userAgent,
+    startPage: 1,
+    takePages: Math.min(Math.ceil(input.maxResults / 25), 100),
+  };
+
+  if (input.searchUrl) {
+    snInput.salesNavUrl = input.searchUrl;
+  } else {
+    const searchQuery = buildSalesNavigatorSearchQuery(filters);
+    if (searchQuery) snInput.searchQuery = searchQuery;
+    if (filters.titles?.length) snInput.currentJobTitles = filters.titles;
+    if (filters.geographies?.length) snInput.locations = filters.geographies;
+  }
+
   return {
     token: input.apifyToken,
     leadSource: 'sales_navigator',
@@ -79,10 +149,28 @@ export function buildActorInput(input: ValidatedRunInput): ActorRunInput {
       input.actorId ??
       process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID ??
       DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
-    input: {
-      searchUrl,
-      maxResults: input.maxResults,
-    },
+    input: snInput,
     maxResults: input.maxResults,
   };
+}
+
+export function buildActorInputsForApifyTokens(input: ValidatedRunInput): ActorRunInput[] {
+  const tokens = input.apifyTokens?.length ? input.apifyTokens : input.apifyToken ? [input.apifyToken] : [];
+  if (!tokens.length) throw new Error('Apify token is required to build actor input');
+  if (input.leadSource !== 'google_maps') return [buildActorInput({ ...input, apifyToken: tokens[0] })];
+
+  const filters = input.googleMaps ?? {};
+  const searchStrings = buildGoogleMapsShardSearchStrings(filters);
+  if (!searchStrings.length || tokens.length === 1) {
+    return [buildActorInput({ ...input, apifyToken: tokens[0] })];
+  }
+
+  const searchChunks = chunkSearchStrings(searchStrings, tokens.length);
+  return tokens.map((token, index) => ({
+    token,
+    leadSource: 'google_maps',
+    actorId: input.actorId ?? process.env.DEFAULT_GOOGLE_MAPS_ACTOR_ID ?? DEFAULT_GOOGLE_MAPS_ACTOR_ID,
+    input: buildGoogleMapsInputWithSearchStrings(filters, searchChunks[index] ?? searchStrings),
+    maxResults: input.maxResults,
+  }));
 }

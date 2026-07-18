@@ -55,4 +55,77 @@ describe('normalizeLead', () => {
       location: 'Austin, TX',
     });
   });
+
+  it('normalizes Docker scraper rating and review columns', () => {
+    const lead = normalizeLead(
+      {
+        title: 'Miami Aerospace Manufacturing',
+        review_rating: '4.6',
+        review_count: '137',
+      },
+      'google_maps'
+    );
+
+    expect(lead).toMatchObject({ rating: 4.6, reviewsCount: 137 });
+  });
+
+  it('normalizes HarvestAPI Sales Navigator profiles and email arrays', () => {
+    const lead = normalizeLead(
+      {
+        firstName: 'Jane',
+        lastName: 'Doe',
+        headline: 'VP Sales at Example Inc',
+        location: 'Austin, Texas, United States',
+        linkedinUrl: 'https://www.linkedin.com/in/janedoe',
+        emails: ['Jane.Doe@example.com'],
+        currentPosition: {
+          position: 'VP Sales',
+          companyName: 'Example Inc',
+        },
+      },
+      'sales_navigator'
+    );
+
+    expect(lead).toMatchObject({
+      leadSource: 'sales_navigator',
+      leadType: 'person',
+      firstName: 'Jane',
+      lastName: 'Doe',
+      fullName: 'Jane Doe',
+      jobTitle: 'VP Sales',
+      companyName: 'Example Inc',
+      email: 'Jane.Doe@example.com',
+      location: 'Austin, Texas, United States',
+      profileUrl: 'https://www.linkedin.com/in/janedoe',
+    });
+  });
+
+  it('normalizes Google Places business leads', () => {
+    const lead = normalizeLead(
+      {
+        displayName: { text: 'Gulf Coast Oilfield Services' },
+        primaryTypeDisplayName: { text: 'Oil & Gas' },
+        formattedAddress: '500 Energy Way, Houston, TX',
+        websiteUri: 'https://oilfield.example.com',
+        internationalPhoneNumber: '+1 713-555-0100',
+        rating: 4.6,
+        userRatingCount: 128,
+        googleMapsUri: 'https://maps.google.com/?cid=google-places',
+      },
+      'google_maps'
+    );
+
+    expect(lead).toMatchObject({
+      leadSource: 'google_maps',
+      leadType: 'business',
+      companyName: 'Gulf Coast Oilfield Services',
+      categoryName: 'Oil & Gas',
+      address: '500 Energy Way, Houston, TX',
+      website: 'https://oilfield.example.com',
+      phone: '+1 713-555-0100',
+      rating: 4.6,
+      reviewsCount: 128,
+      placeUrl: 'https://maps.google.com/?cid=google-places',
+    });
+  });
 });
