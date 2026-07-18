@@ -3,6 +3,7 @@ import { businessIdentity } from './businessIdentity';
 import { buildLocalDiscoveryBatches, LocalDiscoveryBatch } from './localDiscoveryBatch';
 import { DiscoveredBusinessWrite, LocalFirstRunStore } from './prismaRunStore';
 import { normalizeLead } from './leadNormalizer';
+import { applyLeadQualityFilters } from './leadQuality';
 import type { RunRecord } from './runService';
 import { NormalizedLead, ValidatedRunInput } from './types';
 import { GooglePlacesClient } from '../integrations/googlePlacesClient';
@@ -121,7 +122,10 @@ export async function executeLocalFirstRun(
 
     try {
       const result = await localClient.searchBatch({ batch, proxies: input.proxyUrls ?? [] });
-      const normalized = result.items.map((item) => normalizeLead(item, 'google_maps'));
+      const normalized = applyLeadQualityFilters(
+        result.items.map((item) => normalizeLead(item, 'google_maps')),
+        filters
+      );
       for (const lead of normalized) {
         const outcome = await store.upsertBusiness(run.id, businessWrite(lead, 'local'));
         if (outcome === 'merged') duplicateCount += 1;
@@ -188,7 +192,10 @@ export async function executeLocalFirstRun(
       maxResults: remaining,
       requestBudget: budget,
     });
-    const normalized = items.map((item) => normalizeLead(item, 'google_maps'));
+    const normalized = applyLeadQualityFilters(
+      items.map((item) => normalizeLead(item, 'google_maps')),
+      filters
+    );
     for (const lead of normalized) {
       const outcome = await store.upsertBusiness(run.id, businessWrite(lead, 'google'));
       if (outcome === 'merged') duplicateCount += 1;

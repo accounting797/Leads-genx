@@ -5,6 +5,7 @@ import { EmailExtractor, keepEmailLeadsOnly } from './emailExtractor';
 import { buildActorInput, buildActorInputsForApifyTokens } from './sourceInputBuilder';
 import { safeErrorMessage } from './errorLogger';
 import { normalizeLead } from './leadNormalizer';
+import { applyLeadQualityFilters } from './leadQuality';
 import { executeLocalFirstRun } from './localFirstRunService';
 import type { LocalFirstRunStore } from './prismaRunStore';
 import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
@@ -195,7 +196,10 @@ export function createRunService({
         const items = actorRun.datasetId
           ? await actorClient.getDatasetItems(actorRun.datasetId, actorInput.token)
           : [];
-        const normalizedLeads = items.map((item) => normalizeLead(item, input.leadSource));
+        const sourceLeads = items.map((item) => normalizeLead(item, input.leadSource));
+        const normalizedLeads = input.leadSource === 'google_maps'
+          ? applyLeadQualityFilters(sourceLeads, input.googleMaps)
+          : sourceLeads;
         await store.addEvent(
           run.id,
           'source_results',
@@ -305,7 +309,10 @@ export function createRunService({
         );
       },
     });
-    const googleLeads = items.map((item) => normalizeLead(item, input.leadSource));
+    const googleLeads = applyLeadQualityFilters(
+      items.map((item) => normalizeLead(item, input.leadSource)),
+      input.googleMaps
+    );
     await store.addEvent(
       run.id,
       'source_results',
@@ -376,7 +383,10 @@ export function createRunService({
       : [];
     if (!localItems.length) return leadCount;
 
-    const localLeads = localItems.map((item) => normalizeLead(item, input.leadSource));
+    const localLeads = applyLeadQualityFilters(
+      localItems.map((item) => normalizeLead(item, input.leadSource)),
+      input.googleMaps
+    );
     await store.addEvent(
       run.id,
       'source_results',
@@ -445,7 +455,10 @@ export function createRunService({
             }
           },
         });
-        const localLeads = localItems.map((item) => normalizeLead(item, input.leadSource));
+        const localLeads = applyLeadQualityFilters(
+          localItems.map((item) => normalizeLead(item, input.leadSource)),
+          input.googleMaps
+        );
         await store.addEvent(run.id, 'source_results', `Local scraper returned ${localLeads.length} businesses; ${websiteCount(localLeads)} had websites to scan.`, {
           provider: 'local_maps_scraper', itemCount: localLeads.length, websiteCount: websiteCount(localLeads),
         });

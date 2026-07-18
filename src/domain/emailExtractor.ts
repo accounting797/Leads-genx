@@ -5,7 +5,10 @@ export interface EmailExtractor {
 }
 
 const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+const EMAIL_EXACT_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const BAD_SUFFIXES = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'];
+const AUTOMATED_LOCAL_PART = /^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|mailer[-_.]?daemon|postmaster)$/i;
+const SENTRY_INGEST_DOMAIN = /(?:^|\.)ingest(?:\.[a-z0-9-]+)*\.sentry\.io$/i;
 const CONTACT_PATHS = [
   '/',
   '/contact',
@@ -32,10 +35,22 @@ const CONTACT_PATHS = [
 const CONTACT_LINK_PATTERN = /\b(contact|about|team|staff|sales|support|location|locations|leadership|quote|request quote|get a quote|service|services|branch|branches|directory|office|offices)\b/i;
 const HREF_PATTERN = /\bhref\s*=\s*["']([^"']+)["']/gi;
 
+export function isQualifiedLeadEmail(email: string): boolean {
+  const candidate = email.trim().toLowerCase();
+  if (!EMAIL_EXACT_PATTERN.test(candidate)) return false;
+  const [localPart, domain] = candidate.split('@');
+  if (!localPart || !domain || localPart.length > 64 || domain.length > 253) return false;
+  if (AUTOMATED_LOCAL_PART.test(localPart)) return false;
+  if (domain.endsWith('.invalid') || domain.endsWith('.local')) return false;
+  if (SENTRY_INGEST_DOMAIN.test(domain)) return false;
+  return true;
+}
+
 function normalizeEmail(email: string): string | undefined {
   const cleaned = email.trim().toLowerCase().replace(/[),.;:]+$/, '');
   if (!cleaned.includes('@')) return undefined;
   if (BAD_SUFFIXES.some((suffix) => cleaned.endsWith(suffix))) return undefined;
+  if (!isQualifiedLeadEmail(cleaned)) return undefined;
   return cleaned;
 }
 

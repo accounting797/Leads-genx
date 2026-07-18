@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractEmailsFromText,
+  isQualifiedLeadEmail,
   keepEmailLeadsOnly,
   WebsiteEmailExtractor,
 } from '../../src/domain/emailExtractor';
@@ -13,6 +14,17 @@ describe('extractEmailsFromText', () => {
     );
 
     expect(emails).toEqual(['sales@example.com', 'support@example.com']);
+  });
+
+  it('rejects telemetry and no-reply addresses', () => {
+    const emails = extractEmailsFromText(
+      'Contact sales@realbusiness.com, noreply@realbusiness.com, ' +
+      'ef5d9bbac3354b759bfd7a23c3313b3f@o244637.ingest.us.sentry.io'
+    );
+
+    expect(emails).toEqual(['sales@realbusiness.com']);
+    expect(isQualifiedLeadEmail('owner@realbusiness.com')).toBe(true);
+    expect(isQualifiedLeadEmail('mailer-daemon@realbusiness.com')).toBe(false);
   });
 });
 
@@ -128,5 +140,21 @@ describe('keepEmailLeadsOnly', () => {
 
     expect(leads.map((lead) => lead.email)).toEqual(['sales@example.com']);
     expect(leads[0].companyName).toBe('Gulf Coast Services');
+  });
+
+  it('keeps only usable prospect emails from existing and extracted values', async () => {
+    const leads = await keepEmailLeadsOnly(
+      [{ ...baseLead, email: 'noreply@example.com' }],
+      {
+        async extract() {
+          return [
+            'ef5d9bbac3354b759bfd7a23c3313b3f@o244637.ingest.us.sentry.io',
+            'contact@gulfcoastservices.com',
+          ];
+        },
+      }
+    );
+
+    expect(leads.map((lead) => lead.email)).toEqual(['contact@gulfcoastservices.com']);
   });
 });
