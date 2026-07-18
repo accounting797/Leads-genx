@@ -56,6 +56,19 @@ describe('normalizeLead', () => {
     });
   });
 
+  it('normalizes Docker scraper rating and review columns', () => {
+    const lead = normalizeLead(
+      {
+        title: 'Miami Aerospace Manufacturing',
+        review_rating: '4.6',
+        review_count: '137',
+      },
+      'google_maps'
+    );
+
+    expect(lead).toMatchObject({ rating: 4.6, reviewsCount: 137 });
+  });
+
   it('normalizes HarvestAPI Sales Navigator profiles and email arrays', () => {
     const lead = normalizeLead(
       {

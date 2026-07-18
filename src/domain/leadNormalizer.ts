@@ -49,8 +49,8 @@ export function normalizeLead(item: unknown, leadSource: LeadSource): Normalized
       email: stringValue(obj.email, obj.emails),
       website: stringValue(obj.website, obj.websiteUrl, obj.websiteUri),
       phone: stringValue(obj.phone, obj.phoneUnformatted, obj.internationalPhoneNumber, obj.nationalPhoneNumber),
-      rating: numberValue(obj.totalScore, obj.rating, obj.stars),
-      reviewsCount: numberValue(obj.reviewsCount, obj.reviewCount, obj.userRatingCount),
+      rating: numberValue(obj.totalScore, obj.rating, obj.stars, obj.review_rating),
+      reviewsCount: numberValue(obj.reviewsCount, obj.reviewCount, obj.userRatingCount, obj.review_count),
       placeUrl: stringValue(obj.url, obj.placeUrl, obj.googleMapsUrl, obj.googleMapsUri),
       rawJson,
     };
