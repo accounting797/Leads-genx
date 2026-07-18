@@ -1,9 +1,11 @@
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
 import { formatEmailsTxt, formatLeadsTxt } from '../domain/exportFormatter';
 import { suggestions } from '../domain/suggestions';
 import { validateCreateRunInput, ValidationError } from '../domain/validation';
+import { appendErrorLogToFile, safeErrorMessage } from '../domain/errorLogger';
 import { asyncHandler } from '../utils/asyncHandler';
 
 export interface ApiRunService {
@@ -253,12 +255,31 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
     res.status(204).send();
   });
 
-  router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  router.use(async (error: unknown, req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof ValidationError) {
       res.status(400).json({ error: error.message, fields: error.fields });
       return;
     }
-    res.status(500).json({ error: 'Internal server error' });
+
+    const requestId = randomUUID();
+    const message = safeErrorMessage(error);
+    const details = { method: req.method, path: req.path };
+    try {
+      await prisma?.errorLog.create({
+        data: {
+          requestId,
+          source: 'api',
+          severity: 'error',
+          message,
+          detailsJson: JSON.stringify(details),
+        },
+      });
+    } catch {
+      appendErrorLogToFile({ requestId, source: 'api', severity: 'error', message, details });
+    }
+
+    const prefix = req.method === 'POST' && req.path === '/runs' ? 'Unable to start run' : 'Request failed';
+    res.status(500).json({ error: `${prefix}: ${message}`, requestId });
   });
 
   return router;

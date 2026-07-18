@@ -107,6 +107,41 @@ describe('API', () => {
     expect(JSON.stringify(res.body)).not.toContain('google-secret-key');
   });
 
+  it('records unexpected run-start failures and returns a safe actionable error', async () => {
+    const errorLogs: Array<Record<string, unknown>> = [];
+    const app = createApp({
+      runService: {
+        async startRun() {
+          throw new Error('Database write failed for secret abcdefghijklmnopqrstuvwxyz123456');
+        },
+      },
+      prisma: createPrismaStub([], {
+        errorLog: {
+          async create({ data }: { data: Record<string, unknown> }) {
+            errorLogs.push(data);
+            return data;
+          },
+        },
+      }) as never,
+    });
+
+    const res = await request(app).post('/api/runs').send({
+      leadSource: 'google_maps',
+      maxResults: 10,
+      googleMaps: { provider: 'local_first', apiRequestBudget: 0, searchTerms: ['dentist'], locations: ['Austin, TX'] },
+    }).expect(500);
+
+    expect(res.body.error).toContain('Unable to start run: Database write failed');
+    expect(res.body.error).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
+    expect(res.body.requestId).toEqual(expect.any(String));
+    expect(errorLogs).toContainEqual(expect.objectContaining({
+      source: 'api',
+      severity: 'error',
+      message: expect.stringContaining('[REDACTED]'),
+      requestId: res.body.requestId,
+    }));
+  });
+
   it('returns safe operator settings', async () => {
     const app = createApp();
 
