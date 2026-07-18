@@ -214,7 +214,7 @@ describe('validateCreateRunInput', () => {
     expect(input.googleApiKeys).toEqual(['google-one', 'google-two']);
   });
 
-  it('requires at least one provider credential for hybrid Google Maps runs', () => {
+  it('requires both provider credentials for Hybrid Max Output runs', () => {
     expect(() =>
       validateCreateRunInput(
         {
@@ -227,7 +227,30 @@ describe('validateCreateRunInput', () => {
         },
         false
       )
-    ).toThrow(/Apify or Google/i);
+    ).toThrow(/Apify token/i);
+
+    expect(() => validateCreateRunInput({
+      apifyToken: 'apify-one',
+      leadSource: 'google_maps',
+      googleMaps: { provider: 'hybrid', searchTerms: ['mining contractor'], locations: ['Reno, NV'] },
+    }, false)).toThrow(/Google API key/i);
+
+    expect(() => validateCreateRunInput({
+      googleApiKey: 'google-one',
+      leadSource: 'google_maps',
+      googleMaps: { provider: 'hybrid', searchTerms: ['mining contractor'], locations: ['Reno, NV'] },
+    }, false)).toThrow(/Apify token/i);
+  });
+
+  it('defaults Hybrid Max Output to a bounded Google fallback budget', () => {
+    const input = validateCreateRunInput({
+      apifyToken: 'apify-one',
+      googleApiKey: 'google-one',
+      leadSource: 'google_maps',
+      googleMaps: { provider: 'hybrid', searchTerms: ['dentist'], locations: ['Austin, TX'] },
+    }, false);
+
+    expect(input.googleMaps?.apiRequestBudget).toBe(25);
   });
 
   it('accepts high-volume Google Maps max results above 1000', () => {

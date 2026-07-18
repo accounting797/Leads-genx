@@ -85,14 +85,17 @@ describe('static dashboard live progress', () => {
 });
 
 describe('static dashboard Google Maps providers', () => {
-  it('locks Google Maps runs to the automatic Docker-primary pipeline', () => {
+  it('offers Standard Docker plus Google and an explicit Hybrid Max Output mode', () => {
     const html = readPublicFile('index.html');
 
     expect(html).toContain('id="gmProvider"');
-    expect(html).toContain('type="hidden" value="local_first"');
-    expect(html).toContain('Docker scraper primary');
-    expect(html).toContain('Google Places fallback');
-    expect(html).not.toContain('<select id="gmProvider"');
+    expect(html).toContain('<select id="gmProvider"');
+    expect(html).toContain('value="local_first"');
+    expect(html).toContain('value="hybrid"');
+    expect(html).toContain('Docker + Google');
+    expect(html).toContain('Hybrid Max Output');
+    expect(html).not.toContain('value="apify"');
+    expect(html).not.toContain('value="google_places"');
     expect(html).toContain('id="googleApiKey"');
     expect(html).toContain('id="gmApiBudget"');
     expect(html).toContain('id="gmProxyUrls"');
@@ -107,11 +110,25 @@ describe('static dashboard Google Maps providers', () => {
     expect(appJs).toContain("proxyUrls: $('gmProxyUrls').value.trim()");
   });
 
-  it('forces the local-first provider in every submitted Google Maps run', () => {
+  it('submits Standard by default and switches to Hybrid only when selected', () => {
     const appJs = readPublicFile('app.js');
 
-    expect(appJs).toContain("$('gmProvider').value = 'local_first'");
-    expect(appJs).not.toContain("$('gmProvider').addEventListener('change'");
+    expect(appJs).toContain("provider: $('gmProvider').value");
+    expect(appJs).toContain("$('gmProvider').addEventListener('change', updatePipelineSummary)");
+    expect(appJs).toContain("$('gmProvider').value === 'hybrid'");
+  });
+});
+
+describe('static dashboard source-aware progress', () => {
+  it('shows business, email, batch, waiting, Google, and Apify progress states', () => {
+    const appJs = readPublicFile('app.js');
+    expect(appJs).toContain('run.businessCount');
+    expect(appJs).toContain('run.leadCount');
+    expect(appJs).toContain('run.batches');
+    expect(appJs).toContain('waiting_for_scraper');
+    expect(appJs).toContain('waiting_for_credentials');
+    expect(appJs).toContain('google_fallback_started');
+    expect(appJs).toContain('apify_shard_started');
   });
 });
 

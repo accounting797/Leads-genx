@@ -17,6 +17,17 @@ export interface LocalFirstRunDeps {
   now?: () => Date;
 }
 
+export interface LocalFirstExecutionOptions {
+  finalize?: boolean;
+}
+
+export interface LocalFirstRunOutcome {
+  status: 'running' | 'completed' | 'waiting_for_scraper' | 'waiting_for_credentials';
+  leadCount: number;
+  businessCount: number;
+  seenEmails: Set<string>;
+}
+
 function businessWrite(lead: NormalizedLead, provenance: 'local' | 'google'): DiscoveredBusinessWrite {
   return {
     identityKey: businessIdentity(lead),
@@ -50,8 +61,9 @@ function metrics(businesses: Awaited<ReturnType<LocalFirstRunStore['listBusiness
 export async function executeLocalFirstRun(
   { store, localClient, googleClient, emailExtractor, emailConcurrency = 20, now = () => new Date() }: LocalFirstRunDeps,
   run: RunRecord,
-  input: ValidatedRunInput
-): Promise<void> {
+  input: ValidatedRunInput,
+  options: LocalFirstExecutionOptions = {}
+): Promise<LocalFirstRunOutcome> {
   const filters = input.googleMaps ?? {};
   const plannedBatches = buildLocalDiscoveryBatches(filters, input.maxResults);
   const plannedByKey = new Map(plannedBatches.map((batch) => [batch.key, batch]));
@@ -88,6 +100,11 @@ export async function executeLocalFirstRun(
     currentRoute: input.routeMode ?? 'direct',
     apiRequestBudget: filters.apiRequestBudget ?? 0,
     localConcurrency: 1,
+  });
+  await store.addEvent(run.id, 'run_started', 'Docker and Google pipeline started.', {
+    provider: input.googleMaps?.provider ?? 'local_first',
+    routeMode: input.routeMode ?? 'direct',
+    googleRequestBudget: filters.apiRequestBudget ?? 0,
   });
 
   const runnable = await store.listRunnableBatches(run.id, now());
@@ -147,7 +164,7 @@ export async function executeLocalFirstRun(
   if (checkpoints.some((batch) => batch.status === 'retry' || batch.status === 'pending' || batch.status === 'running')) {
     await store.updateRun(run.id, { status: 'waiting_for_scraper', leadCount });
     await store.addEvent(run.id, 'run_waiting', 'Run checkpointed and waiting for the local scraper.', { leadCount });
-    return;
+    return { status: 'waiting_for_scraper', leadCount, businessCount: persistedBusinesses.length, seenEmails };
   }
 
   persistedBusinesses = await store.listBusinesses(run.id);
@@ -156,10 +173,14 @@ export async function executeLocalFirstRun(
   if (remaining > 0 && budget > 0 && !input.googleApiKey) {
     await store.updateRun(run.id, { status: 'waiting_for_credentials', leadCount });
     await store.addEvent(run.id, 'run_waiting_for_credentials', 'Google fallback credentials must be re-entered.', { leadCount });
-    return;
+    return { status: 'waiting_for_credentials', leadCount, businessCount: persistedBusinesses.length, seenEmails };
   }
 
   if (remaining > 0 && budget > 0 && input.googleApiKey && googleClient) {
+    await store.addEvent(run.id, 'google_fallback_started', 'Google API fallback started.', {
+      remainingTarget: remaining,
+      requestBudget: budget,
+    });
     const items = await googleClient.search({
       apiKey: input.googleApiKey,
       apiKeys: input.googleApiKeys,
@@ -173,14 +194,28 @@ export async function executeLocalFirstRun(
       if (outcome === 'merged') duplicateCount += 1;
     }
     await saveEmails(normalized);
+    await store.addEvent(run.id, 'google_fallback_completed', 'Google API fallback completed.', {
+      resultCount: normalized.length,
+      requestBudget: budget,
+    });
   }
 
   persistedBusinesses = await store.listBusinesses(run.id);
+  const finalMetrics = metrics(persistedBusinesses);
+  if (options.finalize === false) {
+    await store.updateRun(run.id, {
+      status: 'running',
+      ...finalMetrics,
+      duplicateCount,
+      leadCount,
+    });
+    return { status: 'running', leadCount, businessCount: persistedBusinesses.length, seenEmails };
+  }
   await store.updateRun(run.id, {
     status: 'completed',
     actorId: 'local_first',
     datasetId: 'local_first',
-    ...metrics(persistedBusinesses),
+    ...finalMetrics,
     duplicateCount,
     leadCount,
   });
@@ -189,4 +224,5 @@ export async function executeLocalFirstRun(
     businessCount: persistedBusinesses.length,
     target: input.maxResults,
   });
+  return { status: 'completed', leadCount, businessCount: persistedBusinesses.length, seenEmails };
 }

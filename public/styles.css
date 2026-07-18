@@ -265,6 +265,8 @@ input:focus, select:focus, .chip-box:focus-within {
 
 .pipeline-card strong { color: var(--text); font-size: 14px; }
 .pipeline-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.pipeline-card select { width: 100%; }
+.field-help { color: var(--muted); font-size: 12px; line-height: 1.45; }
 .pipeline-kicker {
   color: #8ef0ca;
   font-size: 10px;

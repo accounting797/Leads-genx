@@ -88,4 +88,23 @@ describe('executeLocalFirstRun', () => {
     expect(localCalls).toBe(0);
     expect(run.status).toBe('completed');
   });
+
+  it('hands Docker and Google results to a following Hybrid stage without finalizing early', async () => {
+    const run: RunRecord = { id: 3, status: 'queued', leadSource: 'google_maps', actorId: 'hybrid', maxResults: 1, leadCount: 0 };
+    const state = fakeStore(run);
+    const outcome = await executeLocalFirstRun({
+      store: state.store,
+      localClient: {
+        async search() { return []; }, async health() { return true; },
+        async searchBatch() { return { batchKey: 'one', jobId: 'job-3', rawBusinessCount: 1, items: [{ title: 'Local Co', email: 'local@example.com' }] }; },
+      },
+    }, run, {
+      apifyToken: 'secret', googleApiKey: 'google', leadSource: 'google_maps', maxResults: 1,
+      googleMaps: { provider: 'hybrid', searchTerms: ['dentist'], locations: ['Austin, TX'], apiRequestBudget: 1 },
+    }, { finalize: false });
+
+    expect(outcome).toMatchObject({ status: 'running', leadCount: 1, businessCount: 1 });
+    expect(outcome.seenEmails.has('local@example.com')).toBe(true);
+    expect(state.calls).not.toContain('event:run_completed');
+  });
 });

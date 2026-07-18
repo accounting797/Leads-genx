@@ -87,7 +87,7 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
       const runs = prisma
         ? await prisma.run.findMany({
             orderBy: { createdAt: 'desc' },
-            include: { _count: { select: { leads: true } } },
+            include: { _count: { select: { leads: true, batches: true } } },
           })
         : [];
       res.json({ data: runs });
@@ -99,7 +99,15 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
     asyncHandler(async (req, res) => {
       const id = Number(req.params.id);
       const run = prisma
-        ? await prisma.run.findUnique({ where: { id }, include: { leads: true } })
+        ? await prisma.run.findUnique({
+            where: { id },
+            include: {
+              leads: true,
+              batches: {
+                select: { id: true, status: true, attemptCount: true, resultCount: true, errorCode: true },
+              },
+            },
+          })
         : null;
       if (!run) {
         res.status(404).json({ error: 'Run not found' });

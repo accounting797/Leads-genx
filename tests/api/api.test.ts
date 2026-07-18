@@ -121,6 +121,28 @@ describe('API', () => {
     });
   });
 
+  it('returns safe batch progress with a run detail', async () => {
+    let received: unknown;
+    const app = createApp({
+      prisma: createPrismaStub([], {
+        run: {
+          async findUnique(args: unknown) {
+            received = args;
+            return { id: 12, status: 'running', leads: [], batches: [] };
+          },
+        },
+      }) as never,
+    });
+
+    await request(app).get('/api/runs/12').expect(200);
+    expect(received).toMatchObject({
+      include: {
+        batches: { select: { id: true, status: true, attemptCount: true, resultCount: true, errorCode: true } },
+      },
+    });
+    expect(JSON.stringify(received)).not.toContain('query');
+  });
+
   it('downloads email-only TXT leads when format is omitted', async () => {
     const app = createApp({
       prisma: createPrismaStub([

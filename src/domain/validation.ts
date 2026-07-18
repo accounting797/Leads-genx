@@ -236,13 +236,15 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
     fields.googleApiKey = 'Google API key is required for Google Places runs.';
   }
 
-  if (
-    leadSource === 'google_maps' &&
-    googleMapsProvider === 'hybrid' &&
-    !apifyToken &&
-    !googleApiKey
-  ) {
-    fields.apifyToken = 'At least one Apify or Google API credential is required for Hybrid runs.';
+  if (leadSource === 'google_maps' && googleMapsProvider === 'hybrid') {
+    if (googleMaps) googleMaps.apiRequestBudget = googleMaps.apiRequestBudget ?? 25;
+    if (!apifyToken && !hasSavedToken) fields.apifyToken = 'Apify token is required for Hybrid Max Output.';
+    if (!googleApiKey) fields.googleApiKey = 'Google API key is required for Hybrid Max Output.';
+    if (!hasGooglePlacesCriteria(googleMaps)) fields.googleMaps = 'Hybrid runs need at least one search term, category, or company type.';
+    if ((googleMaps?.apiRequestBudget ?? 0) < 0 || (googleMaps?.apiRequestBudget ?? 0) > 500) {
+      fields.apiRequestBudget = 'Google API request budget must be between 0 and 500.';
+    }
+    if (maxResults > 10000) fields.maxResults = 'Hybrid maxResults cannot exceed 10000 businesses.';
   }
 
   if (leadSource === 'sales_navigator' && !searchUrl && !hasSalesNavigatorFilters(salesNavigator)) {

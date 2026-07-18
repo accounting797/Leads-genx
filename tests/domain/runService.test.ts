@@ -161,6 +161,7 @@ describe('createRunService', () => {
       'actor_succeeded',
       'source_results',
       'leads_saved',
+      'apify_shard_completed',
       'run_completed',
     ]);
     expect(store.leads.map((lead) => lead.email)).toEqual([

@@ -36,6 +36,22 @@
     });
   }
 
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function updatePipelineSummary() {
+    const hybrid = $('gmProvider').value === 'hybrid';
+    $('pipelineSummary').textContent = hybrid
+      ? 'Docker runs first, Google fills gaps, then Apify adds maximum coverage. Google and Apify keys are required.'
+      : 'Docker runs first; Google fills the remaining target within your request budget.';
+  }
+
   function applySourceLimits(source) {
     const maxResults = $('maxResults');
     if (source === 'sales_navigator') {
@@ -140,7 +156,9 @@
     const selectedRunId = preferredRunId || $('leadRunFilter').value;
     $('runsTable').innerHTML = window.LeadsGenXUi.renderRuns(runs);
     $('metricRuns').textContent = runs.length;
-    $('metricActive').textContent = runs.filter((run) => ['queued', 'running'].includes(run.status)).length;
+    $('metricActive').textContent = runs.filter((run) =>
+      ['queued', 'running', 'waiting_for_scraper', 'waiting_for_credentials', 'cooling_down'].includes(run.status)
+    ).length;
     const total = runs.reduce((sum, run) => sum + (run._count ? run._count.leads : run.leadCount || 0), 0);
     $('metricLeads').textContent = total;
     $('leadRunFilter').innerHTML =
@@ -206,19 +224,39 @@
     void checkProgress();
   }
 
+  function progressStage(events, status) {
+    const types = events.map((event) => event.type);
+    if (status === 'completed') return 'Completed';
+    if (status === 'failed') return 'Failed — review the error below';
+    if (status === 'waiting_for_scraper') return 'Docker scraper unavailable — waiting to retry';
+    if (status === 'waiting_for_credentials') return 'Credentials required — review the latest message';
+    if (types.includes('apify_shard_started')) return 'Apify is expanding maximum-output coverage';
+    if (types.includes('google_fallback_started')) return 'Google API is filling Docker coverage gaps';
+    if (types.some((type) => type.indexOf('local_batch') === 0)) return 'Docker scraper is processing local batches';
+    return status === 'queued' ? 'Queued for Docker scraper' : status;
+  }
+
   async function checkProgress() {
     if (!activeRunId) return;
     try {
       const run = await api.getRun(activeRunId);
       const events = await api.getRunEvents(activeRunId);
+      const batches = run.batches || [];
+      const completedBatches = batches.filter((batch) => batch.status === 'completed').length;
+      const target = Math.max(1, run.maxResults || run.googleMapsMaxPlaces || 1);
+      const resultCount = Math.max(run.businessCount || 0, run.leadCount || 0);
       const elapsed = Math.floor((Date.now() - progressStartedAt) / 1000);
       $('progressElapsed').textContent = 'Elapsed ' + elapsed + 's';
-      $('progressLabel').textContent = run.status;
-      $('progressLatest').textContent = events.length ? events[events.length - 1].message : 'Waiting';
+      $('progressLabel').textContent = progressStage(events, run.status);
+      $('progressSubhead').textContent = (run.businessCount || 0) + ' businesses · ' + (run.leadCount || 0) +
+        ' emails · ' + completedBatches + '/' + batches.length + ' batches';
+      $('progressLatest').textContent = run.status === 'failed' && run.errorMessage
+        ? run.errorMessage
+        : (events.length ? events[events.length - 1].message : 'Waiting for the first source event');
       $('miniLog').innerHTML = events
         .slice(-5)
         .reverse()
-        .map((event) => '<div>' + event.type + ': ' + event.message + '</div>')
+        .map((event) => '<div>' + escapeHtml(event.type) + ': ' + escapeHtml(event.message) + '</div>')
         .join('');
 
       if (run.status === 'completed') {
@@ -231,8 +269,14 @@
         clearInterval(progressTimer);
         await loadRuns(String(run.id));
         await loadLogs();
+      } else if (['waiting_for_scraper', 'waiting_for_credentials'].includes(run.status)) {
+        $('progressFill').style.width = Math.min(92, Math.max(12, Math.round((resultCount / target) * 100))) + '%';
+        clearInterval(progressTimer);
+        await refreshLiveProgressTables(run.id);
       } else {
-        const width = Math.min(88, 12 + elapsed);
+        const batchProgress = batches.length ? completedBatches / batches.length : 0;
+        const resultProgress = Math.min(1, resultCount / target);
+        const width = Math.min(94, Math.max(12, Math.round(Math.max(batchProgress, resultProgress) * 100)));
         $('progressFill').style.width = width + '%';
         await refreshLiveProgressTables(run.id);
       }
@@ -282,6 +326,8 @@
     );
     document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
     $('gmProvider').value = 'local_first';
+    $('gmProvider').addEventListener('change', updatePipelineSummary);
+    updatePipelineSummary();
     setupCredentialBox($('apifyToken'));
     setupCredentialBox($('googleApiKey'));
     normalizeCredentialBox($('apifyToken'));

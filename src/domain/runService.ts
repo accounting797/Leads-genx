@@ -210,6 +210,13 @@ export function createRunService({
           }
         );
         leadCount = await saveEmailLeadsInBatches(run.id, normalizedLeads, seenEmails, leadCount);
+        await store.addEvent(run.id, 'apify_shard_completed', `Apify shard ${index + 1}/${actorInputs.length} completed.`, {
+          provider: 'apify',
+          shard: index + 1,
+          shardCount: actorInputs.length,
+          itemCount: normalizedLeads.length,
+          leadCount,
+        });
       } catch (error) {
         if (!options.continueOnShardError) throw error;
 
@@ -464,6 +471,41 @@ export function createRunService({
       }
 
       if (isHybridRun(input)) {
+        const checkpointStore = store as Partial<LocalFirstRunStore>;
+        const resumableClient = localMapsScraperClient as Partial<ResumableLocalMapsScraperClient> | undefined;
+        if (
+          localMapsScraperClient &&
+          typeof checkpointStore.listBatches === 'function' &&
+          typeof resumableClient?.searchBatch === 'function'
+        ) {
+          const localOutcome = await executeLocalFirstRun({
+            store: store as LocalFirstRunStore,
+            localClient: localMapsScraperClient as ResumableLocalMapsScraperClient,
+            googleClient: googlePlacesClient,
+            emailExtractor,
+            emailConcurrency: emailExtractionConcurrency,
+          }, run, input, { finalize: false });
+          if (localOutcome.status !== 'running') return;
+
+          await store.addEvent(run.id, 'hybrid_apify_started', 'Docker and Google stages complete; Apify expansion started.', {
+            businessCount: localOutcome.businessCount,
+            leadCount: localOutcome.leadCount,
+          });
+          const result = await runApifyShards(run, input, localOutcome.seenEmails, localOutcome.leadCount, {
+            continueOnShardError: true,
+          });
+          if (result.leadCount === 0) {
+            await store.addEvent(run.id, 'leads_saved', 'Saved 0 email leads.', { leadCount: 0 });
+          }
+          await store.updateRun(run.id, { status: 'completed', actorId: 'hybrid', leadCount: result.leadCount });
+          await store.addEvent(run.id, 'run_completed', 'Hybrid Max Output run completed.', {
+            leadCount: result.leadCount,
+            businessCount: localOutcome.businessCount,
+            providers: ['docker', 'google_places', 'apify'],
+          });
+          return;
+        }
+
         const seenEmails = new Set<string>();
         let leadCount = 0;
 
