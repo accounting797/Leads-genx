@@ -29,6 +29,8 @@ export interface LocalFirstRunOutcome {
   seenEmails: Set<string>;
 }
 
+const EMPTY_BATCH_CIRCUIT_THRESHOLD = 3;
+
 function businessWrite(lead: NormalizedLead, provenance: 'local' | 'google'): DiscoveredBusinessWrite {
   return {
     identityKey: businessIdentity(lead),
@@ -109,7 +111,9 @@ export async function executeLocalFirstRun(
   });
 
   const runnable = await store.listRunnableBatches(run.id, now());
-  for (const checkpoint of runnable) {
+  let consecutiveEmptyBatches = 0;
+  for (let batchIndex = 0; batchIndex < runnable.length; batchIndex += 1) {
+    const checkpoint = runnable[batchIndex];
     const batch: LocalDiscoveryBatch | undefined = plannedByKey.get(checkpoint.batchKey);
     if (!batch) continue;
     const attemptCount = (checkpoint.attemptCount ?? 0) + 1;
@@ -122,6 +126,15 @@ export async function executeLocalFirstRun(
 
     try {
       const result = await localClient.searchBatch({ batch, proxies: input.proxyUrls ?? [] });
+      if (result.rawBusinessCount === 0) {
+        consecutiveEmptyBatches += 1;
+        await store.addEvent(run.id, 'local_batch_empty', 'Local discovery batch returned no businesses.', {
+          consecutiveEmptyBatches,
+          threshold: EMPTY_BATCH_CIRCUIT_THRESHOLD,
+        });
+      } else {
+        consecutiveEmptyBatches = 0;
+      }
       const normalized = applyLeadQualityFilters(
         result.items.map((item) => normalizeLead(item, 'google_maps')),
         filters
@@ -142,7 +155,29 @@ export async function executeLocalFirstRun(
         batchKey: batch.key,
         resultCount: result.rawBusinessCount,
       });
+
+      if (consecutiveEmptyBatches >= EMPTY_BATCH_CIRCUIT_THRESHOLD) {
+        const remaining = runnable.slice(batchIndex + 1);
+        for (const pending of remaining) {
+          await store.upsertBatch(run.id, {
+            ...pending,
+            status: 'skipped_empty_circuit',
+            errorCode: 'consecutive_empty_batches',
+          });
+        }
+        await store.addEvent(
+          run.id,
+          'local_empty_circuit_opened',
+          'Docker discovery paused after repeated empty batches; continuing to Google fallback.',
+          {
+            threshold: EMPTY_BATCH_CIRCUIT_THRESHOLD,
+            skippedBatchCount: remaining.length,
+          }
+        );
+        break;
+      }
     } catch (error) {
+      consecutiveEmptyBatches = 0;
       const code = errorCode(error);
       const terminal = code === 'unsupported_location' || attemptCount >= 2;
       await store.upsertBatch(run.id, {

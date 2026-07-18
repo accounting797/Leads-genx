@@ -9,10 +9,14 @@ function fakeStore(run: RunRecord, seeded: { batches?: RunBatchRecord[]; busines
   const batches = [...(seeded.batches ?? [])];
   const businesses = [...(seeded.businesses ?? [])];
   const leads: unknown[] = [];
+  const events: Array<{ type: string; metadata?: unknown }> = [];
   const store: LocalFirstRunStore = {
     async createRun() { throw new Error('not used'); },
     async updateRun(_id, data) { Object.assign(run, data); calls.push(`run:${data.status ?? 'metrics'}`); return run; },
-    async addEvent(_id, type) { calls.push(`event:${type}`); },
+    async addEvent(_id, type, _message, metadata) {
+      calls.push(`event:${type}`);
+      events.push({ type, metadata });
+    },
     async addLeads(_id, incoming) { leads.push(...incoming); calls.push('email:save'); },
     async addErrorLog() {},
     async upsertBatch(runId, batch: RunBatchWrite) {
@@ -35,7 +39,7 @@ function fakeStore(run: RunRecord, seeded: { batches?: RunBatchRecord[]; busines
     async listRecoverableRuns() { return []; },
     async getRun() { return run; },
   };
-  return { store, calls, batches, businesses, leads };
+  return { store, calls, batches, businesses, leads, events };
 }
 
 describe('executeLocalFirstRun', () => {
@@ -106,5 +110,118 @@ describe('executeLocalFirstRun', () => {
     expect(outcome).toMatchObject({ status: 'running', leadCount: 1, businessCount: 1 });
     expect(outcome.seenEmails.has('local@example.com')).toBe(true);
     expect(state.calls).not.toContain('event:run_completed');
+  });
+
+  it('opens the local circuit after three empty batches and invokes Google fallback', async () => {
+    const filters = {
+      provider: 'local_first' as const,
+      searchTerms: ['one', 'two', 'three', 'four', 'five'],
+      locations: ['Austin, TX'],
+      apiRequestBudget: 2,
+    };
+    const run: RunRecord = {
+      id: 4, status: 'queued', leadSource: 'google_maps', actorId: 'local_first',
+      maxResults: 100, leadCount: 0,
+    };
+    const state = fakeStore(run);
+    let localCalls = 0;
+    let googleCalls = 0;
+
+    await executeLocalFirstRun({
+      store: state.store,
+      localClient: {
+        async search() { return []; },
+        async health() { return true; },
+        async searchBatch({ batch }) {
+          localCalls += 1;
+          return { batchKey: batch.key, jobId: `empty-${localCalls}`, rawBusinessCount: 0, items: [] };
+        },
+      },
+      googleClient: {
+        async search() {
+          googleCalls += 1;
+          return [{ id: 'google-fallback', displayName: { text: 'Fallback Co' } }];
+        },
+      },
+    }, run, {
+      leadSource: 'google_maps', maxResults: 100, googleApiKey: 'request-scoped-secret', googleMaps: filters,
+    });
+
+    expect(localCalls).toBe(3);
+    expect(googleCalls).toBe(1);
+    expect(state.batches.filter((batch) => batch.status === 'skipped_empty_circuit')).toHaveLength(2);
+    expect(state.events).toContainEqual({
+      type: 'local_empty_circuit_opened',
+      metadata: { threshold: 3, skippedBatchCount: 2 },
+    });
+    expect(JSON.stringify(state.events)).not.toContain('request-scoped-secret');
+    expect(run).toMatchObject({ status: 'completed', businessCount: 1 });
+  });
+
+  it('resets the empty counter after a non-empty local batch', async () => {
+    const filters = {
+      provider: 'local_first' as const,
+      searchTerms: ['one', 'two', 'three', 'four', 'five', 'six', 'seven'],
+      locations: ['Austin, TX'],
+      apiRequestBudget: 0,
+    };
+    const run: RunRecord = {
+      id: 5, status: 'queued', leadSource: 'google_maps', actorId: 'local_first',
+      maxResults: 100, leadCount: 0,
+    };
+    const state = fakeStore(run);
+    const rawCounts = [0, 0, 1, 0, 0, 0];
+    let localCalls = 0;
+
+    await executeLocalFirstRun({
+      store: state.store,
+      localClient: {
+        async search() { return []; },
+        async health() { return true; },
+        async searchBatch({ batch }) {
+          const rawBusinessCount = rawCounts[localCalls] ?? 0;
+          localCalls += 1;
+          return {
+            batchKey: batch.key,
+            jobId: `local-${localCalls}`,
+            rawBusinessCount,
+            items: rawBusinessCount ? [{ title: 'Recovered Local Co' }] : [],
+          };
+        },
+      },
+    }, run, { leadSource: 'google_maps', maxResults: 100, googleMaps: filters });
+
+    expect(localCalls).toBe(6);
+    expect(state.businesses).toHaveLength(1);
+    expect(state.batches.filter((batch) => batch.status === 'skipped_empty_circuit')).toHaveLength(1);
+    expect(run.status).toBe('completed');
+  });
+
+  it('waits for secure Google credentials after opening the local circuit on recovery', async () => {
+    const filters = {
+      provider: 'local_first' as const,
+      searchTerms: ['one', 'two', 'three', 'four'],
+      locations: ['Austin, TX'],
+      apiRequestBudget: 2,
+    };
+    const run: RunRecord = {
+      id: 6, status: 'running', leadSource: 'google_maps', actorId: 'local_first',
+      maxResults: 100, leadCount: 0,
+    };
+    const state = fakeStore(run);
+
+    await executeLocalFirstRun({
+      store: state.store,
+      localClient: {
+        async search() { return []; },
+        async health() { return true; },
+        async searchBatch({ batch }) {
+          return { batchKey: batch.key, jobId: 'empty', rawBusinessCount: 0, items: [] };
+        },
+      },
+    }, run, { leadSource: 'google_maps', maxResults: 100, googleMaps: filters });
+
+    expect(run.status).toBe('waiting_for_credentials');
+    expect(state.batches.filter((batch) => batch.status === 'skipped_empty_circuit')).toHaveLength(1);
   });
 });
