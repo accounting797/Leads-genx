@@ -160,7 +160,7 @@ describe('GooglePlacesApiClient', () => {
       vi.fn(async (_url: string, init: RequestInit) => {
         const body = JSON.parse(String(init.body));
         if (body.textQuery.includes('Oil & Gas')) {
-          return new Response(JSON.stringify({ error: { message: 'temporary quota' } }), { status: 429 });
+          return new Response(JSON.stringify({ error: { message: 'temporary service failure' } }), { status: 503 });
         }
         return Response.json({
           places: [{ id: body.textQuery, websiteUri: `https://${encodeURIComponent(body.textQuery)}.example.com` }],
@@ -183,7 +183,7 @@ describe('GooglePlacesApiClient', () => {
     expect(places.length).toBeGreaterThan(0);
     expect(events).toContainEqual(expect.objectContaining({ type: 'started', shard: 1 }));
     expect(events).toContainEqual(
-      expect.objectContaining({ type: 'failed', errorMessage: 'Google Places request failed with status 429' })
+      expect.objectContaining({ type: 'failed', errorMessage: 'Google Places is temporarily unavailable.' })
     );
     expect(events).toContainEqual(expect.objectContaining({ type: 'completed', itemCount: 1 }));
   });
@@ -219,7 +219,7 @@ describe('GooglePlacesApiClient', () => {
         'oilfield services Wholesaler Tulsa, OK',
       ])
     );
-    expect(queries).toHaveLength(12);
+    expect(queries).toHaveLength(10);
     expect(new Set(queries).size).toBe(queries.length);
   });
 
@@ -233,6 +233,68 @@ describe('GooglePlacesApiClient', () => {
       maxResults: 100,
       requestBudget: 1,
       filters: { searchTerms: ['dentist', 'plumber'], locations: ['Austin, TX'] },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports every attempted request and streams new page items', async () => {
+    const requests: number[] = [];
+    const pages: unknown[][] = [];
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ places: [{ id: 'one' }], nextPageToken: 'next' }))
+      .mockResolvedValueOnce(Response.json({ places: [{ id: 'two' }] })));
+
+    const items = await new GooglePlacesApiClient().search({
+      apiKey: 'secret',
+      filters: { searchTerms: ['dentist'] },
+      maxResults: 10,
+      requestBudget: 2,
+      onRequestEvent(event) {
+        if (event.type === 'attempted') requests.push(event.requestCount);
+      },
+      onPage(event) { pages.push(event.items); },
+    });
+
+    expect(requests).toEqual([1, 2]);
+    expect(pages).toEqual([[{ id: 'one' }], [{ id: 'two' }]]);
+    expect(items).toHaveLength(2);
+  });
+
+  it('counts rotated-key attempts and stops terminal authorization failures', async () => {
+    const attempts: number[] = [];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: { status: 'PERMISSION_DENIED', message: 'API key is not authorized' },
+    }), { status: 403 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(new GooglePlacesApiClient().search({
+      apiKey: 'key-one',
+      apiKeys: ['key-one', 'key-two'],
+      filters: { searchTerms: ['one', 'two', 'three'] },
+      maxResults: 100,
+      requestBudget: 50,
+      onRequestEvent(event) {
+        if (event.type === 'attempted') attempts.push(event.requestCount);
+      },
+    })).rejects.toMatchObject({ code: 'forbidden' });
+
+    expect(attempts).toEqual([1, 2]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops scheduling shards when the orchestrator target is reached', async () => {
+    let stop = false;
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ places: [{ id: 'one' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await new GooglePlacesApiClient().search({
+      apiKey: 'secret',
+      filters: { searchTerms: ['one', 'two'] },
+      maxResults: 100,
+      requestBudget: 10,
+      shouldStop: () => stop,
+      onPage() { stop = true; },
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
