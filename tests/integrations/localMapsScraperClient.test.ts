@@ -60,7 +60,7 @@ describe('LocalMapsScraperClient', () => {
       expect.objectContaining({
         method: 'POST',
         body: expect.objectContaining({
-          email: true,
+          email: false,
           keywords: expect.arrayContaining(['oilfield services Houston, TX']),
           lat: '29.7604',
           lon: '-95.3698',
@@ -227,7 +227,7 @@ describe('LocalMapsScraperClient', () => {
       lat: '30.2672',
       lon: '-97.7431',
       depth: 10,
-      email: true,
+      email: false,
     });
     expect(result).toMatchObject({ batchKey: 'batch-key-1', jobId: 'batch-job', rawBusinessCount: 1 });
     expect(result.items).toHaveLength(1);
