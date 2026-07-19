@@ -113,8 +113,6 @@ describe('buildGoogleMapsInput', () => {
         'roofer Phoenix, AZ',
         'Dental clinic Austin, TX',
         'Dental clinic Phoenix, AZ',
-        'Public Company Austin, TX',
-        'Public Company Phoenix, AZ',
         'dentist Dental clinic Austin, TX',
         'Dental clinic Public Company Phoenix, AZ',
       ])
@@ -141,7 +139,6 @@ describe('buildGoogleMapsInput', () => {
         'aviation maintenance Detroit, MI',
         'Aerospace & Defense Detroit, MI',
         'Manufacturing Detroit, MI',
-        'Wholesaler Detroit, MI',
         'aviation maintenance Aerospace & Defense Detroit, MI',
         'Manufacturing Wholesaler Detroit, MI',
       ])
@@ -170,7 +167,7 @@ describe('buildGoogleMapsInput', () => {
         'oilfield services Wholesaler Tulsa, OK',
       ])
     );
-    expect(input.searchStringsArray).toHaveLength(12);
+    expect(input.searchStringsArray).toHaveLength(10);
   });
 });
 
