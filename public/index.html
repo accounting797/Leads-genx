@@ -55,7 +55,7 @@
                   <option value="local_first">Standard — Docker + Google</option>
                   <option value="hybrid">Hybrid Max Output — Docker + Google + Apify</option>
                 </select>
-                <small id="pipelineSummary" class="field-help">Docker runs first; Google fills the remaining target within your request budget.</small>
+                <small id="pipelineSummary" class="field-help">Google and Docker start together; Google stays inside your request budget.</small>
               </label>
               <label>
                 <span>Google API Keys</span>
@@ -98,8 +98,8 @@
               <summary>Advanced</summary>
               <div class="form-grid two compact">
                 <label>
-                  <span>Google Fallback Request Budget</span>
-                  <input id="gmApiBudget" type="number" min="0" max="500" value="25">
+                  <span>Google Request Budget</span>
+                  <input id="gmApiBudget" type="number" min="1" max="500" value="50">
                 </label>
                 <label>
                   <span>Optional Proxy URLs (request-scoped)</span>
@@ -198,6 +198,13 @@
             <span id="progressElapsed">Elapsed 0s</span>
             <span id="progressLatest">Waiting</span>
           </div>
+        </div>
+        <div class="progress-metrics" aria-live="polite">
+          <span id="progressGoogle">Google 0</span>
+          <span id="progressDocker">Docker 0</span>
+          <span id="progressWebsites">Websites 0</span>
+          <span id="progressDuplicates">Duplicates 0</span>
+          <span id="progressApi">API 0/50</span>
         </div>
         <div class="mini-log" id="miniLog"></div>
       </aside>

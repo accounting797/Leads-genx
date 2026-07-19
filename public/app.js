@@ -48,8 +48,8 @@
   function updatePipelineSummary() {
     const hybrid = $('gmProvider').value === 'hybrid';
     $('pipelineSummary').textContent = hybrid
-      ? 'Docker runs first, Google fills gaps, then Apify adds maximum coverage. Google and Apify keys are required.'
-      : 'Docker runs first; Google fills the remaining target within your request budget.';
+      ? 'Google and Docker start together, then Apify expands maximum-output coverage. Google and Apify keys are required.'
+      : 'Google and Docker start together; Google stays inside your request budget.';
   }
 
   function applySourceLimits(source) {
@@ -97,7 +97,7 @@
     if (activeSource === 'google_maps') {
       body.googleMaps = {
         provider: $('gmProvider').value,
-        apiRequestBudget: numberValue('gmApiBudget') ?? 25,
+        apiRequestBudget: numberValue('gmApiBudget') ?? 50,
         searchTerms: chips.gmSearchTerms.getValue(),
         categoryFilters: chips.gmCategories.getValue(),
         companyTypes: chips.gmCompanyTypes.getValue(),
@@ -228,12 +228,22 @@
     const types = events.map((event) => event.type);
     if (status === 'completed') return 'Completed';
     if (status === 'failed') return 'Failed — review the error below';
-    if (status === 'waiting_for_scraper') return 'Docker scraper unavailable — waiting to retry';
-    if (status === 'waiting_for_credentials') return 'Credentials required — review the latest message';
-    if (types.includes('apify_shard_started')) return 'Apify is expanding maximum-output coverage';
-    if (types.includes('google_fallback_started')) return 'Google API is filling Docker coverage gaps';
-    if (types.some((type) => type.indexOf('local_batch') === 0)) return 'Docker scraper is processing local batches';
-    return status === 'queued' ? 'Queued for Docker scraper' : status;
+    if (status === 'waiting_for_scraper') return 'Docker unavailable — Google progress is preserved';
+    if (status === 'waiting_for_credentials') return 'Google credentials required — Docker progress is preserved';
+    if (types.includes('apify_shard_started')) return 'Apify is expanding Hybrid Max Output coverage';
+    const googleActive = types.includes('google_places_started') &&
+      !types.includes('google_places_completed') && !types.includes('google_places_failed');
+    const dockerActive = types.includes('local_batch_started') && !types.includes('local_empty_circuit_opened');
+    if (googleActive && dockerActive) return 'Google API and Docker are discovering businesses';
+    if (googleActive) {
+      return types.includes('google_key_accepted')
+        ? 'Google API is discovering businesses'
+        : 'Google API is validating the first live request';
+    }
+    if (dockerActive) return 'Docker is discovering supplemental businesses';
+    if (types.includes('local_empty_circuit_opened')) return 'Docker paused after empty batches — Google continues';
+    if (types.includes('google_places_failed')) return 'Google failed — Docker continues';
+    return status === 'queued' ? 'Preparing Google and Docker' : status;
   }
 
   async function checkProgress() {
@@ -250,6 +260,11 @@
       $('progressLabel').textContent = progressStage(events, run.status);
       $('progressSubhead').textContent = (run.businessCount || 0) + ' businesses · ' + (run.leadCount || 0) +
         ' emails · ' + completedBatches + '/' + batches.length + ' batches';
+      $('progressGoogle').textContent = 'Google ' + (run.googleBusinessCount || 0);
+      $('progressDocker').textContent = 'Docker ' + (run.localBusinessCount || 0);
+      $('progressWebsites').textContent = 'Websites ' + (run.websiteCount || 0);
+      $('progressDuplicates').textContent = 'Duplicates ' + (run.duplicateCount || 0);
+      $('progressApi').textContent = 'API ' + (run.apiRequestsUsed || 0) + '/' + (run.apiRequestBudget || 50);
       $('progressLatest').textContent = run.status === 'failed' && run.errorMessage
         ? run.errorMessage
         : (events.length ? events[events.length - 1].message : 'Waiting for the first source event');

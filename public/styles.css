@@ -374,6 +374,22 @@ input:focus, select:focus, .chip-box:focus-within {
   transition: width 0.3s ease;
 }
 
+.progress-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.progress-metrics span {
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .mini-log {
   margin-top: 14px;
   display: grid;

@@ -127,7 +127,7 @@ describe('static dashboard source-aware progress', () => {
     expect(appJs).toContain('run.batches');
     expect(appJs).toContain('waiting_for_scraper');
     expect(appJs).toContain('waiting_for_credentials');
-    expect(appJs).toContain('google_fallback_started');
+    expect(appJs).toContain('google_places_started');
     expect(appJs).toContain('apify_shard_started');
   });
 });
@@ -154,6 +154,40 @@ describe('static dashboard credential entry', () => {
     expect(appJs).toContain("$('gmProxyUrls').value = ''");
     expect(appJs).toContain("$('snCookies').value = ''");
     expect(appJs).toContain("$('snUserAgent').value = ''");
+  });
+});
+
+describe('static dashboard balanced Google and Docker progress', () => {
+  it('describes concurrent discovery with a 50-request default', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    expect(html).toContain('Google and Docker start together');
+    expect(html).toContain('id="gmApiBudget" type="number" min="1" max="500" value="50"');
+    expect(appJs).toContain("numberValue('gmApiBudget') ?? 50");
+    expect(html).not.toContain('Docker runs first');
+  });
+
+  it('shows provider, website, duplicate, and API attempt counts', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    for (const id of ['progressGoogle', 'progressDocker', 'progressWebsites', 'progressDuplicates', 'progressApi']) {
+      expect(html).toContain(`id="${id}"`);
+    }
+    expect(appJs).toContain('run.googleBusinessCount');
+    expect(appJs).toContain('run.localBusinessCount');
+    expect(appJs).toContain('run.websiteCount');
+    expect(appJs).toContain('run.duplicateCount');
+    expect(appJs).toContain('run.apiRequestsUsed');
+    expect(appJs).toContain('run.apiRequestBudget');
+  });
+
+  it('recognizes simultaneous provider and actionable failure states', () => {
+    const appJs = readPublicFile('app.js');
+    expect(appJs).toContain('google_places_started');
+    expect(appJs).toContain('local_batch_started');
+    expect(appJs).toContain('google_key_accepted');
+    expect(appJs).toContain('google_places_failed');
+    expect(appJs).toContain('local_empty_circuit_opened');
   });
 });
 
