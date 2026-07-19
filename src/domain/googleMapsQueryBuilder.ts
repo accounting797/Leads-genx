@@ -17,10 +17,11 @@ export function buildGoogleMapsSearchQueries(filters: GoogleMapsFilters): string
   const categories = cleanValues(filters.categoryFilters);
   const companyTypes = cleanValues(filters.companyTypes);
   const locations = cleanValues(filters.locations);
+  const hasSpecificCriteria = searchTerms.length > 0 || categories.length > 0;
   const baseSearches = uniqueValues([
     ...searchTerms,
     ...categories,
-    ...companyTypes,
+    ...(!hasSpecificCriteria ? companyTypes : []),
     ...combine(searchTerms, categories),
     ...combine(searchTerms, companyTypes),
     ...combine(categories, companyTypes),

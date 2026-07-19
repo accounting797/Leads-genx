@@ -171,6 +171,25 @@ function isSalesNavigatorPeopleSearchUrl(value: string): boolean {
   }
 }
 
+export interface ResumeCredentialsInput {
+  googleApiKey?: string;
+  googleApiKeys?: string[];
+  proxyUrls?: string[];
+}
+
+export function validateResumeCredentials(input: unknown): ResumeCredentialsInput {
+  const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  const fields: Record<string, string> = {};
+  const googleApiKeys = asCredentialList(obj.googleApiKey);
+  const proxyUrls = asProxyList(obj.proxyUrls, fields);
+  if (Object.keys(fields).length) throw new ValidationError(Object.values(fields)[0], fields);
+  return {
+    googleApiKey: googleApiKeys[0],
+    googleApiKeys: googleApiKeys.length ? googleApiKeys : undefined,
+    proxyUrls: proxyUrls.length ? proxyUrls : undefined,
+  };
+}
+
 export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): ValidatedRunInput {
   const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   const fields: Record<string, string> = {};
@@ -217,9 +236,9 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
 
   const googleMapsProvider = googleMaps?.provider ?? 'apify';
   if (googleMapsProvider === 'local_first' && googleMaps) {
-    googleMaps.apiRequestBudget = googleMaps.apiRequestBudget ?? 25;
+    googleMaps.apiRequestBudget = googleMaps.apiRequestBudget ?? 50;
     if (!hasGooglePlacesCriteria(googleMaps)) fields.googleMaps = 'Local-first runs need at least one search term, category, or company type.';
-    if (googleMaps.apiRequestBudget < 0 || googleMaps.apiRequestBudget > 500) fields.apiRequestBudget = 'Google API request budget must be between 0 and 500.';
+    if (googleMaps.apiRequestBudget < 1 || googleMaps.apiRequestBudget > 500) fields.apiRequestBudget = 'Google API request budget must be between 1 and 500.';
     if (googleMaps.apiRequestBudget > 0 && !googleApiKey) fields.googleApiKey = 'Google API key is required when fallback budget is above zero.';
     if (maxResults > 10000) fields.maxResults = 'Local-first maxResults cannot exceed 10000 businesses.';
   }
@@ -237,12 +256,12 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
   }
 
   if (leadSource === 'google_maps' && googleMapsProvider === 'hybrid') {
-    if (googleMaps) googleMaps.apiRequestBudget = googleMaps.apiRequestBudget ?? 25;
+    if (googleMaps) googleMaps.apiRequestBudget = googleMaps.apiRequestBudget ?? 50;
     if (!apifyToken && !hasSavedToken) fields.apifyToken = 'Apify token is required for Hybrid Max Output.';
     if (!googleApiKey) fields.googleApiKey = 'Google API key is required for Hybrid Max Output.';
     if (!hasGooglePlacesCriteria(googleMaps)) fields.googleMaps = 'Hybrid runs need at least one search term, category, or company type.';
-    if ((googleMaps?.apiRequestBudget ?? 0) < 0 || (googleMaps?.apiRequestBudget ?? 0) > 500) {
-      fields.apiRequestBudget = 'Google API request budget must be between 0 and 500.';
+    if ((googleMaps?.apiRequestBudget ?? 0) < 1 || (googleMaps?.apiRequestBudget ?? 0) > 500) {
+      fields.apiRequestBudget = 'Google API request budget must be between 1 and 500.';
     }
     if (maxResults > 10000) fields.maxResults = 'Hybrid maxResults cannot exceed 10000 businesses.';
   }

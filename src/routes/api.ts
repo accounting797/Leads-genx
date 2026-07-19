@@ -4,7 +4,7 @@ import { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
 import { formatEmailsTxt, formatLeadsTxt } from '../domain/exportFormatter';
 import { suggestions } from '../domain/suggestions';
-import { validateCreateRunInput, ValidationError } from '../domain/validation';
+import { validateCreateRunInput, validateResumeCredentials, ValidationError } from '../domain/validation';
 import { appendErrorLogToFile, safeErrorMessage } from '../domain/errorLogger';
 import { asyncHandler } from '../utils/asyncHandler';
 
@@ -126,13 +126,7 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
         res.status(503).json({ error: 'Run recovery unavailable' });
         return;
       }
-      const parsed = validateCreateRunInput({
-        leadSource: 'google_maps',
-        maxResults: 1,
-        googleApiKey: req.body?.googleApiKey,
-        proxyUrls: req.body?.proxyUrls,
-        googleMaps: { provider: 'local_first', searchTerms: ['resume'], apiRequestBudget: 0 },
-      }, false);
+      const parsed = validateResumeCredentials(req.body);
       const resumed = await runService.resumeRun(Number(req.params.id), {
         googleApiKey: parsed.googleApiKey,
         googleApiKeys: parsed.googleApiKeys,

@@ -127,8 +127,9 @@ describe('API', () => {
 
     const res = await request(app).post('/api/runs').send({
       leadSource: 'google_maps',
+      googleApiKey: 'google-key',
       maxResults: 10,
-      googleMaps: { provider: 'local_first', apiRequestBudget: 0, searchTerms: ['dentist'], locations: ['Austin, TX'] },
+      googleMaps: { provider: 'local_first', apiRequestBudget: 1, searchTerms: ['dentist'], locations: ['Austin, TX'] },
     }).expect(500);
 
     expect(res.body.error).toContain('Unable to start run: Database write failed');

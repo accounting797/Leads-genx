@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateCreateRunInput, ValidationError } from '../../src/domain/validation';
+import { validateCreateRunInput, validateResumeCredentials, ValidationError } from '../../src/domain/validation';
 
 describe('validateCreateRunInput', () => {
   it('rejects a missing Apify token when no saved token exists', () => {
@@ -250,7 +250,7 @@ describe('validateCreateRunInput', () => {
       googleMaps: { provider: 'hybrid', searchTerms: ['dentist'], locations: ['Austin, TX'] },
     }, false);
 
-    expect(input.googleMaps?.apiRequestBudget).toBe(25);
+    expect(input.googleMaps?.apiRequestBudget).toBe(50);
   });
 
   it('accepts high-volume Google Maps max results above 1000', () => {
@@ -386,5 +386,44 @@ describe('validateCreateRunInput', () => {
       maxResults: 10001,
       googleMaps: { provider: 'local_first', searchTerms: ['dentist'], apiRequestBudget: 501 },
     }, false)).toThrow();
+  });
+
+  it('defaults Standard and Hybrid Max Output to 50 Google requests', () => {
+    const standard = validateCreateRunInput({
+      leadSource: 'google_maps',
+      googleApiKey: 'google-key',
+      maxResults: 100,
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'] },
+    }, false);
+    const hybrid = validateCreateRunInput({
+      leadSource: 'google_maps',
+      googleApiKey: 'google-key',
+      apifyToken: 'apify-token',
+      maxResults: 100,
+      googleMaps: { provider: 'hybrid', searchTerms: ['dentist'] },
+    }, false);
+
+    expect(standard.googleMaps?.apiRequestBudget).toBe(50);
+    expect(hybrid.googleMaps?.apiRequestBudget).toBe(50);
+  });
+
+  it('rejects a zero request budget for balanced modes', () => {
+    expect(() => validateCreateRunInput({
+      leadSource: 'google_maps',
+      googleApiKey: 'google-key',
+      maxResults: 100,
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], apiRequestBudget: 0 },
+    }, false)).toThrow(ValidationError);
+  });
+
+  it('parses optional resume credentials without creating a fake run', () => {
+    expect(validateResumeCredentials({
+      googleApiKey: 'key-one\nkey-two',
+      proxyUrls: 'socks5h://user:pass@127.0.0.1:60001',
+    })).toEqual({
+      googleApiKey: 'key-one',
+      googleApiKeys: ['key-one', 'key-two'],
+      proxyUrls: ['socks5h://user:pass@127.0.0.1:60001'],
+    });
   });
 });
