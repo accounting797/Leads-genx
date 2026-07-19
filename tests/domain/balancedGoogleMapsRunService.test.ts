@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { executeLocalFirstRun } from '../../src/domain/localFirstRunService';
+import { executeBalancedGoogleMapsRun } from '../../src/domain/balancedGoogleMapsRunService';
 import { buildLocalDiscoveryBatches } from '../../src/domain/localDiscoveryBatch';
 import { DiscoveredBusinessRecord, DiscoveredBusinessWrite, LocalFirstRunStore, RunBatchRecord, RunBatchWrite } from '../../src/domain/prismaRunStore';
 import { RunRecord } from '../../src/domain/runService';
+import { LocalScraperError } from '../../src/integrations/localMapsScraperClient';
 
 function fakeStore(run: RunRecord, seeded: { batches?: RunBatchRecord[]; businesses?: DiscoveredBusinessRecord[] } = {}) {
   const calls: string[] = [];
@@ -31,7 +32,11 @@ function fakeStore(run: RunRecord, seeded: { batches?: RunBatchRecord[]; busines
     async upsertBusiness(runId, business: DiscoveredBusinessWrite) {
       calls.push('business:upsert');
       const existing = businesses.find((item) => item.identityKey === business.identityKey);
-      if (existing) { Object.assign(existing, business); return 'merged'; }
+      if (existing) {
+        const provenance = [...new Set([...(existing.provenance ?? []), ...(business.provenance ?? [])])];
+        Object.assign(existing, business, { provenance });
+        return 'merged';
+      }
       businesses.push({ id: businesses.length + 1, runId, ...business });
       return 'inserted';
     },
@@ -42,36 +47,176 @@ function fakeStore(run: RunRecord, seeded: { batches?: RunBatchRecord[]; busines
   return { store, calls, batches, businesses, leads, events };
 }
 
-describe('executeLocalFirstRun', () => {
-  it('checkpoints local businesses and emails before invoking bounded Google fallback', async () => {
-    const run: RunRecord = { id: 1, status: 'queued', leadSource: 'google_maps', actorId: 'local_first', maxResults: 2, leadCount: 0 };
+describe('executeBalancedGoogleMapsRun', () => {
+  it('starts Google while the first Docker batch is still running', async () => {
+    const run: RunRecord = { id: 1, status: 'queued', leadSource: 'google_maps', actorId: 'local_first', maxResults: 20, leadCount: 0 };
     const state = fakeStore(run);
+    let releaseDocker!: () => void;
+    let markDockerStarted!: () => void;
+    const dockerGate = new Promise<void>((resolve) => { releaseDocker = resolve; });
+    const dockerStarted = new Promise<void>((resolve) => { markDockerStarted = resolve; });
+    let googleStarted = false;
     const localClient = {
       async search() { return []; },
       async health() { return true; },
       async searchBatch() {
+        markDockerStarted();
         state.calls.push('local:search');
+        await dockerGate;
         return { batchKey: 'one', jobId: 'job-1', rawBusinessCount: 1, items: [{ title: 'Local Co', email: 'local@example.com', website: 'https://local.example.com' }] };
       },
     };
     const googleClient = {
-      async search(input: { maxResults: number; requestBudget?: number }) {
-        state.calls.push('google:fallback');
-        expect(input.maxResults).toBe(1);
-        expect(input.requestBudget).toBe(3);
+      async search(input) {
+        googleStarted = true;
+        state.calls.push('google:search');
+        await input.onRequestEvent?.({ type: 'attempted', requestCount: 1, budget: 50 });
+        await input.onRequestEvent?.({ type: 'succeeded', requestCount: 1, budget: 50, httpStatus: 200 });
         return [{ id: 'google-1', displayName: { text: 'Google Co' }, email: 'google@example.com' }];
       },
     };
 
-    await executeLocalFirstRun({ store: state.store, localClient, googleClient }, run, {
-      leadSource: 'google_maps', maxResults: 2, googleApiKey: 'secret',
-      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], locations: ['Austin, TX'], apiRequestBudget: 3 },
+    const execution = executeBalancedGoogleMapsRun({ store: state.store, localClient, googleClient }, run, {
+      leadSource: 'google_maps', maxResults: 20, googleApiKey: 'secret',
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], locations: ['Austin, TX'], apiRequestBudget: 50 },
     });
 
-    expect(state.calls.indexOf('local:search')).toBeLessThan(state.calls.indexOf('business:upsert'));
-    expect(state.calls.indexOf('batch:completed')).toBeLessThan(state.calls.indexOf('google:fallback'));
-    expect(state.calls.indexOf('email:save')).toBeLessThan(state.calls.indexOf('google:fallback'));
-    expect(run).toMatchObject({ status: 'completed', businessCount: 2, leadCount: 2 });
+    await dockerStarted;
+    await Promise.resolve();
+    const googleStartedBeforeDockerFinished = googleStarted;
+    releaseDocker();
+    await execution;
+
+    expect(googleStartedBeforeDockerFinished).toBe(true);
+    expect(run).toMatchObject({ status: 'completed', businessCount: 2, leadCount: 2, apiRequestsUsed: 1 });
+    expect(state.events.some((event) => event.type === 'google_key_accepted')).toBe(true);
+  });
+
+  it('completes with Google output when the Docker supplement fails', async () => {
+    const run: RunRecord = { id: 7, status: 'queued', leadSource: 'google_maps', actorId: 'local_first', maxResults: 20, leadCount: 0 };
+    const state = fakeStore(run);
+
+    await executeBalancedGoogleMapsRun({
+      store: state.store,
+      localClient: {
+        async search() { return []; },
+        async health() { return true; },
+        async searchBatch() { throw new LocalScraperError('failed', 'Docker failed'); },
+      },
+      googleClient: {
+        async search(input) {
+          const item = { id: 'google-ok', displayName: { text: 'Google Co' } };
+          await input.onPage?.({ shard: 1, shardCount: 1, query: 'dentist', items: [item], totalItemCount: 1 });
+          return [item];
+        },
+      },
+    }, run, {
+      leadSource: 'google_maps', maxResults: 20, googleApiKey: 'secret',
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], locations: ['Austin, TX'], apiRequestBudget: 50 },
+    });
+
+    expect(run.status).toBe('completed');
+    expect(run.googleBusinessCount).toBe(1);
+    expect(state.events.some((event) => event.type === 'local_batch_retry')).toBe(true);
+    expect(state.events.some((event) => event.type === 'local_maps_scraper_failed')).toBe(true);
+  });
+
+  it('deduplicates the same website and phone across Google and Docker before email scanning', async () => {
+    const run: RunRecord = { id: 8, status: 'queued', leadSource: 'google_maps', actorId: 'local_first', maxResults: 20, leadCount: 0 };
+    const state = fakeStore(run);
+    let scans = 0;
+    const shared = {
+      title: 'Shared Co',
+      phone: '512-555-0100',
+      website: 'https://shared.example.com',
+      address: '1 Main St, Austin, TX',
+    };
+
+    await executeBalancedGoogleMapsRun({
+      store: state.store,
+      emailExtractor: {
+        async extract() {
+          scans += 1;
+          return ['sales@shared.example.com'];
+        },
+      },
+      localClient: {
+        async search() { return []; }, async health() { return true; },
+        async searchBatch({ batch }) {
+          return { batchKey: batch.key, jobId: 'local', rawBusinessCount: 1, items: [shared] };
+        },
+      },
+      googleClient: {
+        async search(input) {
+          const item = {
+            id: 'google-place-id',
+            displayName: { text: 'Shared Co' },
+            nationalPhoneNumber: '512-555-0100',
+            websiteUri: 'https://shared.example.com',
+            formattedAddress: '1 Main St, Austin, TX',
+          };
+          await input.onPage?.({ shard: 1, shardCount: 1, query: 'shared', items: [item], totalItemCount: 1 });
+          return [item];
+        },
+      },
+    }, run, {
+      leadSource: 'google_maps', maxResults: 20, googleApiKey: 'secret',
+      googleMaps: { provider: 'local_first', searchTerms: ['shared'], locations: ['Austin, TX'], apiRequestBudget: 50 },
+    });
+
+    expect(state.businesses).toHaveLength(1);
+    expect(state.businesses[0].provenance).toEqual(expect.arrayContaining(['google', 'local']));
+    expect(scans).toBe(1);
+    expect(state.leads).toHaveLength(1);
+  });
+
+  it('caps the shared website scanner at 50 and reports completed website count', async () => {
+    const run: RunRecord = { id: 9, status: 'queued', leadSource: 'google_maps', actorId: 'local_first', maxResults: 100, leadCount: 0 };
+    const state = fakeStore(run);
+    const items = Array.from({ length: 80 }, (_, index) => ({
+      id: `google-${index}`,
+      displayName: { text: `Google Co ${index}` },
+      websiteUri: `https://company-${index}.example.com`,
+    }));
+    let active = 0;
+    let peak = 0;
+
+    await executeBalancedGoogleMapsRun({
+      store: state.store,
+      emailConcurrency: 50,
+      emailExtractor: {
+        async extract(url) {
+          active += 1;
+          peak = Math.max(peak, active);
+          await Promise.resolve();
+          active -= 1;
+          const host = new URL(url).hostname;
+          return [`sales@${host}`];
+        },
+      },
+      localClient: {
+        async search() { return []; }, async health() { return true; },
+        async searchBatch({ batch }) {
+          return { batchKey: batch.key, jobId: 'empty', rawBusinessCount: 0, items: [] };
+        },
+      },
+      googleClient: {
+        async search(input) {
+          await input.onPage?.({ shard: 1, shardCount: 1, query: 'dentist', items, totalItemCount: items.length });
+          return items;
+        },
+      },
+    }, run, {
+      leadSource: 'google_maps', maxResults: 100, googleApiKey: 'secret',
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], locations: ['Austin, TX'], apiRequestBudget: 50 },
+    });
+
+    expect(peak).toBe(50);
+    expect(state.leads).toHaveLength(80);
+    expect(state.events).toContainEqual({
+      type: 'email_scan_completed',
+      metadata: expect.objectContaining({ scannedBusinessCount: 80, concurrency: 50 }),
+    });
   });
 
   it('skips completed checkpoints when execution resumes', async () => {
@@ -84,7 +229,7 @@ describe('executeLocalFirstRun', () => {
     });
     let localCalls = 0;
 
-    await executeLocalFirstRun({
+    await executeBalancedGoogleMapsRun({
       store: state.store,
       localClient: { async search() { return []; }, async health() { return true; }, async searchBatch() { localCalls += 1; throw new Error('must not run'); } },
     }, run, { leadSource: 'google_maps', maxResults: 1, googleMaps: filters });
@@ -96,7 +241,7 @@ describe('executeLocalFirstRun', () => {
   it('hands Docker and Google results to a following Hybrid stage without finalizing early', async () => {
     const run: RunRecord = { id: 3, status: 'queued', leadSource: 'google_maps', actorId: 'hybrid', maxResults: 1, leadCount: 0 };
     const state = fakeStore(run);
-    const outcome = await executeLocalFirstRun({
+    const outcome = await executeBalancedGoogleMapsRun({
       store: state.store,
       localClient: {
         async search() { return []; }, async health() { return true; },
@@ -127,7 +272,7 @@ describe('executeLocalFirstRun', () => {
     let localCalls = 0;
     let googleCalls = 0;
 
-    await executeLocalFirstRun({
+    await executeBalancedGoogleMapsRun({
       store: state.store,
       localClient: {
         async search() { return []; },
@@ -173,7 +318,7 @@ describe('executeLocalFirstRun', () => {
     const rawCounts = [0, 0, 1, 0, 0, 0];
     let localCalls = 0;
 
-    await executeLocalFirstRun({
+    await executeBalancedGoogleMapsRun({
       store: state.store,
       localClient: {
         async search() { return []; },
@@ -210,7 +355,7 @@ describe('executeLocalFirstRun', () => {
     };
     const state = fakeStore(run);
 
-    await executeLocalFirstRun({
+    await executeBalancedGoogleMapsRun({
       store: state.store,
       localClient: {
         async search() { return []; },

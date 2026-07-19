@@ -6,7 +6,7 @@ import { buildActorInput, buildActorInputsForApifyTokens } from './sourceInputBu
 import { safeErrorMessage } from './errorLogger';
 import { normalizeLead } from './leadNormalizer';
 import { applyLeadQualityFilters } from './leadQuality';
-import { executeLocalFirstRun } from './localFirstRunService';
+import { executeBalancedGoogleMapsRun } from './balancedGoogleMapsRunService';
 import type { LocalFirstRunStore } from './prismaRunStore';
 import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
 import { GoogleMapsFilters, LeadSource, NormalizedLead, RouteMode, ValidatedRunInput } from './types';
@@ -422,7 +422,7 @@ export function createRunService({
         const checkpointStore = store as Partial<LocalFirstRunStore>;
         const resumableClient = localMapsScraperClient as Partial<ResumableLocalMapsScraperClient>;
         if (typeof checkpointStore.listBatches === 'function' && typeof resumableClient.searchBatch === 'function') {
-          await executeLocalFirstRun({
+          await executeBalancedGoogleMapsRun({
             store: store as LocalFirstRunStore,
             localClient: localMapsScraperClient as ResumableLocalMapsScraperClient,
             googleClient: googlePlacesClient,
@@ -491,7 +491,7 @@ export function createRunService({
           typeof checkpointStore.listBatches === 'function' &&
           typeof resumableClient?.searchBatch === 'function'
         ) {
-          const localOutcome = await executeLocalFirstRun({
+          const localOutcome = await executeBalancedGoogleMapsRun({
             store: store as LocalFirstRunStore,
             localClient: localMapsScraperClient as ResumableLocalMapsScraperClient,
             googleClient: googlePlacesClient,
