@@ -2,6 +2,29 @@ export type LeadSource = 'google_maps' | 'sales_navigator';
 export type LeadType = 'business' | 'person';
 export type GoogleMapsProvider = 'apify' | 'google_places' | 'local_first' | 'hybrid';
 export type RouteMode = 'direct' | 'proxy';
+export type OutputMode = 'standard' | 'hybrid_max';
+export type ContactQuality = 'qualified' | 'raw';
+export type ProviderName = 'docker' | 'google' | 'apify' | 'email';
+export type ProviderStatus =
+  | 'standby'
+  | 'running'
+  | 'waiting'
+  | 'cooling_down'
+  | 'paused'
+  | 'completed'
+  | 'failed';
+
+export interface ProviderStateWrite {
+  provider: ProviderName;
+  status: ProviderStatus;
+  operation: string;
+  yieldCount: number;
+  budgetUsed?: number;
+  budgetMax?: number;
+  heartbeatAt: Date;
+  errorCode?: string;
+  errorMessage?: string;
+}
 
 export interface SalesNavigatorFilters {
   keywords?: string;
@@ -63,6 +86,10 @@ export interface NormalizedLead {
   jobTitle?: string;
   companyName?: string;
   email?: string;
+  normalizedEmail?: string;
+  contactQuality?: ContactQuality;
+  qualityReason?: string;
+  businessIdentityKey?: string;
   phone?: string;
   location?: string;
   profileUrl?: string;

@@ -27,6 +27,13 @@ model Run {
   apiRequestsUsed Int       @default(0)
   currentRoute   String     @default("direct")
   localConcurrency Int      @default(1)
+  outputMode                        String     @default("standard")
+  rawContactCount                   Int        @default(0)
+  companiesWithQualifiedEmailCount Int        @default(0)
+  plannedUnitCount                  Int        @default(0)
+  completedUnitCount                Int        @default(0)
+  extendedRun                       Boolean    @default(false)
+  lastHeartbeatAt                   DateTime?
   errorMessage   String?
   startedAt      DateTime?
   completedAt    DateTime?
@@ -37,6 +44,7 @@ model Run {
   errorLogs      ErrorLog[]
   batches        RunBatch[]
   businesses     DiscoveredBusiness[]
+  providerStates RunProviderState[]
 }
 
 model RunBatch {
@@ -91,6 +99,10 @@ model Lead {
   jobTitle         String?
   companyName      String?
   email            String?
+  normalizedEmail     String?
+  contactQuality      String   @default("qualified")
+  qualityReason       String?
+  businessIdentityKey String?
   phone            String?
   location         String?
   profileUrl       String?
@@ -104,6 +116,29 @@ model Lead {
   rawJson          String?
   createdAt        DateTime @default(now())
   run              Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, normalizedEmail])
+  @@index([runId, contactQuality])
+}
+
+model RunProviderState {
+  id           Int      @id @default(autoincrement())
+  runId        Int
+  provider     String
+  status       String
+  operation    String
+  yieldCount   Int      @default(0)
+  budgetUsed   Int?
+  budgetMax    Int?
+  heartbeatAt  DateTime
+  errorCode    String?
+  errorMessage String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  run          Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, provider])
+  @@index([runId, heartbeatAt])
 }
 
 model RunEvent {

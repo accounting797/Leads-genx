@@ -9,7 +9,7 @@ import { applyLeadQualityFilters } from './leadQuality';
 import { executeBalancedGoogleMapsRun } from './balancedGoogleMapsRunService';
 import type { LocalFirstRunStore } from './prismaRunStore';
 import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
-import { GoogleMapsFilters, LeadSource, NormalizedLead, RouteMode, ValidatedRunInput } from './types';
+import { GoogleMapsFilters, LeadSource, NormalizedLead, OutputMode, RouteMode, ValidatedRunInput } from './types';
 
 export interface RunRecord {
   id: number;
@@ -31,6 +31,13 @@ export interface RunRecord {
   apiRequestsUsed?: number;
   currentRoute?: string;
   localConcurrency?: number;
+  outputMode?: OutputMode;
+  rawContactCount?: number;
+  companiesWithQualifiedEmailCount?: number;
+  plannedUnitCount?: number;
+  completedUnitCount?: number;
+  extendedRun?: boolean;
+  lastHeartbeatAt?: Date;
   errorMessage?: string;
 }
 

@@ -56,4 +56,50 @@ describe('PrismaRunStore local-first checkpoints', () => {
       provenance: ['local', 'google'],
     }));
   });
+
+  it('persists provider heartbeats and deduplicates classified contacts', async () => {
+    const run = await prisma.run.create({
+      data: { actorId: 'local_first', leadSource: 'google_maps', status: 'running', maxResults: 100 },
+    });
+    const store = new PrismaRunStore(prisma);
+
+    await store.upsertProviderState(run.id, {
+      provider: 'google',
+      status: 'running',
+      operation: 'precision first pages',
+      yieldCount: 12,
+      budgetUsed: 3,
+      budgetMax: 50,
+      heartbeatAt: new Date('2026-07-21T16:00:00.000Z'),
+    });
+    await store.upsertProviderState(run.id, {
+      provider: 'google',
+      status: 'completed',
+      operation: 'finished',
+      yieldCount: 18,
+      budgetUsed: 7,
+      budgetMax: 50,
+      heartbeatAt: new Date('2026-07-21T16:01:00.000Z'),
+    });
+
+    const lead = {
+      leadSource: 'google_maps' as const,
+      leadType: 'business' as const,
+      companyName: 'Austin Dental',
+      email: 'sales@austindental.example',
+      normalizedEmail: 'sales@austindental.example',
+      contactQuality: 'qualified' as const,
+      qualityReason: 'business_domain_match',
+      businessIdentityKey: 'site:austindental.example',
+    };
+    expect(await store.upsertContact(run.id, lead)).toBe('inserted');
+    expect(await store.upsertContact(run.id, lead)).toBe('duplicate');
+
+    expect(await prisma.runProviderState.findMany({ where: { runId: run.id } })).toEqual([
+      expect.objectContaining({
+        provider: 'google', status: 'completed', yieldCount: 18, budgetUsed: 7, budgetMax: 50,
+      }),
+    ]);
+    expect(await prisma.lead.count({ where: { runId: run.id } })).toBe(1);
+  });
 });

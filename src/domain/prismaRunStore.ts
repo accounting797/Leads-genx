@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { RunRecord, RunStore } from './runService';
-import { NormalizedLead } from './types';
+import { NormalizedLead, ProviderStateWrite } from './types';
 import { redactSecrets } from './redact';
 
 const LEAD_INSERT_BATCH_SIZE = 1000;
@@ -60,6 +60,8 @@ export interface DiscoveredBusinessRecord extends DiscoveredBusinessWrite {
 }
 
 export interface LocalFirstRunStore extends RunStore {
+  upsertProviderState(runId: number, state: ProviderStateWrite): Promise<void>;
+  upsertContact(runId: number, contact: NormalizedLead): Promise<'inserted' | 'duplicate'>;
   upsertBatch(runId: number, batch: RunBatchWrite): Promise<RunBatchRecord>;
   listBatches(runId: number): Promise<RunBatchRecord[]>;
   listRunnableBatches(runId: number, now: Date): Promise<RunBatchRecord[]>;
@@ -90,6 +92,13 @@ function toRunRecord(run: {
   apiRequestsUsed: number;
   currentRoute: string;
   localConcurrency: number;
+  outputMode: string;
+  rawContactCount: number;
+  companiesWithQualifiedEmailCount: number;
+  plannedUnitCount: number;
+  completedUnitCount: number;
+  extendedRun: boolean;
+  lastHeartbeatAt: Date | null;
 }): RunRecord {
   return {
     id: run.id,
@@ -112,6 +121,13 @@ function toRunRecord(run: {
     apiRequestsUsed: run.apiRequestsUsed,
     currentRoute: run.currentRoute,
     localConcurrency: run.localConcurrency,
+    outputMode: run.outputMode as RunRecord['outputMode'],
+    rawContactCount: run.rawContactCount,
+    companiesWithQualifiedEmailCount: run.companiesWithQualifiedEmailCount,
+    plannedUnitCount: run.plannedUnitCount,
+    completedUnitCount: run.completedUnitCount,
+    extendedRun: run.extendedRun,
+    lastHeartbeatAt: run.lastHeartbeatAt ?? undefined,
   };
 }
 
@@ -119,13 +135,76 @@ export class PrismaRunStore implements LocalFirstRunStore {
   constructor(private readonly prisma: PrismaClient) {}
 
   async createRun(data: Omit<RunRecord, 'id'>): Promise<RunRecord> {
-    const run = await this.prisma.run.create({ data });
+    const run = await this.prisma.run.create({
+      data: {
+        ...data,
+        outputMode: data.outputMode,
+        rawContactCount: data.rawContactCount,
+        companiesWithQualifiedEmailCount: data.companiesWithQualifiedEmailCount,
+        plannedUnitCount: data.plannedUnitCount,
+        completedUnitCount: data.completedUnitCount,
+        extendedRun: data.extendedRun,
+        lastHeartbeatAt: data.lastHeartbeatAt,
+      },
+    });
     return toRunRecord(run);
   }
 
   async updateRun(id: number, data: Partial<RunRecord>): Promise<RunRecord> {
-    const run = await this.prisma.run.update({ where: { id }, data });
+    const run = await this.prisma.run.update({
+      where: { id },
+      data: {
+        ...data,
+        outputMode: data.outputMode,
+        rawContactCount: data.rawContactCount,
+        companiesWithQualifiedEmailCount: data.companiesWithQualifiedEmailCount,
+        plannedUnitCount: data.plannedUnitCount,
+        completedUnitCount: data.completedUnitCount,
+        extendedRun: data.extendedRun,
+        lastHeartbeatAt: data.lastHeartbeatAt,
+      },
+    });
     return toRunRecord(run);
+  }
+
+  async upsertProviderState(runId: number, state: ProviderStateWrite): Promise<void> {
+    await this.prisma.runProviderState.upsert({
+      where: { runId_provider: { runId, provider: state.provider } },
+      create: { runId, ...state },
+      update: state,
+    });
+  }
+
+  async upsertContact(
+    runId: number,
+    contact: NormalizedLead
+  ): Promise<'inserted' | 'duplicate'> {
+    if (!contact.normalizedEmail) {
+      throw new Error('Normalized email is required for contact persistence.');
+    }
+    try {
+      await this.prisma.lead.create({
+        data: {
+          runId,
+          leadSource: contact.leadSource,
+          leadType: contact.leadType,
+          companyName: contact.companyName,
+          email: contact.email,
+          normalizedEmail: contact.normalizedEmail,
+          contactQuality: contact.contactQuality ?? 'qualified',
+          qualityReason: contact.qualityReason,
+          businessIdentityKey: contact.businessIdentityKey,
+          website: contact.website,
+          rawJson: contact.rawJson,
+        },
+      });
+      return 'inserted';
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return 'duplicate';
+      }
+      throw error;
+    }
   }
 
   async addEvent(runId: number, type: string, message: string, metadata?: unknown): Promise<void> {
@@ -154,6 +233,10 @@ export class PrismaRunStore implements LocalFirstRunStore {
           jobTitle: lead.jobTitle,
           companyName: lead.companyName,
           email: lead.email,
+          normalizedEmail: lead.normalizedEmail,
+          contactQuality: lead.contactQuality ?? 'qualified',
+          qualityReason: lead.qualityReason,
+          businessIdentityKey: lead.businessIdentityKey,
           phone: lead.phone,
           location: lead.location,
           profileUrl: lead.profileUrl,
