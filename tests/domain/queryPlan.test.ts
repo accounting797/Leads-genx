@@ -33,4 +33,25 @@ describe('buildQueryPlan', () => {
       expect.objectContaining({ tier: 'precision', location: 'Austin, TX', text: 'Austin, TX' }),
     ]);
   });
+
+  it('uses company types as precision roots when terms and categories are absent', () => {
+    const plan = buildQueryPlan({
+      companyTypes: ['Distributor'],
+      locations: ['Nashville, TN'],
+    });
+
+    expect(queriesForTier(plan, 'precision')).toEqual([
+      expect.objectContaining({
+        tier: 'precision',
+        location: 'Nashville, TN',
+        text: 'Distributor Nashville, TN',
+      }),
+    ]);
+  });
+
+  it('does not plan an empty query for a maps URL-only input', () => {
+    expect(buildQueryPlan({
+      mapsUrl: 'https://www.google.com/maps/search/oilfield+services',
+    })).toEqual([]);
+  });
 });

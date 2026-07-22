@@ -86,6 +86,17 @@ describe('buildGoogleMapsInput', () => {
     });
   });
 
+  it('uses a maps URL without adding an empty search string', () => {
+    const input = buildGoogleMapsInput({
+      mapsUrl: 'https://www.google.com/maps/search/oilfield+services',
+    });
+
+    expect(input).toMatchObject({
+      startUrls: [{ url: 'https://www.google.com/maps/search/oilfield+services' }],
+    });
+    expect(input).not.toHaveProperty('searchStringsArray');
+  });
+
   it('maps numeric minimum ratings to the Apify Google Maps actor enum', () => {
     expect(buildGoogleMapsInput({ minimumStars: 2 }).placeMinimumStars).toBe('two');
     expect(buildGoogleMapsInput({ minimumStars: 2.5 }).placeMinimumStars).toBe('twoAndHalf');

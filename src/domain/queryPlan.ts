@@ -47,10 +47,11 @@ export function buildQueryPlan(filters: GoogleMapsFilters): PlannedQuery[] {
     const precision = [
       ...terms,
       ...categories,
+      ...(terms.length === 0 && categories.length === 0 ? companyTypes : []),
       ...terms.flatMap((term) => categories.map((category) => `${term} ${category}`)),
     ];
     if (precision.length === 0) {
-      locationPlan.push(item('precision', location, location));
+      if (location) locationPlan.push(item('precision', location, location));
     } else {
       for (const text of [...new Set(precision)]) {
         locationPlan.push(item('precision', location, `${text}${suffix}`));

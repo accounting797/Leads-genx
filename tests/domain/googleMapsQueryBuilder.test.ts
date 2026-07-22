@@ -26,10 +26,16 @@ describe('buildGoogleMapsSearchQueries', () => {
     ]);
   });
 
-  it('falls back to the location when company types are the only criteria', () => {
+  it('retains standalone company types when they are the only criteria', () => {
     expect(buildGoogleMapsSearchQueries({
       companyTypes: ['Distributor'],
       locations: ['Nashville, TN'],
-    })).toEqual(['Nashville, TN']);
+    })).toEqual(['Distributor Nashville, TN']);
+  });
+
+  it('does not create an empty string query for a maps URL-only input', () => {
+    expect(buildGoogleMapsSearchQueries({
+      mapsUrl: 'https://www.google.com/maps/search/oilfield+services',
+    })).toEqual([]);
   });
 });
