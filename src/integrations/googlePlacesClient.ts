@@ -53,7 +53,19 @@ export type GooglePlacesWorkUnitEvent =
       pageDepth: number;
       itemCount?: number;
       errorCode?: GooglePlacesErrorCode;
+    }
+  | {
+      type: 'cancelled';
+      workUnitId: string;
+      tier: QueryTier;
+      pageDepth: number;
+      stopReason: GooglePlacesStopReason;
     };
+
+export type GooglePlacesStopReason =
+  | 'budget_exhausted'
+  | 'target_reached'
+  | 'orchestrator_stop';
 
 export interface GooglePlacesSearchInput {
   apiKey: string;
@@ -70,7 +82,7 @@ export interface GooglePlacesSearchInput {
 }
 
 export interface GooglePlacesShardEvent {
-  type: 'started' | 'completed' | 'failed';
+  type: 'started' | 'completed' | 'failed' | 'cancelled';
   shard: number;
   shardCount: number;
   query: string;
@@ -78,6 +90,7 @@ export interface GooglePlacesShardEvent {
   totalItemCount?: number;
   errorMessage?: string;
   errorCode?: GooglePlacesErrorCode;
+  stopReason?: GooglePlacesStopReason;
 }
 
 export interface GooglePlacesClient {
@@ -96,7 +109,11 @@ interface PendingPage {
   shard: number;
 }
 
-class SchedulingStopped extends Error {}
+class SchedulingStopped extends Error {
+  constructor(public readonly stopReason: GooglePlacesStopReason) {
+    super(stopReason);
+  }
+}
 
 const FIELD_MASK = [
   'places.id',
@@ -186,11 +203,13 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
     let requestCount = 0;
     let lastError: GooglePlacesError | undefined;
     let lastProcessedUnitFailed = false;
+    let plannedUnitCount = nonRecoveryPlan.length;
     const shardItems = new Map<string, number>();
     const finishedShards = new Set<string>();
+    const finishedWorkUnits = new Set<string>();
     const shardNumbers = new Map(plan.map((query, index) => [query.id, index + 1]));
 
-    await onWorkUnitEvent?.({ type: 'planned', plannedUnitCount: nonRecoveryPlan.length });
+    await onWorkUnitEvent?.({ type: 'planned', plannedUnitCount });
     const locationCount = new Set(
       nonRecoveryPlan.map((query) => query.location.trim()).filter(Boolean)
     ).size;
@@ -231,8 +250,15 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
       return added;
     }
 
+    function stopReason(): GooglePlacesStopReason | undefined {
+      if (requestCount >= budget) return 'budget_exhausted';
+      if (places.length >= maxResults) return 'target_reached';
+      if (shouldStop?.()) return 'orchestrator_stop';
+      return undefined;
+    }
+
     function canRequest(): boolean {
-      return requestCount < budget && places.length < maxResults && !shouldStop?.();
+      return stopReason() === undefined;
     }
 
     async function requestPage(body: Record<string, unknown>, startKeyIndex: number): Promise<GooglePlacesResponse> {
@@ -245,7 +271,7 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
         if (requestCount >= budget) {
           throw new GooglePlacesError('budget_exhausted', 'Google Places request budget exhausted.');
         }
-        if (shouldStop?.()) throw new SchedulingStopped();
+        if (shouldStop?.()) throw new SchedulingStopped('orchestrator_stop');
         if (!activeKeys.includes(queryApiKey)) continue;
         requestCount += 1;
         await onRequestEvent?.({ type: 'attempted', requestCount, budget });
@@ -313,10 +339,59 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
       });
     }
 
+    async function cancelShard(
+      query: PlannedQuery,
+      shard: number,
+      reason: GooglePlacesStopReason
+    ): Promise<void> {
+      if (finishedShards.has(query.id)) return;
+      finishedShards.add(query.id);
+      await onShardEvent?.({
+        type: 'cancelled',
+        shard,
+        shardCount: shardCountFor(query),
+        query: query.text,
+        stopReason: reason,
+        totalItemCount: places.length,
+      });
+    }
+
+    async function cancelWorkUnit(
+      query: PlannedQuery,
+      pageDepth: number,
+      reason: GooglePlacesStopReason
+    ): Promise<void> {
+      const workUnitId = `${query.id}:${pageDepth}`;
+      if (finishedWorkUnits.has(workUnitId)) return;
+      finishedWorkUnits.add(workUnitId);
+      await onWorkUnitEvent?.({
+        type: 'cancelled',
+        workUnitId,
+        tier: query.tier,
+        pageDepth,
+        stopReason: reason,
+      });
+    }
+
+    async function cancelPendingPages(
+      pendingPages: PendingPage[],
+      reason: GooglePlacesStopReason
+    ): Promise<void> {
+      for (const page of pendingPages) {
+        await cancelWorkUnit(page.query, page.depth, reason);
+        await cancelShard(page.query, page.shard, reason);
+      }
+    }
+
+    async function planSuccessorPage(): Promise<void> {
+      plannedUnitCount += 1;
+      await onWorkUnitEvent?.({ type: 'planned', plannedUnitCount });
+    }
+
     type PageResult =
       | { type: 'success'; nextPageToken?: string }
       | { type: 'failed'; error: GooglePlacesError }
-      | { type: 'stopped' };
+      | { type: 'stopped'; stopReason: GooglePlacesStopReason };
 
     async function runPage(
       query: PlannedQuery,
@@ -324,8 +399,13 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
       pageDepth: number,
       shard: number
     ): Promise<PageResult> {
-      if (!canRequest()) return { type: 'stopped' };
       const workUnitId = `${query.id}:${pageDepth}`;
+      const stoppedBeforeStart = stopReason();
+      if (stoppedBeforeStart) {
+        await cancelWorkUnit(query, pageDepth, stoppedBeforeStart);
+        await cancelShard(query, shard, stoppedBeforeStart);
+        return { type: 'stopped', stopReason: stoppedBeforeStart };
+      }
       await onWorkUnitEvent?.({ type: 'started', workUnitId, tier: query.tier, pageDepth });
       try {
         const data = await requestPage(
@@ -350,11 +430,22 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
           pageDepth,
           itemCount: addedItems.length,
         });
+        finishedWorkUnits.add(workUnitId);
+        if (data.nextPageToken) await planSuccessorPage();
         lastProcessedUnitFailed = false;
         return { type: 'success', nextPageToken: data.nextPageToken };
       } catch (error) {
-        if (error instanceof SchedulingStopped) return { type: 'stopped' };
+        if (error instanceof SchedulingStopped) {
+          await cancelWorkUnit(query, pageDepth, error.stopReason);
+          await cancelShard(query, shard, error.stopReason);
+          return { type: 'stopped', stopReason: error.stopReason };
+        }
         const googleError = asGoogleError(error);
+        if (googleError.code === 'budget_exhausted') {
+          await cancelWorkUnit(query, pageDepth, 'budget_exhausted');
+          await cancelShard(query, shard, 'budget_exhausted');
+          return { type: 'stopped', stopReason: 'budget_exhausted' };
+        }
         lastError = googleError;
         lastProcessedUnitFailed = true;
         await onWorkUnitEvent?.({
@@ -364,6 +455,7 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
           pageDepth,
           errorCode: googleError.code,
         });
+        finishedWorkUnits.add(workUnitId);
         await failShard(query, shard, googleError);
         if (isTerminalGoogleError(googleError) && activeKeys.length === 0) throw googleError;
         return { type: 'failed', error: googleError };
@@ -374,7 +466,11 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
       const pendingPages: PendingPage[] = [];
 
       for (const query of tierQueries) {
-        if (!canRequest()) return false;
+        const stopped = stopReason();
+        if (stopped) {
+          await cancelPendingPages(pendingPages, stopped);
+          return false;
+        }
         const shard = shardNumbers.get(query.id) ?? 1;
         shardItems.set(query.id, 0);
         await onShardEvent?.({
@@ -384,7 +480,10 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
           query: query.text,
         });
         const result = await runPage(query, undefined, 1, shard);
-        if (result.type === 'stopped') return false;
+        if (result.type === 'stopped') {
+          await cancelPendingPages(pendingPages, result.stopReason);
+          return false;
+        }
         if (result.type === 'failed') {
           if (result.error.code === 'budget_exhausted') return false;
           continue;
@@ -397,10 +496,17 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
       }
 
       while (pendingPages.length > 0) {
-        if (!canRequest()) return false;
+        const stopped = stopReason();
+        if (stopped) {
+          await cancelPendingPages(pendingPages, stopped);
+          return false;
+        }
         const page = pendingPages.shift()!;
         const result = await runPage(page.query, page.token, page.depth, page.shard);
-        if (result.type === 'stopped') return false;
+        if (result.type === 'stopped') {
+          await cancelPendingPages(pendingPages, result.stopReason);
+          return false;
+        }
         if (result.type === 'failed') {
           if (result.error.code === 'budget_exhausted') return false;
           continue;
@@ -432,6 +538,8 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
         type: 'extended',
         additionalPlannedUnitCount: recoveryPlan.length,
       });
+      plannedUnitCount += recoveryPlan.length;
+      await onWorkUnitEvent?.({ type: 'planned', plannedUnitCount });
       await processTier(recoveryPlan);
     }
 

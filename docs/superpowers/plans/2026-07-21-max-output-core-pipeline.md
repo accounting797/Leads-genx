@@ -575,6 +575,13 @@ export type GooglePlacesWorkUnitEvent =
       pageDepth: number;
       itemCount?: number;
       errorCode?: GooglePlacesErrorCode;
+    }
+  | {
+      type: 'cancelled';
+      workUnitId: string;
+      tier: QueryTier;
+      pageDepth: number;
+      stopReason: 'budget_exhausted' | 'target_reached' | 'orchestrator_stop';
     };
 ```
 
@@ -597,7 +604,9 @@ Build `const plan = buildQueryPlan(filters)` and process `precision`, `expansion
 4. Stop before every request when `requestCount >= budget`, `places.length >= maxResults`, or `shouldStop?.()` is true.
 5. Enter recovery only when `shouldActivateRecovery?.() ?? true` returns true.
 
-Before scheduling, publish the non-recovery work-unit total. When recovery activates, publish one `extended` work-unit event before its first request and increase the planned denominator by the number of recovery first-page units. Publish one `completed` work-unit event after every successful first page or page-token request, including a zero-result response. This makes the persisted denominator and numerator reflect server work instead of UI timers.
+Before scheduling, publish the non-recovery first-page total with `planned`. Whenever a response exposes a new page token, increment the absolute planned total and publish another `planned` event before that token work unit can emit `started`; this keeps completed work less than or equal to planned work. When recovery activates, publish one `extended` event before its first request, add its first-page units to the absolute planned total, and publish the updated `planned` total. Reserve `extended` for recovery-plan expansion, not discovered token pages. Publish one `completed` work-unit event after every successful first page or page-token request, including a zero-result response.
+
+Every emitted `started` work unit and every emitted legacy shard `started` event must receive exactly one terminal event. If budget exhaustion, target completion, or `shouldStop` prevents a started request or leaves queued token work, emit `cancelled` with `stopReason` for the affected work unit and legacy shard before returning. Extend `GooglePlacesShardEvent.type` with `cancelled` and add the same optional `stopReason`; do not report a clean stop as a failure.
 
 If `requestBudget` is smaller than the number of distinct non-empty planned locations, call `onWorkUnitEvent` once with a redacted warning code `google_budget_below_location_coverage`; include only `requestBudget` and `locationCount`, never query text.
 
