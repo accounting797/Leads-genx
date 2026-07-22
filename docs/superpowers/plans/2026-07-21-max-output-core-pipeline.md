@@ -559,14 +559,23 @@ Expected: FAIL because the current implementation requests page two before the n
 Add:
 
 ```ts
-export interface GooglePlacesWorkUnitEvent {
-  type: 'started' | 'completed' | 'failed';
-  workUnitId: string;
-  tier: QueryTier;
-  pageDepth: number;
-  itemCount?: number;
-  errorCode?: GooglePlacesErrorCode;
-}
+export type GooglePlacesWorkUnitEvent =
+  | { type: 'planned'; plannedUnitCount: number }
+  | { type: 'extended'; additionalPlannedUnitCount: number }
+  | {
+      type: 'warning';
+      warningCode: 'google_budget_below_location_coverage';
+      requestBudget: number;
+      locationCount: number;
+    }
+  | {
+      type: 'started' | 'completed' | 'failed';
+      workUnitId: string;
+      tier: QueryTier;
+      pageDepth: number;
+      itemCount?: number;
+      errorCode?: GooglePlacesErrorCode;
+    };
 ```
 
 Add to `GooglePlacesSearchInput`:
