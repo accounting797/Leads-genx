@@ -299,6 +299,18 @@ export function createRunService({
           return;
         }
 
+        if (event.type === 'cancelled') {
+          await store.addEvent(
+            run.id,
+            'google_places_shard_cancelled',
+            `Google Places shard ${event.shard}/${event.shardCount} cancelled: ${
+              event.stopReason ?? 'unknown reason'
+            }.`,
+            event
+          );
+          return;
+        }
+
         await store.addErrorLog({
           runId: run.id,
           source: 'runService',

@@ -647,7 +647,7 @@ describe('createRunService', () => {
     );
   });
 
-  it('records Google Places shard progress for Google-only runs', async () => {
+  it('records Google Places shard progress and keeps cancellation clean', async () => {
     const store = createStore();
     const actorClient: ActorClient = {
       async startRun() {
@@ -665,13 +665,13 @@ describe('createRunService', () => {
         await input.onShardEvent?.({
           type: 'started',
           shard: 1,
-          shardCount: 2,
+          shardCount: 3,
           query: 'oilfield services Houston, TX',
         });
         await input.onShardEvent?.({
           type: 'completed',
           shard: 1,
-          shardCount: 2,
+          shardCount: 3,
           query: 'oilfield services Houston, TX',
           itemCount: 2,
           totalItemCount: 2,
@@ -679,9 +679,16 @@ describe('createRunService', () => {
         await input.onShardEvent?.({
           type: 'failed',
           shard: 2,
-          shardCount: 2,
+          shardCount: 3,
           query: 'Oil & Gas Houston, TX',
           errorMessage: 'Google Places request failed with status 429',
+        });
+        await input.onShardEvent?.({
+          type: 'cancelled',
+          shard: 3,
+          shardCount: 3,
+          query: 'oilfield suppliers Houston, TX',
+          stopReason: 'budget_exhausted',
         });
         return [{ displayName: { text: 'Gulf Energy' }, websiteUri: 'https://gulf.example.com' }];
       },
@@ -709,7 +716,14 @@ describe('createRunService', () => {
 
     expect(store.events).toContainEqual(expect.objectContaining({ type: 'google_places_shard_started' }));
     expect(store.events).toContainEqual(expect.objectContaining({ type: 'google_places_shard_completed' }));
-    expect(store.events).toContainEqual(expect.objectContaining({ type: 'google_places_shard_failed' }));
+    expect(store.events).toContainEqual(expect.objectContaining({
+      type: 'google_places_shard_cancelled',
+      metadata: expect.objectContaining({ stopReason: 'budget_exhausted' }),
+    }));
+    expect(store.events.filter((event) => event.type === 'google_places_shard_failed')).toHaveLength(1);
+    expect(store.errors).toEqual([
+      expect.objectContaining({ details: expect.objectContaining({ type: 'failed', shard: 2 }) }),
+    ]);
     expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 1 });
   });
 

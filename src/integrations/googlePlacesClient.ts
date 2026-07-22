@@ -109,6 +109,11 @@ interface PendingPage {
   shard: number;
 }
 
+type WorkUnitTerminal =
+  | { type: 'completed'; itemCount: number }
+  | { type: 'failed'; errorCode: GooglePlacesErrorCode }
+  | { type: 'cancelled'; stopReason: GooglePlacesStopReason };
+
 class SchedulingStopped extends Error {
   constructor(public readonly stopReason: GooglePlacesStopReason) {
     super(stopReason);
@@ -356,20 +361,19 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
       });
     }
 
-    async function cancelWorkUnit(
+    async function finishWorkUnit(
       query: PlannedQuery,
       pageDepth: number,
-      reason: GooglePlacesStopReason
+      terminal: WorkUnitTerminal
     ): Promise<void> {
       const workUnitId = `${query.id}:${pageDepth}`;
       if (finishedWorkUnits.has(workUnitId)) return;
       finishedWorkUnits.add(workUnitId);
       await onWorkUnitEvent?.({
-        type: 'cancelled',
         workUnitId,
         tier: query.tier,
         pageDepth,
-        stopReason: reason,
+        ...terminal,
       });
     }
 
@@ -378,8 +382,18 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
       reason: GooglePlacesStopReason
     ): Promise<void> {
       for (const page of pendingPages) {
-        await cancelWorkUnit(page.query, page.depth, reason);
+        await finishWorkUnit(page.query, page.depth, { type: 'cancelled', stopReason: reason });
         await cancelShard(page.query, page.shard, reason);
+      }
+    }
+
+    async function failPendingPages(
+      pendingPages: PendingPage[],
+      error: GooglePlacesError
+    ): Promise<void> {
+      for (const page of pendingPages) {
+        await finishWorkUnit(page.query, page.depth, { type: 'failed', errorCode: error.code });
+        await failShard(page.query, page.shard, error);
       }
     }
 
@@ -402,7 +416,7 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
       const workUnitId = `${query.id}:${pageDepth}`;
       const stoppedBeforeStart = stopReason();
       if (stoppedBeforeStart) {
-        await cancelWorkUnit(query, pageDepth, stoppedBeforeStart);
+        await finishWorkUnit(query, pageDepth, { type: 'cancelled', stopReason: stoppedBeforeStart });
         await cancelShard(query, shard, stoppedBeforeStart);
         return { type: 'stopped', stopReason: stoppedBeforeStart };
       }
@@ -423,41 +437,29 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
             totalItemCount: places.length,
           });
         }
-        await onWorkUnitEvent?.({
-          type: 'completed',
-          workUnitId,
-          tier: query.tier,
-          pageDepth,
-          itemCount: addedItems.length,
-        });
-        finishedWorkUnits.add(workUnitId);
+        await finishWorkUnit(query, pageDepth, { type: 'completed', itemCount: addedItems.length });
         if (data.nextPageToken) await planSuccessorPage();
         lastProcessedUnitFailed = false;
         return { type: 'success', nextPageToken: data.nextPageToken };
       } catch (error) {
         if (error instanceof SchedulingStopped) {
-          await cancelWorkUnit(query, pageDepth, error.stopReason);
+          await finishWorkUnit(query, pageDepth, { type: 'cancelled', stopReason: error.stopReason });
           await cancelShard(query, shard, error.stopReason);
           return { type: 'stopped', stopReason: error.stopReason };
         }
         const googleError = asGoogleError(error);
         if (googleError.code === 'budget_exhausted') {
-          await cancelWorkUnit(query, pageDepth, 'budget_exhausted');
+          await finishWorkUnit(query, pageDepth, {
+            type: 'cancelled',
+            stopReason: 'budget_exhausted',
+          });
           await cancelShard(query, shard, 'budget_exhausted');
           return { type: 'stopped', stopReason: 'budget_exhausted' };
         }
         lastError = googleError;
         lastProcessedUnitFailed = true;
-        await onWorkUnitEvent?.({
-          type: 'failed',
-          workUnitId,
-          tier: query.tier,
-          pageDepth,
-          errorCode: googleError.code,
-        });
-        finishedWorkUnits.add(workUnitId);
+        await finishWorkUnit(query, pageDepth, { type: 'failed', errorCode: googleError.code });
         await failShard(query, shard, googleError);
-        if (isTerminalGoogleError(googleError) && activeKeys.length === 0) throw googleError;
         return { type: 'failed', error: googleError };
       }
     }
@@ -485,6 +487,10 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
           return false;
         }
         if (result.type === 'failed') {
+          if (isTerminalGoogleError(result.error) && activeKeys.length === 0) {
+            await failPendingPages(pendingPages, result.error);
+            throw result.error;
+          }
           if (result.error.code === 'budget_exhausted') return false;
           continue;
         }
@@ -508,6 +514,10 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
           return false;
         }
         if (result.type === 'failed') {
+          if (isTerminalGoogleError(result.error) && activeKeys.length === 0) {
+            await failPendingPages(pendingPages, result.error);
+            throw result.error;
+          }
           if (result.error.code === 'budget_exhausted') return false;
           continue;
         }
