@@ -83,6 +83,7 @@ describe('GooglePlacesApiClient', () => {
       apiKey: 'google-one',
       apiKeys: ['google-one', 'google-two'],
       maxResults: 10,
+      shouldActivateRecovery: () => false,
       filters: {
         searchTerms: ['oilfield services', 'aviation maintenance'],
         locations: ['Houston, TX', 'Tulsa, OK'],
@@ -111,6 +112,7 @@ describe('GooglePlacesApiClient', () => {
       apiKey: 'google-one',
       apiKeys: ['google-one', 'google-two'],
       maxResults: 5,
+      shouldActivateRecovery: () => false,
       filters: {
         searchTerms: ['oilfield services'],
         locations: ['Houston, TX'],
@@ -203,6 +205,7 @@ describe('GooglePlacesApiClient', () => {
     await client.search({
       apiKey: 'google-one',
       maxResults: 1000,
+      shouldActivateRecovery: () => false,
       filters: {
         searchTerms: ['oilfield services'],
         categoryFilters: ['Oil & Gas'],
@@ -298,5 +301,206 @@ describe('GooglePlacesApiClient', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests every location first page before following page tokens', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        requestBodies.push(body);
+        if (body.textQuery === 'dentist Austin, TX' && !body.pageToken) {
+          return Response.json({ places: [], nextPageToken: 'a-2' });
+        }
+        if (body.textQuery === 'dentist Dallas, TX' && !body.pageToken) {
+          return Response.json({ places: [], nextPageToken: 'd-2' });
+        }
+        return Response.json({ places: [] });
+      })
+    );
+
+    await new GooglePlacesApiClient().search({
+      apiKey: 'secret',
+      filters: { searchTerms: ['dentist'], locations: ['Austin, TX', 'Dallas, TX'] },
+      maxResults: 100,
+      shouldActivateRecovery: () => false,
+    });
+
+    expect(requestBodies).toEqual([
+      { textQuery: 'dentist Austin, TX', pageSize: 20 },
+      { textQuery: 'dentist Dallas, TX', pageSize: 20 },
+      { textQuery: 'dentist Austin, TX', pageSize: 20, pageToken: 'a-2' },
+      { textQuery: 'dentist Dallas, TX', pageSize: 20, pageToken: 'd-2' },
+    ]);
+  });
+
+  it('counts every failed key attempt against the request budget', async () => {
+    const attempts: number[] = [];
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: { status: 'UNAVAILABLE' } }), { status: 503 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await new GooglePlacesApiClient().search({
+      apiKey: 'key-one',
+      apiKeys: ['key-one', 'key-two'],
+      filters: { searchTerms: ['dentist'], locations: ['Austin, TX', 'Dallas, TX'] },
+      maxResults: 100,
+      requestBudget: 2,
+      shouldActivateRecovery: () => false,
+      onRequestEvent(event) {
+        if (event.type === 'attempted') attempts.push(event.requestCount);
+      },
+    });
+
+    expect(attempts).toEqual([1, 2]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps recovery queries dormant when recovery is not activated', async () => {
+    const queries: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as { textQuery: string };
+        queries.push(body.textQuery);
+        return Response.json({ places: [] });
+      })
+    );
+
+    await new GooglePlacesApiClient().search({
+      apiKey: 'secret',
+      filters: { searchTerms: ['dentist'], locations: ['Austin, TX'] },
+      maxResults: 100,
+      shouldActivateRecovery: () => false,
+    });
+
+    expect(queries.some((query) => /\b(supplier|distributor|retailer|service)\b/i.test(query))).toBe(false);
+  });
+
+  it('reports planned and completed work units including empty pages without query text', async () => {
+    const events: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as { pageToken?: string };
+        return body.pageToken
+          ? Response.json({ places: [] })
+          : Response.json({ places: [], nextPageToken: 'page-2' });
+      })
+    );
+
+    await new GooglePlacesApiClient().search({
+      apiKey: 'secret',
+      filters: { searchTerms: ['dentist'], locations: ['Austin, TX'] },
+      maxResults: 100,
+      shouldActivateRecovery: () => false,
+      onWorkUnitEvent: (event) => events.push(event),
+    });
+
+    expect(events[0]).toEqual({ type: 'planned', plannedUnitCount: 1 });
+    expect(events.slice(1)).toEqual([
+      expect.objectContaining({ type: 'started', tier: 'precision', pageDepth: 1 }),
+      expect.objectContaining({ type: 'completed', tier: 'precision', pageDepth: 1, itemCount: 0 }),
+      expect.objectContaining({ type: 'started', tier: 'precision', pageDepth: 2 }),
+      expect.objectContaining({ type: 'completed', tier: 'precision', pageDepth: 2, itemCount: 0 }),
+    ]);
+    expect(events.every((event) => !Object.hasOwn(event, 'query'))).toBe(true);
+    expect(events.slice(1).every((event) => typeof event.workUnitId === 'string')).toBe(true);
+  });
+
+  it('extends planned work exactly once before activated recovery starts', async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async () => Response.json({ places: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await new GooglePlacesApiClient().search({
+      apiKey: 'secret',
+      filters: { searchTerms: ['dentist'], locations: ['Austin, TX'] },
+      maxResults: 100,
+      onWorkUnitEvent: (event) => events.push(event),
+    });
+
+    expect(events[0]).toEqual({ type: 'planned', plannedUnitCount: 1 });
+    expect(events.filter((event) => event.type === 'extended')).toEqual([
+      { type: 'extended', additionalPlannedUnitCount: 4 },
+    ]);
+    expect(events.findIndex((event) => event.type === 'extended')).toBeLessThan(
+      events.findIndex((event) => event.type === 'started' && event.tier === 'recovery')
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('warns once when the budget cannot cover every planned location', async () => {
+    const events: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ places: [] })));
+
+    await new GooglePlacesApiClient().search({
+      apiKey: 'secret',
+      filters: { searchTerms: ['dentist'], locations: ['Austin, TX', 'Dallas, TX'] },
+      maxResults: 100,
+      requestBudget: 1,
+      shouldActivateRecovery: () => false,
+      onWorkUnitEvent: (event) => events.push(event),
+    });
+
+    expect(events.filter((event) => event.type === 'warning')).toEqual([
+      {
+        type: 'warning',
+        warningCode: 'google_budget_below_location_coverage',
+        requestBudget: 1,
+        locationCount: 2,
+      },
+    ]);
+    expect(events.every((event) => !Object.hasOwn(event, 'query'))).toBe(true);
+  });
+
+  it('reports a failed work unit without exposing query text', async () => {
+    const events: Array<Record<string, unknown>> = [];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 503 })));
+
+    await expect(new GooglePlacesApiClient().search({
+      apiKey: 'secret',
+      filters: { searchTerms: ['dentist'], locations: ['Austin, TX'] },
+      maxResults: 100,
+      shouldActivateRecovery: () => false,
+      onWorkUnitEvent: (event) => events.push(event),
+    })).rejects.toMatchObject({ code: 'transient' });
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'failed',
+      tier: 'precision',
+      pageDepth: 1,
+      errorCode: 'transient',
+    }));
+    expect(events.every((event) => !Object.hasOwn(event, 'query'))).toBe(true);
+  });
+
+  it('removes terminally rejected keys from later work units', async () => {
+    const keys: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const key = (init.headers as Record<string, string>)['X-Goog-Api-Key'];
+        keys.push(key);
+        return key === 'key-one'
+          ? new Response(JSON.stringify({ error: { status: 'PERMISSION_DENIED' } }), { status: 403 })
+          : Response.json({ places: [] });
+      })
+    );
+
+    await new GooglePlacesApiClient().search({
+      apiKey: 'key-one',
+      apiKeys: ['key-one', 'key-two'],
+      filters: {
+        searchTerms: ['dentist'],
+        locations: ['Austin, TX', 'Dallas, TX', 'Houston, TX'],
+      },
+      maxResults: 100,
+      shouldActivateRecovery: () => false,
+    });
+
+    expect(keys).toEqual(['key-one', 'key-two', 'key-two', 'key-two']);
   });
 });
