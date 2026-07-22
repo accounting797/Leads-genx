@@ -287,10 +287,10 @@ describe('buildActorInputsForApifyTokens', () => {
     expect(inputs).toHaveLength(2);
     expect(inputs.map((input) => input.token)).toEqual(['token-a', 'token-b']);
     expect(inputs[0].input).toMatchObject({
-      searchStringsArray: ['oilfield services Houston, TX', 'aviation maintenance Houston, TX'],
+      searchStringsArray: ['oilfield services Houston, TX', 'oilfield services Tulsa, OK'],
     });
     expect(inputs[1].input).toMatchObject({
-      searchStringsArray: ['oilfield services Tulsa, OK', 'aviation maintenance Tulsa, OK'],
+      searchStringsArray: ['aviation maintenance Houston, TX', 'aviation maintenance Tulsa, OK'],
     });
   });
 });
