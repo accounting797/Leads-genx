@@ -6,6 +6,13 @@ import { formatEmailsTxt, formatLeadsTxt } from '../domain/exportFormatter';
 import { suggestions } from '../domain/suggestions';
 import { validateCreateRunInput, validateResumeCredentials, ValidationError } from '../domain/validation';
 import { appendErrorLogToFile, safeErrorMessage } from '../domain/errorLogger';
+import {
+  loadOperatorSettings,
+  saveOperatorSettings,
+  toSafeOperatorSettings,
+  SECRET_MASK,
+} from '../domain/operatorSettings';
+import { testProxies, ProxyTestResult } from '../integrations/proxyTester';
 import { asyncHandler } from '../utils/asyncHandler';
 
 export interface ApiRunService {
@@ -27,6 +34,7 @@ export interface ApiDeps {
   prisma?: PrismaClient;
   runService?: ApiRunService;
   recoverOnStartup?: boolean;
+  proxyTester?: (urls: string[]) => Promise<ProxyTestResult[]>;
 }
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
@@ -34,7 +42,30 @@ const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
 const DEFAULT_SALES_NAVIGATOR_ACTOR_ID =
   process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID || 'harvestapi/linkedin-profile-search';
 
-export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
+function asListInput(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) return value.map(String).map((item) => item.trim()).filter(Boolean);
+  const raw = String(value ?? '').trim();
+  if (!raw) return [];
+  return [...new Set(raw.split(/[\r\n,]+/).map((item) => item.trim()).filter(Boolean))];
+}
+
+function proxyListError(proxies: string[]): string | undefined {
+  for (const proxy of proxies) {
+    if (proxy.includes(SECRET_MASK)) continue;
+    try {
+      const url = new URL(proxy);
+      if (!['socks5:', 'socks5h:', 'http:', 'https:'].includes(url.protocol) || !url.hostname || !url.port) {
+        return 'Each proxy must be an HTTP(S) or SOCKS5 URL with a host and port.';
+      }
+    } catch {
+      return 'Each proxy must be an HTTP(S) or SOCKS5 URL with a host and port.';
+    }
+  }
+  return undefined;
+}
+
+export function createApiRouter({ prisma, runService, proxyTester }: ApiDeps = {}) {
   const router = Router();
 
   router.get('/health', (_req, res) => {
@@ -222,32 +253,74 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
   router.get(
     '/settings',
     asyncHandler(async (_req, res) => {
-      const settings = prisma
-        ? await prisma.appSetting.findMany({
-            where: {
-              key: {
-                in: ['defaultGoogleMapsActorId', 'defaultSalesNavigatorActorId', 'apifyToken'],
-              },
-            },
-          })
-        : [];
-      const byKey = new Map(settings.map((setting) => [setting.key, setting]));
-
+      const settings = await loadOperatorSettings(prisma);
       res.json({
-        data: {
-          defaultGoogleMapsActorId:
-            byKey.get('defaultGoogleMapsActorId')?.value || DEFAULT_GOOGLE_MAPS_ACTOR_ID,
-          defaultSalesNavigatorActorId:
-            byKey.get('defaultSalesNavigatorActorId')?.value || DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
-          hasSavedApifyToken: byKey.has('apifyToken'),
-        },
+        data: toSafeOperatorSettings(settings, {
+          googleMapsActorId: DEFAULT_GOOGLE_MAPS_ACTOR_ID,
+          salesNavigatorActorId: DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
+        }),
       });
     })
   );
 
-  router.post('/settings', (_req, res) => {
-    res.status(204).send();
-  });
+  router.post(
+    '/settings',
+    asyncHandler(async (req, res) => {
+      if (!prisma) {
+        res.status(503).json({ error: 'Settings store unavailable' });
+        return;
+      }
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      const proxyUrls = asListInput(body.proxyUrls);
+      if (proxyUrls) {
+        const error = proxyListError(proxyUrls);
+        if (error) {
+          res.status(400).json({ error, fields: { proxyUrls: error } });
+          return;
+        }
+      }
+
+      await saveOperatorSettings(prisma, {
+        defaultGoogleMapsActorId: body.defaultGoogleMapsActorId as string | undefined,
+        defaultSalesNavigatorActorId: body.defaultSalesNavigatorActorId as string | undefined,
+        apifyToken: body.apifyToken as string | undefined,
+        googleApiKeys: asListInput(body.googleApiKeys),
+        proxyUrls,
+      });
+
+      const settings = await loadOperatorSettings(prisma);
+      res.json({
+        data: toSafeOperatorSettings(settings, {
+          googleMapsActorId: DEFAULT_GOOGLE_MAPS_ACTOR_ID,
+          salesNavigatorActorId: DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
+        }),
+      });
+    })
+  );
+
+  router.post(
+    '/settings/proxies/test',
+    asyncHandler(async (req, res) => {
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      const provided = asListInput(body.proxyUrls);
+      const targets = provided?.length
+        ? provided
+        : (await loadOperatorSettings(prisma)).proxyUrls;
+      if (!targets.length) {
+        res.status(400).json({ error: 'No proxies to test. Save or paste proxies first.' });
+        return;
+      }
+      const tester = proxyTester ?? ((urls: string[]) => testProxies(urls));
+      const results = await tester(targets);
+      res.json({
+        data: {
+          results,
+          okCount: results.filter((result) => result.ok).length,
+          totalCount: results.length,
+        },
+      });
+    })
+  );
 
   router.use(async (error: unknown, req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof ValidationError) {

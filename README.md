@@ -88,6 +88,12 @@ Invoke-RestMethod http://127.0.0.1:8080/api/v1/jobs
 
 When the local SOCKS ports are online, enter full URLs such as `socks5h://user:password@127.0.0.1:60001` in the request-scoped proxy box. Leads-GenX translates loopback to `host.docker.internal` for the container. Leave the box empty while the ports are offline; proxy supervision and rotation remain dormant.
 
+## Settings
+
+The dashboard **Settings** tab stores operator defaults locally in SQLite: actor IDs, the Apify token, Google API keys, and a proxy pool. Saved secrets are never returned by the API — the dashboard shows only their status, and proxy passwords are masked (`••••••`). Saving a masked proxy entry unchanged keeps the stored credential.
+
+Runs fall back to saved Google keys and the saved Apify token when the run form fields are left empty. Tick **Use proxies saved in Settings** on the run form to route Docker traffic through the saved proxy pool. **Test Proxies** probes each SOCKS5/HTTP proxy with a live connection and reports latency or a failure code.
+
 ## Export
 
 Use the Leads tab to download TXT exports for all leads or a selected run.

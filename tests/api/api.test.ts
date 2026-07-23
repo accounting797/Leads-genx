@@ -153,8 +153,105 @@ describe('API', () => {
         defaultGoogleMapsActorId: 'compass/google-maps-extractor',
         defaultSalesNavigatorActorId: 'harvestapi/linkedin-profile-search',
         hasSavedApifyToken: false,
+        hasSavedGoogleApiKeys: false,
+        googleApiKeyCount: 0,
+        proxyCount: 0,
+        proxies: [],
       },
     });
+  });
+
+  it('persists settings without echoing secrets and masks stored proxies', async () => {
+    const rows = new Map<string, string>();
+    const prismaStub = {
+      appSetting: {
+        async findMany() {
+          return Array.from(rows.entries()).map(([key, value]) => ({ key, value }));
+        },
+        async upsert(args: { where: { key: string }; create: { value: string } }) {
+          rows.set(args.where.key, args.create.value);
+        },
+        async deleteMany(args: { where: { key: string } }) {
+          rows.delete(args.where.key);
+        },
+      },
+    };
+    const app = createApp({ prisma: prismaStub as never });
+
+    const res = await request(app)
+      .post('/api/settings')
+      .send({
+        apifyToken: 'apify-secret-token',
+        googleApiKeys: 'google-key-one\ngoogle-key-two',
+        proxyUrls: 'socks5h://operator:supersecret@127.0.0.1:60001',
+      })
+      .expect(200);
+
+    expect(JSON.stringify(res.body)).not.toContain('apify-secret-token');
+    expect(JSON.stringify(res.body)).not.toContain('google-key-one');
+    expect(JSON.stringify(res.body)).not.toContain('supersecret');
+    expect(res.body.data).toMatchObject({
+      hasSavedApifyToken: true,
+      hasSavedGoogleApiKeys: true,
+      googleApiKeyCount: 2,
+      proxyCount: 1,
+      proxies: ['socks5h://operator:••••••@127.0.0.1:60001'],
+    });
+
+    const getRes = await request(app).get('/api/settings').expect(200);
+    expect(JSON.stringify(getRes.body)).not.toContain('supersecret');
+    expect(getRes.body.data.proxies).toEqual(['socks5h://operator:••••••@127.0.0.1:60001']);
+  });
+
+  it('rejects invalid proxy entries with a field error', async () => {
+    const prismaStub = {
+      appSetting: {
+        async findMany() { return []; },
+        async upsert() { throw new Error('should not save'); },
+        async deleteMany() {},
+      },
+    };
+    const app = createApp({ prisma: prismaStub as never });
+
+    const res = await request(app)
+      .post('/api/settings')
+      .send({ proxyUrls: 'ftp://invalid-proxy' })
+      .expect(400);
+
+    expect(res.body.fields.proxyUrls).toContain('HTTP(S) or SOCKS5');
+  });
+
+  it('tests stored proxies through the injected tester without exposing credentials', async () => {
+    const rows = new Map<string, string>([
+      ['proxyUrls', JSON.stringify(['socks5h://operator:supersecret@127.0.0.1:60001'])],
+    ]);
+    const prismaStub = {
+      appSetting: {
+        async findMany() {
+          return Array.from(rows.entries()).map(([key, value]) => ({ key, value }));
+        },
+        async upsert() {},
+        async deleteMany() {},
+      },
+    };
+    let testedUrls: string[] = [];
+    const app = createApp({
+      prisma: prismaStub as never,
+      proxyTester: async (urls: string[]) => {
+        testedUrls = urls;
+        return [{ proxy: 'socks5h://operator:••••••@127.0.0.1:60001', ok: true, latencyMs: 42 }];
+      },
+    } as never);
+
+    const res = await request(app).post('/api/settings/proxies/test').send({}).expect(200);
+
+    expect(testedUrls).toEqual(['socks5h://operator:supersecret@127.0.0.1:60001']);
+    expect(res.body.data).toEqual({
+      results: [{ proxy: 'socks5h://operator:••••••@127.0.0.1:60001', ok: true, latencyMs: 42 }],
+      okCount: 1,
+      totalCount: 1,
+    });
+    expect(JSON.stringify(res.body)).not.toContain('supersecret');
   });
 
   it('returns safe batch progress with a run detail', async () => {

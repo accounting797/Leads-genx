@@ -9,6 +9,7 @@ import { GooglePlacesApiClient } from './integrations/googlePlacesClient';
 import { LocalMapsScraperKitClient } from './integrations/localMapsScraperClient';
 import { ApiDeps, createApiRouter } from './routes/api';
 import { safeErrorMessage } from './domain/errorLogger';
+import { loadOperatorSettings } from './domain/operatorSettings';
 
 export function createApp(deps: ApiDeps = {}) {
   const app = express();
@@ -22,6 +23,7 @@ export function createApp(deps: ApiDeps = {}) {
       localMapsScraperClient: new LocalMapsScraperKitClient({ maxPolls: 120 }),
       emailExtractor: new WebsiteEmailExtractor(),
       enableLocalMapsScraper: process.env.ENABLE_LOCAL_MAPS_SCRAPER === 'true',
+      loadOperatorSettings: () => loadOperatorSettings(runtimePrisma),
     });
 
   if (deps.recoverOnStartup && runService.recoverInterruptedRuns) {
@@ -33,7 +35,7 @@ export function createApp(deps: ApiDeps = {}) {
   }
 
   app.use(express.json({ limit: '1mb' }));
-  app.use('/api', createApiRouter({ prisma: runtimePrisma, runService }));
+  app.use('/api', createApiRouter({ prisma: runtimePrisma, runService, proxyTester: deps.proxyTester }));
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
   return app;

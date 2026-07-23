@@ -105,6 +105,10 @@
                   <span>Optional Proxy URLs (request-scoped)</span>
                   <textarea id="gmProxyUrls" rows="3" autocomplete="off" spellcheck="false" placeholder="socks5h://user:password@127.0.0.1:60001"></textarea>
                 </label>
+                <label class="checkline">
+                  <input id="gmUseSavedProxies" type="checkbox">
+                  <span>Use proxies saved in Settings</span>
+                </label>
               </div>
               <p class="form-status">Direct mode uses your public IP. Proxy credentials are never saved and must be re-entered after restart.</p>
               <label>
@@ -236,6 +240,7 @@
           <button class="tab active" data-tab="runs" type="button">Runs</button>
           <button class="tab" data-tab="leads" type="button">Leads</button>
           <button class="tab" data-tab="logs" type="button">Logs</button>
+          <button class="tab" data-tab="settings" type="button">Settings</button>
         </nav>
 
         <div id="runsTab" class="tab-page active">
@@ -266,6 +271,64 @@
             <button id="refreshLogs" type="button" class="ghost-btn">Refresh</button>
           </div>
           <div id="logsTable"></div>
+        </div>
+
+        <div id="settingsTab" class="tab-page">
+          <div class="table-actions">
+            <div>
+              <h2>Settings</h2>
+              <p>Saved locally in SQLite. Saved secrets are never displayed again — only their status.</p>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <section class="settings-card">
+              <h3>Actor Defaults</h3>
+              <label>
+                <span>Google Maps Actor ID</span>
+                <input id="setGoogleActor" type="text" autocomplete="off" spellcheck="false">
+              </label>
+              <label>
+                <span>Sales Navigator Actor ID</span>
+                <input id="setSalesNavActor" type="text" autocomplete="off" spellcheck="false">
+              </label>
+            </section>
+            <section class="settings-card">
+              <h3>Saved Credentials</h3>
+              <label>
+                <span>Apify API Token <small id="setApifyStatus" class="settings-hint"></small></span>
+                <textarea id="setApifyToken" rows="2" autocomplete="off" spellcheck="false" placeholder="Leave blank to keep the saved token"></textarea>
+              </label>
+              <div class="inline-actions">
+                <button id="clearApifyBtn" type="button" class="ghost-btn">Clear Token</button>
+              </div>
+              <label>
+                <span>Google API Keys <small id="setGoogleStatus" class="settings-hint"></small></span>
+                <textarea id="setGoogleKeys" rows="3" autocomplete="off" spellcheck="false" placeholder="One per line — blank keeps saved keys"></textarea>
+              </label>
+              <div class="inline-actions">
+                <button id="clearGoogleBtn" type="button" class="ghost-btn">Clear Keys</button>
+              </div>
+            </section>
+            <section class="settings-card">
+              <h3>Proxy Pool <small id="setProxyStatus" class="settings-hint"></small></h3>
+              <label>
+                <span>Proxy URLs (one per line)</span>
+                <textarea id="setProxyUrls" rows="4" autocomplete="off" spellcheck="false" placeholder="socks5h://user:password@127.0.0.1:60001"></textarea>
+              </label>
+              <p class="settings-hint">Passwords are masked after saving. Saving a masked entry unchanged keeps the stored proxy.</p>
+              <div id="savedProxyList" class="proxy-list"></div>
+              <div class="inline-actions">
+                <button id="testProxiesBtn" type="button" class="ghost-btn">Test Proxies</button>
+                <button id="clearProxiesBtn" type="button" class="ghost-btn">Clear Proxies</button>
+                <span id="proxyTestSummary" class="settings-hint"></span>
+              </div>
+              <div id="proxyTestResults" class="proxy-list"></div>
+            </section>
+          </div>
+          <div class="actions settings-actions">
+            <button id="saveSettingsBtn" type="button" class="primary-btn">Save Settings</button>
+            <span id="settingsStatus" class="form-status"></span>
+          </div>
         </div>
       </section>
     </main>

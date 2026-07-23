@@ -149,6 +149,49 @@ describe('static dashboard command radar', () => {
   });
 });
 
+describe('static dashboard settings page', () => {
+  it('exposes a Settings tab with credential and proxy management controls', () => {
+    const html = readPublicFile('index.html');
+
+    expect(html).toContain('data-tab="settings"');
+    expect(html).toContain('id="settingsTab"');
+    for (const id of [
+      'setGoogleActor',
+      'setSalesNavActor',
+      'setApifyToken',
+      'setGoogleKeys',
+      'setProxyUrls',
+      'savedProxyList',
+      'testProxiesBtn',
+      'saveSettingsBtn',
+      'settingsStatus',
+    ]) {
+      expect(html).toContain(`id="${id}"`);
+    }
+  });
+
+  it('loads, saves, and clears settings without redisplaying secrets', () => {
+    const apiJs = readPublicFile('api.js');
+    const appJs = readPublicFile('app.js');
+
+    expect(apiJs).toContain("requestJson('/settings')");
+    expect(apiJs).toContain("'/settings/proxies/test'");
+    expect(appJs).toContain("$('setApifyToken').value = ''");
+    expect(appJs).toContain("$('setGoogleKeys').value = ''");
+    expect(appJs).toContain("$('setProxyUrls').value = ''");
+    expect(appJs).toContain("saveSettings({ apifyToken: '' })");
+    expect(appJs).toContain("saveSettings({ proxyUrls: '' })");
+  });
+
+  it('lets runs opt into the saved Settings proxy pool', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+
+    expect(html).toContain('id="gmUseSavedProxies"');
+    expect(appJs).toContain("routeMode: $('gmUseSavedProxies').checked ? 'proxy' : undefined");
+  });
+});
+
 describe('static dashboard Google Maps providers', () => {
   it('offers Standard Docker plus Google and an explicit Hybrid Max Output mode', () => {
     const html = readPublicFile('index.html');

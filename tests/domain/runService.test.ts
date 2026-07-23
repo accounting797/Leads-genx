@@ -940,4 +940,47 @@ describe('createRunService', () => {
     expect(store.runs[0].filterJson).not.toContain('google-secret');
     expect(store.runs[0].filterJson).not.toContain('user:pass');
   });
+
+  it('fills Google keys and proxies from saved settings when the request omits them', async () => {
+    const store = createStore();
+    const actorClient: ActorClient = {
+      async startRun() { throw new Error('Apify must not run in local-first mode'); },
+      async getRun() { throw new Error('not used'); },
+      async getDatasetItems() { return []; },
+    };
+    const localMapsScraperClient: LocalMapsScraperClient = {
+      async search(input) {
+        expect(input.proxyUrls).toEqual(['socks5h://saved:savedpass@127.0.0.1:60001']);
+        return [{ title: 'Local Lead', email: 'local@example.com' }];
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search(input) {
+        expect(input.apiKey).toBe('saved-google-key');
+        return [{ displayName: { text: 'Google Lead' }, email: 'google@example.com' }];
+      },
+    };
+    const service = createRunService({
+      store,
+      actorClient,
+      localMapsScraperClient,
+      googlePlacesClient,
+      loadOperatorSettings: async () => ({
+        googleApiKeys: ['saved-google-key'],
+        apifyToken: 'saved-apify-token',
+        proxyUrls: ['socks5h://saved:savedpass@127.0.0.1:60001'],
+      }),
+    });
+
+    await service.startRun({
+      leadSource: 'google_maps',
+      maxResults: 10,
+      routeMode: 'proxy',
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], apiRequestBudget: 3 },
+    }, { background: false });
+
+    expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 2 });
+    expect(store.runs[0].filterJson).not.toContain('saved-google-key');
+    expect(store.runs[0].filterJson).not.toContain('savedpass');
+  });
 });

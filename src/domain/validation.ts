@@ -300,7 +300,7 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
     googleApiKey,
     googleApiKeys: googleApiKeys.length ? googleApiKeys : undefined,
     proxyUrls: proxyUrls.length ? proxyUrls : undefined,
-    routeMode: proxyUrls.length ? 'proxy' : 'direct',
+    routeMode: proxyUrls.length || obj.routeMode === 'proxy' ? 'proxy' : 'direct',
     leadSource: leadSource ?? 'google_maps',
     actorId: asString(obj.actorId),
     searchUrl,

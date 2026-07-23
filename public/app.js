@@ -87,6 +87,86 @@
     if (tab === 'runs') loadRuns();
     if (tab === 'leads') loadLeads();
     if (tab === 'logs') loadLogs();
+    if (tab === 'settings') loadSettings();
+  }
+
+  function renderSavedProxies(proxies) {
+    $('savedProxyList').innerHTML = proxies.length
+      ? proxies
+          .map((proxy) => '<div class="proxy-row"><span>' + escapeHtml(proxy) + '</span></div>')
+          .join('')
+      : '<div class="proxy-row muted">No saved proxies.</div>';
+  }
+
+  function applySettingsStatus(settings) {
+    $('setGoogleActor').value = settings.defaultGoogleMapsActorId;
+    $('setSalesNavActor').value = settings.defaultSalesNavigatorActorId;
+    $('setApifyStatus').textContent = settings.hasSavedApifyToken ? '· saved' : '· not saved';
+    $('setGoogleStatus').textContent = settings.hasSavedGoogleApiKeys
+      ? '· ' + settings.googleApiKeyCount + ' key(s) saved'
+      : '· not saved';
+    $('setProxyStatus').textContent = settings.proxyCount ? '· ' + settings.proxyCount + ' saved' : '· none saved';
+    renderSavedProxies(settings.proxies || []);
+  }
+
+  async function loadSettings() {
+    try {
+      applySettingsStatus(await api.getSettings());
+    } catch (error) {
+      $('settingsStatus').textContent = error.message;
+    }
+  }
+
+  async function saveSettings(extraBody) {
+    $('settingsStatus').textContent = 'Saving...';
+    try {
+      const body = extraBody || {
+        defaultGoogleMapsActorId: $('setGoogleActor').value,
+        defaultSalesNavigatorActorId: $('setSalesNavActor').value,
+        apifyToken: $('setApifyToken').value.trim() || undefined,
+        googleApiKeys: $('setGoogleKeys').value.trim() || undefined,
+        proxyUrls: $('setProxyUrls').value.trim() || undefined,
+      };
+      const settings = await api.saveSettings(body);
+      $('setApifyToken').value = '';
+      $('setGoogleKeys').value = '';
+      $('setProxyUrls').value = '';
+      applySettingsStatus(settings);
+      $('settingsStatus').textContent = 'Settings saved.';
+      window.LeadsGenXUi.toast('Settings saved');
+    } catch (error) {
+      $('settingsStatus').textContent = error.message;
+      window.LeadsGenXUi.toast(error.message);
+    }
+  }
+
+  async function testSavedProxies() {
+    $('testProxiesBtn').disabled = true;
+    $('proxyTestSummary').textContent = 'Testing...';
+    $('proxyTestResults').innerHTML = '';
+    try {
+      const pasted = $('setProxyUrls').value.trim();
+      const result = await api.testProxies(pasted ? { proxyUrls: pasted } : {});
+      $('proxyTestSummary').textContent = result.okCount + '/' + result.totalCount + ' healthy';
+      $('proxyTestResults').innerHTML = result.results
+        .map((item) => {
+          const detail = item.ok
+            ? 'OK · ' + item.latencyMs + 'ms'
+            : 'FAIL · ' + escapeHtml(item.errorCode || 'error');
+          return (
+            '<div class="proxy-row ' + (item.ok ? 'ok' : 'fail') + '"><span>' +
+            escapeHtml(item.proxy) +
+            '</span><span class="proxy-result">' +
+            detail +
+            '</span></div>'
+          );
+        })
+        .join('');
+    } catch (error) {
+      $('proxyTestSummary').textContent = error.message;
+    } finally {
+      $('testProxiesBtn').disabled = false;
+    }
   }
 
   function buildBody() {
@@ -94,6 +174,7 @@
       apifyToken: $('apifyToken').value.trim(),
       googleApiKey: $('googleApiKey').value.trim() || undefined,
       proxyUrls: $('gmProxyUrls').value.trim() || undefined,
+      routeMode: $('gmUseSavedProxies').checked ? 'proxy' : undefined,
       leadSource: activeSource,
       actorId: $('actorId').value.trim() || undefined,
       maxResults: numberValue('maxResults') || 100,
@@ -477,6 +558,11 @@
     $('metricLeadsCard').addEventListener('click', openAllLeads);
     $('leadRunFilter').addEventListener('change', loadLeads);
     $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
+    $('saveSettingsBtn').addEventListener('click', () => saveSettings());
+    $('clearApifyBtn').addEventListener('click', () => saveSettings({ apifyToken: '' }));
+    $('clearGoogleBtn').addEventListener('click', () => saveSettings({ googleApiKeys: '' }));
+    $('clearProxiesBtn').addEventListener('click', () => saveSettings({ proxyUrls: '' }));
+    $('testProxiesBtn').addEventListener('click', testSavedProxies);
     $('runsTable').addEventListener('click', (event) => {
       const target = event.target;
       const viewRunId = target.dataset ? target.dataset.viewRun : undefined;

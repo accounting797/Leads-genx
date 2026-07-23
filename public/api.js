@@ -32,6 +32,19 @@
     getLeadEmailsTxt: (runId) =>
       requestText('/leads/download?format=emails' + (runId ? '&runId=' + runId : '')),
     listErrors: () => requestJson('/errors'),
+    getSettings: () => requestJson('/settings'),
+    saveSettings: (body) =>
+      requestJson('/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    testProxies: (body) =>
+      requestJson('/settings/proxies/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }),
     downloadLeads: (runId, format) => {
       const params = new URLSearchParams();
       if (runId) params.set('runId', runId);

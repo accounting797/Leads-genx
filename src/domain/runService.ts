@@ -10,6 +10,7 @@ import { executeBalancedGoogleMapsRun } from './balancedGoogleMapsRunService';
 import type { LocalFirstRunStore } from './prismaRunStore';
 import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
 import { GoogleMapsFilters, LeadSource, NormalizedLead, OutputMode, RouteMode, ValidatedRunInput } from './types';
+import { OperatorSettings, withSavedCredentials } from './operatorSettings';
 
 export interface RunRecord {
   id: number;
@@ -65,6 +66,7 @@ export interface RunServiceDeps {
   emailLeadBatchSize?: number;
   emailExtractionConcurrency?: number;
   enableLocalMapsScraper?: boolean;
+  loadOperatorSettings?: () => Promise<OperatorSettings>;
 }
 
 export interface StartRunOptions {
@@ -121,6 +123,7 @@ export function createRunService({
   emailLeadBatchSize = 100,
   emailExtractionConcurrency = 50,
   enableLocalMapsScraper = true,
+  loadOperatorSettings,
 }: RunServiceDeps) {
   async function saveEmailLeadsInBatches(
     runId: number,
@@ -705,7 +708,10 @@ export function createRunService({
     };
   }
 
-  async function startRun(input: ValidatedRunInput, options: StartRunOptions = {}) {
+  async function startRun(rawInput: ValidatedRunInput, options: StartRunOptions = {}) {
+    const input = loadOperatorSettings
+      ? withSavedCredentials(rawInput, await loadOperatorSettings())
+      : rawInput;
     const actorInput = isLocalFirstRun(input)
       ? { actorId: 'local_first' }
       : isHybridRun(input)
