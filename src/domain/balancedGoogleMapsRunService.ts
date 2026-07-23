@@ -119,7 +119,7 @@ export async function executeBalancedGoogleMapsRun(
     currentRoute: input.routeMode ?? 'direct',
     apiRequestBudget: filters.apiRequestBudget ?? 0,
     apiRequestsUsed,
-    localConcurrency: 1,
+    localConcurrency: 4,
   });
   await store.addEvent(run.id, 'run_started', 'Google and Docker discovery pipeline started.', {
     provider: input.googleMaps?.provider ?? 'local_first',

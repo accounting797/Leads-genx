@@ -88,6 +88,7 @@ describe('executeBalancedGoogleMapsRun', () => {
     await execution;
 
     expect(googleStartedBeforeDockerFinished).toBe(true);
+    expect(run.localConcurrency).toBe(4);
     expect(run).toMatchObject({ status: 'completed', businessCount: 2, leadCount: 2, apiRequestsUsed: 1 });
     expect(state.events.some((event) => event.type === 'google_key_accepted')).toBe(true);
   });

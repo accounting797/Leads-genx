@@ -3,7 +3,7 @@ services:
     image: leads-genx/google-maps-scraper:1.16.3-local
     container_name: leads-genx-gmaps-scraper
     restart: unless-stopped
-    command: ["-web", "-data-folder", "/gmapsdata", "-c", "1"]
+    command: ["-web", "-data-folder", "/gmapsdata", "-c", "4"]
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

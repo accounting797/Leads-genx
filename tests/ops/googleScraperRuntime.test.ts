@@ -9,6 +9,8 @@ describe('local Google Maps scraper runtime', () => {
   it('uses the pinned local image without deleting the Playwright driver', () => {
     const compose = read('docker-compose.google-scraper.yml');
     expect(compose).toContain('leads-genx/google-maps-scraper:1.16.3-local');
+    expect(compose).toContain('command: ["-web", "-data-folder", "/gmapsdata", "-c", "4"]');
+    expect(compose.match(/leads-genx\/google-maps-scraper:/g)).toHaveLength(1);
     expect(compose).toContain('127.0.0.1:8080:8080');
     expect(compose).toContain('healthcheck:');
     expect(compose).toContain('restart: unless-stopped');
