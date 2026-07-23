@@ -311,7 +311,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
     '/settings/proxies/test',
     asyncHandler(async (req, res) => {
       const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-      const provided = asListInput(body.proxyUrls);
+      const provided = asListInput(body.proxyUrls)?.map(normalizeProxyLine);
       const targets = provided?.length
         ? provided
         : (await loadOperatorSettings(prisma)).proxyUrls;

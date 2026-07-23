@@ -59,16 +59,20 @@ type SettingsPrisma = Pick<PrismaClient, 'appSetting'> | { appSetting: AppSettin
  */
 export function normalizeProxyLine(line: string): string {
   const raw = line.trim();
-  if (!raw || raw.includes('://') || raw.includes(SECRET_MASK)) return raw;
+  if (!raw || raw.includes(SECRET_MASK)) return raw;
 
-  if (raw.includes('@')) return `http://${raw}`;
+  const schemeMatch = raw.match(/^([a-z][a-z0-9]*):\/\//i);
+  const scheme = schemeMatch ? schemeMatch[1].toLowerCase() : 'http';
+  const rest = schemeMatch ? raw.slice(schemeMatch[0].length) : raw;
 
-  const parts = raw.split(':');
+  if (rest.includes('@')) return `${scheme}://${rest}`;
+
+  const parts = rest.split(':');
   if (parts.length >= 4) {
-    const [host, port, user, ...rest] = parts;
-    return `http://${user}:${rest.join(':')}@${host}:${port}`;
+    const [host, port, user, ...pass] = parts;
+    return `${scheme}://${user}:${pass.join(':')}@${host}:${port}`;
   }
-  if (parts.length === 2 || parts.length === 3) return `http://${raw}`;
+  if (parts.length === 2 || parts.length === 3) return `${scheme}://${rest}`;
   return raw;
 }
 
