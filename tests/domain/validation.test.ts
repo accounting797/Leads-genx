@@ -380,6 +380,25 @@ describe('validateCreateRunInput', () => {
     expect(input.googleMaps?.apiRequestBudget).toBe(25);
   });
 
+  it('normalizes vendor proxy formats on run input', () => {
+    const input = validateCreateRunInput(
+      {
+        proxyUrls: '23.142.16.2:4000:john:h3dun5r1p8s\n10.0.0.8:3128',
+        googleApiKey: 'google-secret',
+        leadSource: 'google_maps',
+        maxResults: 50,
+        googleMaps: { provider: 'local_first', searchTerms: ['dentist'], apiRequestBudget: 5 },
+      },
+      false
+    );
+
+    expect(input.routeMode).toBe('proxy');
+    expect(input.proxyUrls).toEqual([
+      'http://john:h3dun5r1p8s@23.142.16.2:4000',
+      'http://10.0.0.8:3128',
+    ]);
+  });
+
   it('rejects local-first budgets above 500 and targets above 10000', () => {
     expect(() => validateCreateRunInput({
       leadSource: 'google_maps',

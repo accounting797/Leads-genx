@@ -5,6 +5,7 @@ import {
   SalesNavigatorFilters,
   ValidatedRunInput,
 } from './types';
+import { normalizeProxyLine } from './operatorSettings';
 
 export class ValidationError extends Error {
   constructor(
@@ -29,17 +30,21 @@ function asCredentialList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+const PROXY_URL_PATTERN = /^(https?|socks5h?):\/\/[^\s/]+:\d{1,5}\/?$/i;
+
 function asProxyList(value: unknown, fields: Record<string, string>): string[] {
   const raw = asString(value);
   if (!raw) return [];
-  const proxies = [...new Set(raw.split(/[\r\n,]+/).map((item) => item.trim()).filter(Boolean))];
+  const proxies = [
+    ...new Set(
+      raw
+        .split(/[\r\n,]+/)
+        .map((item) => normalizeProxyLine(item.trim()))
+        .filter(Boolean)
+    ),
+  ];
   for (const proxy of proxies) {
-    try {
-      const url = new URL(proxy);
-      if (!['socks5:', 'socks5h:', 'http:', 'https:'].includes(url.protocol) || !url.hostname || !url.port) {
-        throw new Error('unsupported');
-      }
-    } catch {
+    if (!PROXY_URL_PATTERN.test(proxy)) {
       fields.proxyUrls = 'Each proxy must be an HTTP(S) or SOCKS5 URL with a host and port.';
       return [];
     }

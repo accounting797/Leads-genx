@@ -62,15 +62,12 @@ function asListInput(value: unknown): string[] | undefined {
   return [...new Set(raw.split(/[\r\n,]+/).map((item) => item.trim()).filter(Boolean))];
 }
 
+const PROXY_URL_PATTERN = /^(https?|socks5h?):\/\/[^\s/]+:\d{1,5}\/?$/i;
+
 function proxyListError(proxies: string[]): string | undefined {
   for (const proxy of proxies) {
     if (proxy.includes(SECRET_MASK)) continue;
-    try {
-      const url = new URL(proxy);
-      if (!['socks5:', 'socks5h:', 'http:', 'https:'].includes(url.protocol) || !url.hostname || !url.port) {
-        return 'Each proxy must be an HTTP(S) or SOCKS5 URL with a host and port.';
-      }
-    } catch {
+    if (!PROXY_URL_PATTERN.test(proxy)) {
       return 'Each proxy must be an HTTP(S) or SOCKS5 URL with a host and port.';
     }
   }
