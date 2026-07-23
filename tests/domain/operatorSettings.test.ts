@@ -44,6 +44,12 @@ describe('normalizeProxyLine', () => {
     );
   });
 
+  it('forgives mistyped scheme separators', () => {
+    expect(normalizeProxyLine('socks5h//:23.142.16.175:4000:john:p4ss')).toBe(
+      'socks5h://john:p4ss@23.142.16.175:4000'
+    );
+  });
+
   it('leaves full URLs and masked entries untouched', () => {
     expect(normalizeProxyLine('socks5h://u:p@127.0.0.1:60001')).toBe('socks5h://u:p@127.0.0.1:60001');
     expect(normalizeProxyLine('http://u:••••••@127.0.0.1:60001')).toBe('http://u:••••••@127.0.0.1:60001');
