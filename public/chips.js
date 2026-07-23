@@ -63,7 +63,16 @@
     }
 
     input.addEventListener('focus', renderMenu);
-    input.addEventListener('input', renderMenu);
+    input.addEventListener('input', () => {
+      if (allowFree && input.value.includes(',')) {
+        input.value
+          .split(',')
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .forEach(add);
+      }
+      renderMenu();
+    });
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -76,6 +85,9 @@
         renderChips();
       }
     });
+    input.addEventListener('blur', () => {
+      if (allowFree && input.value.trim()) add(input.value);
+    });
 
     document.addEventListener('click', (event) => {
       if (!element.contains(event.target)) menu.classList.remove('open');
@@ -83,6 +95,10 @@
 
     return {
       getValue: () => Array.from(selected),
+      commitPending() {
+        if (allowFree && input.value.trim()) add(input.value);
+        return Array.from(selected);
+      },
       setSuggestions(values) {
         suggestions.splice(0, suggestions.length, ...(values || []));
         renderMenu();

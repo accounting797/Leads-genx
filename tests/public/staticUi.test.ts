@@ -192,6 +192,19 @@ describe('static dashboard settings page', () => {
   });
 });
 
+describe('static dashboard chip inputs', () => {
+  it('commits free-text entries without requiring the Enter key', () => {
+    const chipsJs = readPublicFile('chips.js');
+    const appJs = readPublicFile('app.js');
+
+    expect(chipsJs).toContain("input.value.includes(',')");
+    expect(chipsJs).toContain("input.addEventListener('blur'");
+    expect(chipsJs).toContain('commitPending()');
+    expect(appJs).toContain('chips.gmSearchTerms.commitPending()');
+    expect(appJs).toContain('chips.gmLocations.commitPending()');
+  });
+});
+
 describe('static dashboard Google Maps providers', () => {
   it('offers Standard Docker plus Google and an explicit Hybrid Max Output mode', () => {
     const html = readPublicFile('index.html');
