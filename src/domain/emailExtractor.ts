@@ -1,14 +1,11 @@
-import { NormalizedLead } from './types';
+import { classifyContact } from './contactClassifier';
+import { ContactQuality, NormalizedLead } from './types';
 
 export interface EmailExtractor {
   extract(url: string): Promise<string[]>;
 }
 
 const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-const EMAIL_EXACT_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-const BAD_SUFFIXES = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'];
-const AUTOMATED_LOCAL_PART = /^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|mailer[-_.]?daemon|postmaster)$/i;
-const SENTRY_INGEST_DOMAIN = /(?:^|\.)ingest(?:\.[a-z0-9-]+)*\.sentry\.io$/i;
 const CONTACT_PATHS = [
   '/',
   '/contact',
@@ -36,22 +33,12 @@ const CONTACT_LINK_PATTERN = /\b(contact|about|team|staff|sales|support|location
 const HREF_PATTERN = /\bhref\s*=\s*["']([^"']+)["']/gi;
 
 export function isQualifiedLeadEmail(email: string): boolean {
-  const candidate = email.trim().toLowerCase();
-  if (!EMAIL_EXACT_PATTERN.test(candidate)) return false;
-  const [localPart, domain] = candidate.split('@');
-  if (!localPart || !domain || localPart.length > 64 || domain.length > 253) return false;
-  if (AUTOMATED_LOCAL_PART.test(localPart)) return false;
-  if (domain.endsWith('.invalid') || domain.endsWith('.local')) return false;
-  if (SENTRY_INGEST_DOMAIN.test(domain)) return false;
-  return true;
+  return classifyContact(email).quality === 'qualified';
 }
 
-function normalizeEmail(email: string): string | undefined {
+function normalizeCandidate(email: string): string | undefined {
   const cleaned = email.trim().toLowerCase().replace(/[),.;:]+$/, '');
-  if (!cleaned.includes('@')) return undefined;
-  if (BAD_SUFFIXES.some((suffix) => cleaned.endsWith(suffix))) return undefined;
-  if (!isQualifiedLeadEmail(cleaned)) return undefined;
-  return cleaned;
+  return cleaned.includes('@') ? cleaned : undefined;
 }
 
 function deobfuscate(text: string): string {
@@ -60,14 +47,21 @@ function deobfuscate(text: string): string {
     .replace(/\s*(?:\[dot\]|\(dot\)|\bdot\b)\s*/gi, '.');
 }
 
-export function extractEmailsFromText(text: string): string[] {
+export function extractEmailCandidatesFromText(text: string): string[] {
   const seen = new Set<string>();
   const source = deobfuscate(text);
   for (const match of source.matchAll(EMAIL_PATTERN)) {
-    const email = normalizeEmail(match[0]);
-    if (email) seen.add(email);
+    const candidate = normalizeCandidate(match[0]);
+    if (candidate) seen.add(candidate);
   }
   return Array.from(seen);
+}
+
+export function extractEmailsFromText(text: string): string[] {
+  return extractEmailCandidatesFromText(text)
+    .map((email) => classifyContact(email))
+    .filter((decision) => decision.quality === 'qualified')
+    .map((decision) => decision.normalizedEmail);
 }
 
 function decodeHtmlEntities(text: string): string {
@@ -128,11 +122,41 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-function cloneWithEmail(lead: NormalizedLead, email: string): NormalizedLead {
-  return {
-    ...lead,
-    email,
+export type ClassifiedContactLead = NormalizedLead & {
+  normalizedEmail: string;
+  contactQuality: ContactQuality;
+  qualityReason: string;
+};
+
+export async function collectContactCandidates(
+  lead: NormalizedLead,
+  extractor?: EmailExtractor
+): Promise<ClassifiedContactLead[]> {
+  const decisions = new Map<string, { normalizedEmail: string; quality: ContactQuality; reason: string }>();
+
+  const addCandidate = (candidate?: string) => {
+    if (!candidate) return;
+    const decision = classifyContact(candidate, lead.website);
+    if (!decisions.has(decision.normalizedEmail)) decisions.set(decision.normalizedEmail, decision);
   };
+
+  addCandidate(lead.email);
+
+  if (extractor && lead.website) {
+    try {
+      for (const email of await extractor.extract(lead.website)) addCandidate(email);
+    } catch {
+      // Site-level failures should not fail the whole lead run.
+    }
+  }
+
+  return Array.from(decisions.values()).map((decision) => ({
+    ...lead,
+    email: decision.normalizedEmail,
+    normalizedEmail: decision.normalizedEmail,
+    contactQuality: decision.quality,
+    qualityReason: decision.reason,
+  }));
 }
 
 export async function keepEmailLeadsOnly(
@@ -140,27 +164,13 @@ export async function keepEmailLeadsOnly(
   extractor?: EmailExtractor,
   concurrency = 25
 ): Promise<NormalizedLead[]> {
-  const candidates = await mapWithConcurrency(leads, concurrency, async (lead) => {
-    const emails = new Set<string>();
-    const existing = lead.email ? normalizeEmail(lead.email) : undefined;
-    if (existing) emails.add(existing);
-
-    if (extractor && lead.website) {
-      try {
-        for (const email of await extractor.extract(lead.website)) {
-          const normalized = normalizeEmail(email);
-          if (normalized) emails.add(normalized);
-        }
-      } catch {
-        // Site-level failures should not fail the whole lead run.
-      }
-    }
-
-    return Array.from(emails).map((email) => cloneWithEmail(lead, email));
-  });
+  const candidates = await mapWithConcurrency(leads, concurrency, (lead) =>
+    collectContactCandidates(lead, extractor)
+  );
 
   const byEmail = new Map<string, NormalizedLead>();
   for (const lead of candidates.flat()) {
+    if (lead.contactQuality !== 'qualified') continue;
     if (lead.email && !byEmail.has(lead.email)) byEmail.set(lead.email, lead);
   }
   return Array.from(byEmail.values());

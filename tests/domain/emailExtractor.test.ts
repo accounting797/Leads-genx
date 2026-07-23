@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  collectContactCandidates,
+  extractEmailCandidatesFromText,
   extractEmailsFromText,
   isQualifiedLeadEmail,
   keepEmailLeadsOnly,
@@ -25,6 +27,18 @@ describe('extractEmailsFromText', () => {
     expect(emails).toEqual(['sales@realbusiness.com']);
     expect(isQualifiedLeadEmail('owner@realbusiness.com')).toBe(true);
     expect(isQualifiedLeadEmail('mailer-daemon@realbusiness.com')).toBe(false);
+  });
+
+  it('preserves raw candidates while extractEmailsFromText stays qualified-only', () => {
+    const text =
+      'Reach sales@example.com or ' +
+      'ef5d9bbac3354b759bfd7a23c3313b3f@o244637.ingest.us.sentry.io';
+
+    expect(extractEmailCandidatesFromText(text)).toEqual([
+      'sales@example.com',
+      'ef5d9bbac3354b759bfd7a23c3313b3f@o244637.ingest.us.sentry.io',
+    ]);
+    expect(extractEmailsFromText(text)).toEqual(['sales@example.com']);
   });
 });
 
@@ -92,6 +106,59 @@ describe('WebsiteEmailExtractor', () => {
   });
 });
 
+describe('collectContactCandidates', () => {
+  const baseLead: NormalizedLead = {
+    leadSource: 'google_maps',
+    leadType: 'business',
+    companyName: 'Gulf Coast Services',
+    website: 'https://gulfcoast.example.com',
+  };
+
+  it('classifies existing and extracted emails against the lead website and dedupes', async () => {
+    const candidates = await collectContactCandidates(
+      { ...baseLead, email: 'Sales@GulfCoast.example.com' },
+      {
+        async extract() {
+          return [
+            'sales@gulfcoast.example.com',
+            'noreply@gulfcoast.example.com',
+            'sales@unrelated.example',
+          ];
+        },
+      }
+    );
+
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        email: 'sales@gulfcoast.example.com',
+        normalizedEmail: 'sales@gulfcoast.example.com',
+        contactQuality: 'qualified',
+        qualityReason: 'business_domain_match',
+      }),
+      expect.objectContaining({
+        email: 'noreply@gulfcoast.example.com',
+        contactQuality: 'raw',
+        qualityReason: 'automated_mailbox',
+      }),
+      expect.objectContaining({
+        email: 'sales@unrelated.example',
+        contactQuality: 'raw',
+        qualityReason: 'unassociated_domain',
+      }),
+    ]);
+  });
+
+  it('returns no candidates when the site scan fails and no email exists', async () => {
+    const candidates = await collectContactCandidates(baseLead, {
+      async extract() {
+        throw new Error('site unavailable');
+      },
+    });
+
+    expect(candidates).toEqual([]);
+  });
+});
+
 describe('keepEmailLeadsOnly', () => {
   const baseLead: NormalizedLead = {
     leadSource: 'google_maps',
@@ -144,7 +211,7 @@ describe('keepEmailLeadsOnly', () => {
 
   it('keeps only usable prospect emails from existing and extracted values', async () => {
     const leads = await keepEmailLeadsOnly(
-      [{ ...baseLead, email: 'noreply@example.com' }],
+      [{ ...baseLead, website: 'https://gulfcoastservices.com', email: 'noreply@example.com' }],
       {
         async extract() {
           return [
