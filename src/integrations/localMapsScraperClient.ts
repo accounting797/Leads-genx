@@ -1,6 +1,7 @@
 import { buildGoogleMapsSearchQueries } from '../domain/googleMapsQueryBuilder';
 import { LocalDiscoveryBatch, LOCAL_DISCOVERY_COORDINATES } from '../domain/localDiscoveryBatch';
 import { GoogleMapsFilters } from '../domain/types';
+import type { ProxyRotator } from './proxyRotator';
 
 export interface LocalMapsScraperEvent {
   type: 'unavailable' | 'started' | 'completed' | 'failed';
@@ -162,6 +163,7 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
       maxPolls?: number;
       maxTimeSeconds?: number;
       depth?: number;
+      proxyRotator?: ProxyRotator;
     } = {}
   ) {}
 
@@ -189,52 +191,73 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
   async searchBatch({ batch, proxies = [] }: { batch: LocalDiscoveryBatch; proxies?: string[] }): Promise<LocalBatchResult> {
     if (!batch.lat || !batch.lon) throw new LocalScraperError('unsupported_location', 'Local scraper coordinates are unavailable for this location');
     const baseUrl = this.baseUrl();
-    const response = await fetch(`${baseUrl}/api/v1/jobs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: `leads-genx-${batch.key.slice(0, 32)}`,
-        keywords: [batch.query],
-        lang: 'en',
-        zoom: 15,
-        lat: batch.lat,
-        lon: batch.lon,
-        fast_mode: false,
-        radius: 10000,
-        depth: batch.depth,
-        email: false,
-        max_time: this.options.maxTimeSeconds ?? 900,
-        proxies: proxies.length ? this.containerProxies(proxies) : undefined,
-      }),
-    }).catch(() => { throw new LocalScraperError('unavailable', 'Local Google Maps scraper-kit is unavailable'); });
-    if (!response.ok) throw new LocalScraperError('create', `Local scraper job creation failed with status ${response.status}`);
-    const created = await response.json() as { id?: string };
-    if (!created.id) throw new LocalScraperError('create', 'Local scraper job creation returned no job id');
 
-    const maxPolls = this.options.maxPolls ?? 120;
-    let completed = false;
-    for (let poll = 0; poll < maxPolls; poll += 1) {
-      const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${created.id}`);
-      const payload = statusResponse.ok ? await statusResponse.json() as { Status?: string; status?: string } : {};
-      const status = (payload.Status ?? payload.status)?.toLowerCase();
-      if (status === 'ok') {
-        completed = true;
-        break;
+    const effectiveProxies = proxies.length
+      ? proxies
+      : this.options.proxyRotator
+        ? [await this.options.proxyRotator.getNextProxy() ?? '']
+        : [];
+
+    let usedProxy = effectiveProxies[0] || '';
+
+    try {
+      const response = await fetch(`${baseUrl}/api/v1/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `leads-genx-${batch.key.slice(0, 32)}`,
+          keywords: [batch.query],
+          lang: 'en',
+          zoom: 15,
+          lat: batch.lat,
+          lon: batch.lon,
+          fast_mode: false,
+          radius: 10000,
+          depth: batch.depth,
+          email: false,
+          max_time: this.options.maxTimeSeconds ?? 900,
+          proxies: effectiveProxies.length && effectiveProxies[0]
+            ? this.containerProxies(effectiveProxies)
+            : undefined,
+        }),
+      }).catch(() => { throw new LocalScraperError('unavailable', 'Local Google Maps scraper-kit is unavailable'); });
+      if (!response.ok) throw new LocalScraperError('create', `Local scraper job creation failed with status ${response.status}`);
+      const created = await response.json() as { id?: string };
+      if (!created.id) throw new LocalScraperError('create', 'Local scraper job creation returned no job id');
+
+      const maxPolls = this.options.maxPolls ?? 120;
+      let completed = false;
+      for (let poll = 0; poll < maxPolls; poll += 1) {
+        const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${created.id}`);
+        const payload = statusResponse.ok ? await statusResponse.json() as { Status?: string; status?: string } : {};
+        const status = (payload.Status ?? payload.status)?.toLowerCase();
+        if (status === 'ok') {
+          completed = true;
+          break;
+        }
+        if (status === 'failed' || status === 'error') throw new LocalScraperError('failed', 'Local scraper job failed');
+        await wait(this.options.pollIntervalMs ?? 8000);
       }
-      if (status === 'failed' || status === 'error') throw new LocalScraperError('failed', 'Local scraper job failed');
-      await wait(this.options.pollIntervalMs ?? 8000);
-    }
-    if (!completed) throw new LocalScraperError('timeout', 'Local scraper job reached its polling limit');
+      if (!completed) throw new LocalScraperError('timeout', 'Local scraper job reached its polling limit');
 
-    const download = await fetch(`${baseUrl}/api/v1/jobs/${created.id}/download`);
-    if (!download.ok) throw new LocalScraperError('download', `Local scraper download failed with status ${download.status}`);
-    const rows = parseCsv(await download.text());
-    return {
-      batchKey: batch.key,
-      jobId: created.id,
-      items: toLeadRows(rows, batch.maxResults),
-      rawBusinessCount: rows.length,
-    };
+      const download = await fetch(`${baseUrl}/api/v1/jobs/${created.id}/download`);
+      if (!download.ok) throw new LocalScraperError('download', `Local scraper download failed with status ${download.status}`);
+      const rows = parseCsv(await download.text());
+
+      if (usedProxy && this.options.proxyRotator) this.options.proxyRotator.reportSuccess(usedProxy);
+
+      return {
+        batchKey: batch.key,
+        jobId: created.id,
+        items: toLeadRows(rows, batch.maxResults),
+        rawBusinessCount: rows.length,
+      };
+    } catch (error) {
+      if (usedProxy && this.options.proxyRotator) {
+        this.options.proxyRotator.reportFailure(usedProxy, error instanceof Error ? error.message : undefined);
+      }
+      throw error;
+    }
   }
 
   async search({ filters, maxResults, proxyUrls, onEvent }: LocalMapsScraperSearchInput): Promise<unknown[]> {
@@ -260,76 +283,105 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
       const keywords = buildGoogleMapsSearchQueries(plan.filters).slice(0, 100);
       if (!keywords.length) continue;
 
-      const createResponse = await fetch(`${baseUrl}/api/v1/jobs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'leads-genx-local-google',
-          keywords,
-          lang: 'en',
-          zoom: 15,
-          lat: plan.coords.lat,
-          lon: plan.coords.lon,
-          fast_mode: false,
-          radius: 10000,
-          depth: this.options.depth ?? 10,
-          email: false,
-          max_time: this.options.maxTimeSeconds ?? 900,
-          proxies: proxyUrls?.length ? this.containerProxies(proxyUrls) : undefined,
-        }),
-      });
+      const effectiveProxies = proxyUrls?.length
+        ? proxyUrls
+        : this.options.proxyRotator
+          ? [await this.options.proxyRotator.getNextProxy() ?? '']
+          : [];
 
-      if (!createResponse.ok) {
-        await onEvent?.({
-          type: 'failed',
-          message: `Local Google Maps scraper-kit create failed with status ${createResponse.status}`,
+      const usedProxy = effectiveProxies[0] || '';
+
+      try {
+        const createResponse = await fetch(`${baseUrl}/api/v1/jobs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'leads-genx-local-google',
+            keywords,
+            lang: 'en',
+            zoom: 15,
+            lat: plan.coords.lat,
+            lon: plan.coords.lon,
+            fast_mode: false,
+            radius: 10000,
+            depth: this.options.depth ?? 10,
+            email: false,
+            max_time: this.options.maxTimeSeconds ?? 900,
+            proxies: effectiveProxies.length && effectiveProxies[0]
+              ? this.containerProxies(effectiveProxies)
+              : undefined,
+          }),
         });
-        continue;
-      }
 
-      const createData = (await createResponse.json()) as { id?: string };
-      const jobId = createData.id;
-      if (!jobId) continue;
-      await onEvent?.({ type: 'started', jobId });
-
-      const maxPolls = this.options.maxPolls ?? 120;
-      let completed = false;
-      for (let poll = 0; poll < maxPolls; poll += 1) {
-        const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}`);
-        const statusData = statusResponse.ok ? ((await statusResponse.json()) as { Status?: string }) : {};
-        const status = statusData.Status?.toLowerCase();
-        if (status === 'failed' || status === 'error') {
-          await onEvent?.({ type: 'failed', jobId, message: 'Local Google Maps scraper-kit job failed' });
-          completed = false;
-          break;
+        if (!createResponse.ok) {
+          await onEvent?.({
+            type: 'failed',
+            message: `Local Google Maps scraper-kit create failed with status ${createResponse.status}`,
+          });
+          if (usedProxy && this.options.proxyRotator) {
+            this.options.proxyRotator.reportFailure(usedProxy, `create failed ${createResponse.status}`);
+          }
+          continue;
         }
-        if (status === 'ok') {
-          completed = true;
-          break;
+
+        const createData = (await createResponse.json()) as { id?: string };
+        const jobId = createData.id;
+        if (!jobId) continue;
+        await onEvent?.({ type: 'started', jobId });
+
+        const maxPolls = this.options.maxPolls ?? 120;
+        let completed = false;
+        for (let poll = 0; poll < maxPolls; poll += 1) {
+          const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}`);
+          const statusData = statusResponse.ok ? ((await statusResponse.json()) as { Status?: string }) : {};
+          const status = statusData.Status?.toLowerCase();
+          if (status === 'failed' || status === 'error') {
+            await onEvent?.({ type: 'failed', jobId, message: 'Local Google Maps scraper-kit job failed' });
+            break;
+          }
+          if (status === 'ok') {
+            completed = true;
+            break;
+          }
+          await wait(this.options.pollIntervalMs ?? 8000);
         }
-        await wait(this.options.pollIntervalMs ?? 8000);
-      }
 
-      if (!completed) {
+        if (!completed) {
+          await onEvent?.({
+            type: 'failed',
+            jobId,
+            message: 'Local Google Maps scraper-kit job did not finish before the polling limit',
+          });
+          if (usedProxy && this.options.proxyRotator) {
+            this.options.proxyRotator.reportFailure(usedProxy, 'job polling limit reached');
+          }
+          continue;
+        }
+
+        const downloadResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}/download`);
+        if (!downloadResponse.ok) {
+          await onEvent?.({
+            type: 'failed',
+            jobId,
+            message: `Local Google Maps scraper-kit download failed with status ${downloadResponse.status}`,
+          });
+          if (usedProxy && this.options.proxyRotator) {
+            this.options.proxyRotator.reportFailure(usedProxy, `download failed ${downloadResponse.status}`);
+          }
+          continue;
+        }
+
+        allItems.push(...toLeadRows(parseCsv(await downloadResponse.text()), maxResults - allItems.length));
+        if (usedProxy && this.options.proxyRotator) this.options.proxyRotator.reportSuccess(usedProxy);
+      } catch (error) {
+        if (usedProxy && this.options.proxyRotator) {
+          this.options.proxyRotator.reportFailure(usedProxy, error instanceof Error ? error.message : undefined);
+        }
         await onEvent?.({
           type: 'failed',
-          jobId,
-          message: 'Local Google Maps scraper-kit job did not finish before the polling limit',
+          message: error instanceof Error ? error.message : 'Local scraper batch failed',
         });
-        continue;
       }
-
-      const downloadResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}/download`);
-      if (!downloadResponse.ok) {
-        await onEvent?.({
-          type: 'failed',
-          jobId,
-          message: `Local Google Maps scraper-kit download failed with status ${downloadResponse.status}`,
-        });
-        continue;
-      }
-
-      allItems.push(...toLeadRows(parseCsv(await downloadResponse.text()), maxResults - allItems.length));
     }
 
     await onEvent?.({ type: 'completed', itemCount: allItems.length });

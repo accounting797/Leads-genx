@@ -154,6 +154,51 @@ export function buildActorInput(input: ValidatedRunInput): ActorRunInput {
   };
 }
 
+const CODEX_ACTOR_ID = 'compass~crawler-google-places';
+
+export function buildCodexActorInput(
+  token: string,
+  searchString: string,
+  maxCrawledPlaces: number,
+  regionGroup: string,
+  actorId?: string
+): ActorRunInput {
+  return {
+    token,
+    leadSource: 'google_maps',
+    actorId: actorId ?? process.env.DEFAULT_CODEX_ACTOR_ID ?? CODEX_ACTOR_ID,
+    input: {
+      searchString,
+      maxCrawledPlaces,
+      language: 'en',
+      maxImages: 0,
+      includeHistogram: false,
+      includeOpeningHours: false,
+      includePeopleAlsoSearch: false,
+      proxyConfig: { useApifyProxy: true },
+    },
+    maxResults: maxCrawledPlaces,
+  };
+}
+
+export function buildCodexActorInputsForTokens(
+  tokens: string[],
+  searchStrings: string[],
+  maxCrawledPlaces: number,
+  regionGroup: string,
+  actorId?: string
+): ActorRunInput[] {
+  if (!tokens.length) throw new Error('At least one Apify token is required');
+  if (!searchStrings.length) throw new Error('At least one search string is required');
+
+  const chunkSize = Math.ceil(searchStrings.length / tokens.length);
+  return tokens.map((token, index) => {
+    const chunk = searchStrings.slice(index * chunkSize, index * chunkSize + chunkSize);
+    const searchString = chunk[0] ?? searchStrings[0];
+    return buildCodexActorInput(token, searchString, maxCrawledPlaces, regionGroup, actorId);
+  });
+}
+
 export function buildActorInputsForApifyTokens(input: ValidatedRunInput): ActorRunInput[] {
   const tokens = input.apifyTokens?.length ? input.apifyTokens : input.apifyToken ? [input.apifyToken] : [];
   if (!tokens.length) throw new Error('Apify token is required to build actor input');

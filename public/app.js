@@ -212,6 +212,80 @@
     }
   }
 
+  let activeSseSource = null;
+
+  function connectSse(runId) {
+    if (activeSseSource) {
+      activeSseSource.close();
+      activeSseSource = null;
+    }
+    $('sseBadge').textContent = 'SSE Connecting…';
+    $('sseBadge').classList.remove('live');
+    $('codexMetrics').style.display = '';
+    try {
+      const source = new EventSource('/api/runs/' + runId + '/events/stream');
+      activeSseSource = source;
+      source.onopen = function () {
+        $('sseBadge').textContent = 'SSE Live';
+        $('sseBadge').classList.add('live');
+      };
+      source.onmessage = function (event) {
+        try {
+          const data = JSON.parse(event.data);
+          handleSseEvent(runId, data);
+        } catch { /* ignore malformed */ }
+      };
+      source.onerror = function () {
+        $('sseBadge').textContent = 'SSE Offline';
+        $('sseBadge').classList.remove('live');
+        source.close();
+        activeSseSource = null;
+      };
+    } catch {
+      $('sseBadge').textContent = 'SSE Offline';
+      $('sseBadge').classList.remove('live');
+    }
+  }
+
+  function handleSseEvent(runId, data) {
+    if (String(runId) !== String(activeRunId)) return;
+    const message = data.message || '';
+    $('codexMetrics').style.display = '';
+    $('sseBadge').textContent = 'SSE Live';
+    $('sseBadge').classList.add('live');
+
+    if (data.type === 'progress') {
+      $('progressLabel').textContent = message;
+      $('progressLatest').textContent = message;
+      if (data.leadCount != null) $('metricLeads').textContent = data.leadCount;
+      if (data.completedDatasets != null) $('progressCodexRuns').textContent = 'Codex ' + data.completedDatasets;
+      if (data.target != null) $('progressCodexRuns').textContent = $('progressCodexRuns').textContent + '/' + data.target;
+    } else if (data.type === 'run_started') {
+      $('progressLabel').textContent = 'Running';
+      $('progressFill').style.width = '12%';
+      $('progressLatest').textContent = message;
+      if (data.tokenCount) $('progressCodexTokens').textContent = 'Tokens ' + data.tokenCount;
+    } else if (data.type === 'run_completed') {
+      $('progressLabel').textContent = 'Completed';
+      $('progressFill').style.width = '100%';
+      $('progressLatest').textContent = message;
+      if (data.leadCount != null) $('metricLeads').textContent = data.leadCount;
+      if (data.verifiedCount != null) $('progressCodexVerified').textContent = 'MX Verified ' + data.verifiedCount;
+      $('sseBadge').textContent = 'SSE Done';
+      void loadRuns(String(runId));
+      void loadLeads();
+    } else if (data.type === 'run_failed') {
+      $('progressLabel').textContent = 'Failed';
+      $('progressFill').style.width = '100%';
+      $('progressLatest').textContent = message;
+      $('sseBadge').textContent = 'SSE Offline';
+      void loadRuns(String(runId));
+      void loadLogs();
+    } else {
+      $('progressLatest').textContent = message || $('progressLatest').textContent;
+    }
+  }
+
   function startProgress(runId) {
     activeRunId = runId;
     progressStartedAt = Date.now();
@@ -222,6 +296,7 @@
     if (progressTimer) clearInterval(progressTimer);
     progressTimer = setInterval(checkProgress, 3000);
     void checkProgress();
+    connectSse(runId);
   }
 
   function progressStage(events, status) {
@@ -352,6 +427,8 @@
     $('refreshLogs').addEventListener('click', loadLogs);
     $('metricLeadsCard').addEventListener('click', openAllLeads);
     $('leadRunFilter').addEventListener('change', loadLeads);
+    $('downloadCsv').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'csv'));
+    $('downloadJson').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'json'));
     $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
     $('runsTable').addEventListener('click', (event) => {
       const target = event.target;

@@ -1,15 +1,18 @@
-import { ActorClient } from '../integrations/actorClient';
+import { EventEmitter } from 'events';
+import { ActorClient, ActorRunStarted } from '../integrations/actorClient';
 import { GooglePlacesClient } from '../integrations/googlePlacesClient';
 import { LocalMapsScraperClient } from '../integrations/localMapsScraperClient';
 import { EmailExtractor, keepEmailLeadsOnly } from './emailExtractor';
-import { buildActorInput, buildActorInputsForApifyTokens } from './sourceInputBuilder';
+import { buildActorInput, buildActorInputsForApifyTokens, buildCodexActorInputsForTokens } from './sourceInputBuilder';
 import { safeErrorMessage } from './errorLogger';
 import { normalizeLead } from './leadNormalizer';
 import { applyLeadQualityFilters } from './leadQuality';
 import { executeBalancedGoogleMapsRun } from './balancedGoogleMapsRunService';
-import type { LocalFirstRunStore } from './prismaRunStore';
+import type { ApifyCheckpointStore, LocalFirstRunStore } from './prismaRunStore';
 import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
-import { GoogleMapsFilters, LeadSource, NormalizedLead, OutputMode, RouteMode, ValidatedRunInput } from './types';
+import type { EmailVerifier } from './emailVerifier';
+import type { ProxyRotator } from '../integrations/proxyRotator';
+import { ActorRunInput, ApifyRunCheckpoint, ApifyRunRecord, GoogleMapsFilters, LeadSource, NormalizedLead, OutputMode, RouteMode, RunSseEvent, ValidatedRunInput } from './types';
 
 export interface RunRecord {
   id: number;
@@ -65,6 +68,10 @@ export interface RunServiceDeps {
   emailLeadBatchSize?: number;
   emailExtractionConcurrency?: number;
   enableLocalMapsScraper?: boolean;
+  apifyCheckpointStore?: ApifyCheckpointStore;
+  emailVerifier?: EmailVerifier;
+  proxyRotator?: ProxyRotator;
+  eventBus?: EventEmitter;
 }
 
 export interface StartRunOptions {
@@ -121,7 +128,15 @@ export function createRunService({
   emailLeadBatchSize = 100,
   emailExtractionConcurrency = 50,
   enableLocalMapsScraper = true,
+  apifyCheckpointStore,
+  emailVerifier,
+  proxyRotator,
+  eventBus,
 }: RunServiceDeps) {
+  function emitSse(runId: number, event: RunSseEvent): void {
+    eventBus?.emit(`run:${runId}`, { ...event, timestamp: new Date().toISOString() });
+  }
+
   async function saveEmailLeadsInBatches(
     runId: number,
     normalizedLeads: NormalizedLead[],
@@ -149,6 +164,29 @@ export function createRunService({
 
       if (!newEmailLeads.length) continue;
 
+      if (emailVerifier && newEmailLeads.length) {
+        const uniqueEmails = [...new Set(newEmailLeads.map((l) => l.email!).filter(Boolean))];
+        if (uniqueEmails.length) {
+          const verificationResults = await emailVerifier.verifyEmails(uniqueEmails, 20);
+          const verifiedDomains = new Set(
+            verificationResults.filter((r) => r.hasMx).map((r) => r.email.split('@')[1])
+          );
+          for (const lead of newEmailLeads) {
+            if (lead.email) {
+              const domain = lead.email.split('@')[1];
+              if (verifiedDomains.has(domain)) {
+                lead.contactQuality = 'verified';
+                lead.qualityReason = 'MX records verified';
+              }
+            }
+          }
+          await store.addEvent(runId, 'mx_verification_completed', `Verified ${uniqueEmails.length} email domains.`, {
+            verifiedDomains: verifiedDomains.size,
+            totalEmails: uniqueEmails.length,
+          });
+        }
+      }
+
       await store.addLeads(runId, newEmailLeads);
       total += newEmailLeads.length;
       await store.updateRun(runId, { leadCount: total });
@@ -156,6 +194,7 @@ export function createRunService({
         leadCount: total,
         batchLeadCount: newEmailLeads.length,
       });
+      emitSse(runId, { type: 'progress', message: `Saved ${total} email leads.`, leadCount: total });
     }
 
     return total;
@@ -705,6 +744,228 @@ export function createRunService({
     };
   }
 
+  async function runCodexParallelApify(
+    runId: number,
+    checkpoint: ApifyRunCheckpoint,
+    tokens: string[],
+    searchStrings: string[],
+    maxCrawledPlaces: number,
+    regionGroup: string,
+    actorId?: string,
+    onProgress?: (checkpoint: ApifyRunCheckpoint) => void
+  ): Promise<ApifyRunCheckpoint> {
+    if (!apifyCheckpointStore) throw new Error('Apify checkpoint store is not configured');
+
+    const apifyClient = actorClient as import('../integrations/apifyActorClient').ApifyActorClient;
+    const seenEntityKeys = new Set<string>();
+    const seenEmails = new Set<string>();
+    let leadCount = 0;
+
+    for (let i = checkpoint.queuedIndex; i < searchStrings.length; i++) {
+      const activeRuns = checkpoint.runs.filter(
+        (r) => !['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT'].includes(r.status)
+      );
+      if (activeRuns.length >= tokens.length) break;
+
+      const searchString = searchStrings[i];
+      checkpoint.queuedIndex = i + 1;
+
+      const inputs = buildCodexActorInputsForTokens(
+        tokens.slice(0, Math.min(tokens.length, searchStrings.length - i)),
+        [searchString],
+        maxCrawledPlaces,
+        regionGroup,
+        actorId
+      );
+
+      let startedRuns: ActorRunStarted[];
+      try {
+        startedRuns = await apifyClient.startParallelRuns(inputs);
+      } catch (error) {
+        checkpoint.lastStartError = {
+          code: 500,
+          query: searchString,
+          body: safeErrorMessage(error),
+          at: new Date().toISOString(),
+        };
+        break;
+      }
+
+      for (const [idx, started] of startedRuns.entries()) {
+        const record: ApifyRunRecord = {
+          id: started.runId,
+          status: started.status,
+          datasetId: started.datasetId,
+          searchString,
+          regionGroup,
+          token: tokens[idx],
+          startedAt: new Date().toISOString(),
+        };
+        checkpoint.runs.push(record);
+      }
+
+      await apifyCheckpointStore.save(checkpoint);
+      emitSse(runId, {
+        type: 'progress',
+        message: `Progress: ${checkpoint.queuedIndex}/${searchStrings.length} search strings queued, ${checkpoint.uniqueCount ?? 0} unique entities found.`,
+        target: checkpoint.target,
+        leadCount: checkpoint.uniqueCount ?? 0,
+      });
+      onProgress?.(checkpoint);
+    }
+
+    for (const record of checkpoint.runs) {
+      if (['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT'].includes(record.status)) continue;
+      if (!record.token) continue;
+
+      try {
+        const result = await apifyClient.pollUntilTerminal(record.id, record.token, (status) => {
+          record.status = status;
+        });
+        record.status = result.status;
+        record.datasetId = result.datasetId;
+        record.finishedAt = new Date().toISOString();
+      } catch (error) {
+        record.status = 'FAILED';
+        record.statusMessage = safeErrorMessage(error);
+        record.finishedAt = new Date().toISOString();
+      }
+
+      if (record.status === 'SUCCEEDED' && record.datasetId && record.token) {
+        if (!checkpoint.completedDatasets.includes(record.datasetId)) {
+          const items = await actorClient.getDatasetItems(record.datasetId, record.token);
+          const entityLeads = items
+            .map((item) => normalizeLead(item, 'google_maps'))
+            .filter((lead) => {
+              const key = lead.businessIdentityKey ?? lead.placeUrl ?? lead.website ?? lead.companyName;
+              if (!key || seenEntityKeys.has(key)) return false;
+              seenEntityKeys.add(key);
+              return true;
+            });
+
+          const emailLeads = await keepEmailLeadsOnly(
+            entityLeads,
+            emailExtractor,
+            emailExtractionConcurrency
+          );
+
+          const newEmailLeads = emailLeads.filter((lead) => {
+            if (!lead.email || seenEmails.has(lead.email)) return false;
+            seenEmails.add(lead.email);
+            return true;
+          });
+
+          if (newEmailLeads.length) {
+            await store.addLeads(runId, newEmailLeads);
+            leadCount += newEmailLeads.length;
+          }
+
+          checkpoint.completedDatasets.push(record.datasetId);
+        }
+      }
+
+      checkpoint.uniqueCount = seenEntityKeys.size;
+      await apifyCheckpointStore.save(checkpoint);
+      onProgress?.(checkpoint);
+    }
+
+    return checkpoint;
+  }
+
+  async function runCodexParallel(
+    tokens: string[],
+    searchStrings: string[],
+    maxCrawledPlaces: number,
+    regionGroup: string,
+    target: number,
+    actorId?: string
+  ): Promise<{ leadCount: number; completedDatasets: number }> {
+    if (!apifyCheckpointStore) throw new Error('Apify checkpoint store is not configured');
+
+    let checkpoint = await apifyCheckpointStore.load();
+    checkpoint.target = target;
+
+    const run = await store.createRun({
+      status: 'running',
+      leadSource: 'google_maps',
+      actorId: actorId ?? 'compass~crawler-google-places',
+      maxResults: target,
+      leadCount: 0,
+      apiRequestBudget: 0,
+      currentRoute: 'direct',
+      localConcurrency: 1,
+    });
+
+    await store.addEvent(run.id, 'codex_parallel_started', 'Codex parallel Apify run started.', {
+      tokenCount: tokens.length,
+      searchCount: searchStrings.length,
+      target,
+      regionGroup,
+    });
+    emitSse(run.id, {
+      type: 'run_started',
+      message: `Codex parallel run started: ${tokens.length} tokens, ${searchStrings.length} search strings.`,
+      runId: run.id,
+      target,
+    });
+
+    try {
+      checkpoint = await runCodexParallelApify(
+        run.id,
+        checkpoint,
+        tokens,
+        searchStrings,
+        maxCrawledPlaces,
+        regionGroup,
+        actorId,
+        async (cp) => {
+          await store.updateRun(run.id, { leadCount: cp.uniqueCount });
+          emitSse(run.id, {
+            type: 'progress',
+            message: `Progress: ${cp.uniqueCount ?? 0} unique entities, ${cp.completedDatasets.length} datasets completed.`,
+            runId: run.id,
+            leadCount: cp.uniqueCount ?? 0,
+            target: cp.target,
+          });
+        }
+      );
+
+      await store.updateRun(run.id, {
+        status: 'completed',
+        leadCount: checkpoint.uniqueCount,
+      });
+      await store.addEvent(run.id, 'codex_parallel_completed', 'Codex parallel Apify run completed.', {
+        uniqueCount: checkpoint.uniqueCount,
+        target: checkpoint.target,
+        completedDatasets: checkpoint.completedDatasets.length,
+      });
+      emitSse(run.id, {
+        type: 'run_completed',
+        message: `Codex parallel run completed: ${checkpoint.uniqueCount} unique entities.`,
+        runId: run.id,
+        leadCount: checkpoint.uniqueCount,
+        target: checkpoint.target,
+      });
+    } catch (error) {
+      const message = safeErrorMessage(error);
+      await store.updateRun(run.id, { status: 'failed', errorMessage: message });
+      await store.addErrorLog({
+        runId: run.id,
+        source: 'runService',
+        severity: 'error',
+        message,
+      });
+      await store.addEvent(run.id, 'codex_parallel_failed', message);
+      emitSse(run.id, {
+        type: 'run_failed',
+        message: `Codex parallel run failed: ${message}`,
+        runId: run.id,
+      });
+    }
+
+    return { leadCount: checkpoint.uniqueCount, completedDatasets: checkpoint.completedDatasets.length };
+  }
+
   async function startRun(input: ValidatedRunInput, options: StartRunOptions = {}) {
     const actorInput = isLocalFirstRun(input)
       ? { actorId: 'local_first' }
@@ -747,5 +1008,7 @@ export function createRunService({
     resumeRun,
     recoverInterruptedRuns,
     scraperHealth,
+    runCodexParallel,
+    eventBus,
   };
 }

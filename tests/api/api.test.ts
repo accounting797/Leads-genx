@@ -215,12 +215,53 @@ describe('API', () => {
     expect(res.text).toBe(['jane@example.com', 'ops@example.com'].join('\n'));
   });
 
+  it('downloads CSV leads when format is csv', async () => {
+    const app = createApp({
+      prisma: createPrismaStub([
+        {
+          leadType: 'business',
+          companyName: 'Austin Dental Co',
+          categoryName: 'Dental clinic',
+          email: 'contact@austindental.com',
+          phone: '(512) 555-0100',
+        },
+      ]) as never,
+    });
+
+    const res = await request(app).get('/api/leads/download?format=csv').expect(200);
+
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toContain('leads-genx.csv');
+    expect(res.text).toContain('Austin Dental Co');
+  });
+
+  it('downloads JSON leads when format is json', async () => {
+    const app = createApp({
+      prisma: createPrismaStub([
+        {
+          id: 1,
+          leadSource: 'google_maps',
+          leadType: 'business',
+          companyName: 'Austin Dental Co',
+          email: 'contact@austindental.com',
+        },
+      ]) as never,
+    });
+
+    const res = await request(app).get('/api/leads/download?format=json').expect(200);
+
+    expect(res.headers['content-type']).toContain('application/json');
+    expect(res.headers['content-disposition']).toContain('leads-genx.json');
+    const data = JSON.parse(res.text);
+    expect(data[0].companyName).toBe('Austin Dental Co');
+  });
+
   it('rejects unsupported lead download formats', async () => {
     const app = createApp({
       prisma: createPrismaStub([]) as never,
     });
 
-    const res = await request(app).get('/api/leads/download?format=csv').expect(400);
+    const res = await request(app).get('/api/leads/download?format=xml').expect(400);
 
     expect(res.body).toEqual({ error: 'Unsupported download format.' });
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatEmailsTxt, formatLeadsTxt } from '../../src/domain/exportFormatter';
+import { formatEmailsTxt, formatLeadsTxt, formatLeadsCsv, formatLeadsJson } from '../../src/domain/exportFormatter';
 
 describe('formatLeadsTxt', () => {
   it('formats business and person leads with stable empty fields', () => {
@@ -49,3 +49,47 @@ describe('formatEmailsTxt', () => {
     expect(txt).toBe(['jane@example.com', 'ops@example.com'].join('\n'));
   });
 });
+
+describe('formatLeadsCsv', () => {
+  it('escapes fields containing commas and quotes properly', () => {
+    const csv = formatLeadsCsv([
+      {
+        leadType: 'business',
+        companyName: 'ACME, "Specialty" Services',
+        categoryName: 'Consulting',
+        address: '123 Main St, Suite A',
+        email: 'info@acme.com',
+        phone: '555-1234',
+        website: 'https://acme.com',
+        rating: 5,
+        reviewsCount: 10,
+        contactQuality: 'qualified',
+        qualityReason: 'verified',
+      },
+    ]);
+
+    expect(csv).toContain('"ACME, ""Specialty"" Services"');
+    expect(csv).toContain('"123 Main St, Suite A"');
+    expect(csv).toContain('Lead Type,Name,Title / Category');
+  });
+});
+
+describe('formatLeadsJson', () => {
+  it('exports clean structured JSON array', () => {
+    const jsonStr = formatLeadsJson([
+      {
+        id: 1,
+        leadSource: 'google_maps',
+        leadType: 'business',
+        companyName: 'Test Corp',
+        email: 'test@example.com',
+      },
+    ]);
+
+    const parsed = JSON.parse(jsonStr);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed[0].companyName).toBe('Test Corp');
+    expect(parsed[0].email).toBe('test@example.com');
+  });
+});
+

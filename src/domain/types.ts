@@ -3,7 +3,7 @@ export type LeadType = 'business' | 'person';
 export type GoogleMapsProvider = 'apify' | 'google_places' | 'local_first' | 'hybrid';
 export type RouteMode = 'direct' | 'proxy';
 export type OutputMode = 'standard' | 'hybrid_max';
-export type ContactQuality = 'qualified' | 'raw';
+export type ContactQuality = 'qualified' | 'raw' | 'verified';
 export type ProviderName = 'docker' | 'google' | 'apify' | 'email';
 export type ProviderStatus =
   | 'standby'
@@ -77,6 +77,32 @@ export interface ActorRunInput {
   maxResults: number;
 }
 
+export interface ApifyRunRecord {
+  id: string;
+  status: string;
+  datasetId?: string;
+  searchString: string;
+  regionGroup: string;
+  token?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  statusMessage?: string;
+}
+
+export interface ApifyRunCheckpoint {
+  target: number;
+  runs: ApifyRunRecord[];
+  completedDatasets: string[];
+  queuedIndex: number;
+  uniqueCount: number;
+  lastStartError?: {
+    code: number;
+    query: string;
+    body: string;
+    at: string;
+  };
+}
+
 export interface NormalizedLead {
   leadSource: LeadSource;
   leadType: LeadType;
@@ -101,4 +127,14 @@ export interface NormalizedLead {
   reviewsCount?: number;
   placeUrl?: string;
   rawJson?: string;
+}
+
+export interface RunSseEvent {
+  type: string;
+  message: string;
+  runId?: number;
+  leadCount?: number;
+  uniqueCount?: number;
+  target?: number;
+  timestamp?: string;
 }

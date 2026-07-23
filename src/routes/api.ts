@@ -1,12 +1,14 @@
+import { EventEmitter } from 'events';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { NextFunction, Request, Response } from 'express';
 import { Router } from 'express';
-import { formatEmailsTxt, formatLeadsTxt } from '../domain/exportFormatter';
+import { formatEmailsTxt, formatLeadsTxt, formatLeadsCsv, formatCodexCsv, formatLeadsJson } from '../domain/exportFormatter';
 import { suggestions } from '../domain/suggestions';
 import { validateCreateRunInput, validateResumeCredentials, ValidationError } from '../domain/validation';
 import { appendErrorLogToFile, safeErrorMessage } from '../domain/errorLogger';
 import { asyncHandler } from '../utils/asyncHandler';
+import type { RunSseEvent } from '../domain/types';
 
 export interface ApiRunService {
   startRun(input: ReturnType<typeof validateCreateRunInput>): Promise<{
@@ -21,6 +23,15 @@ export interface ApiRunService {
   }): Promise<{ id: number; status: string }>;
   scraperHealth?(): Promise<{ ok: boolean; route: string; healthyProxyCount: number }>;
   recoverInterruptedRuns?(): Promise<void>;
+  runCodexParallel?(
+    tokens: string[],
+    searchStrings: string[],
+    maxCrawledPlaces: number,
+    regionGroup: string,
+    target: number,
+    actorId?: string
+  ): Promise<{ leadCount: number; completedDatasets: number }>;
+  eventBus?: EventEmitter;
 }
 
 export interface ApiDeps {
@@ -192,19 +203,34 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
           })
         : [];
       const format = typeof req.query.format === 'string' ? req.query.format : 'emails';
-      if (format !== 'full' && format !== 'emails') {
+      if (format !== 'full' && format !== 'emails' && format !== 'csv' && format !== 'json' && format !== 'codex') {
         res.status(400).json({ error: 'Unsupported download format.' });
         return;
       }
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${format === 'emails' ? 'leads-genx-emails.txt' : 'leads-genx-leads.txt'}"`
-      );
-      if (format === 'emails') {
-        res.send(formatEmailsTxt(leads));
+      
+      if (format === 'codex') {
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="leads-genx-codex.csv"');
+        res.send(formatCodexCsv(leads));
+      } else if (format === 'csv') {
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="leads-genx.csv"');
+        res.send(formatLeadsCsv(leads));
+      } else if (format === 'json') {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="leads-genx.json"');
+        res.send(formatLeadsJson(leads));
       } else {
-        res.send(formatLeadsTxt(leads));
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${format === 'emails' ? 'leads-genx-emails.txt' : 'leads-genx-leads.txt'}"`
+        );
+        if (format === 'emails') {
+          res.send(formatEmailsTxt(leads));
+        } else {
+          res.send(formatLeadsTxt(leads));
+        }
       }
     })
   );
@@ -248,6 +274,99 @@ export function createApiRouter({ prisma, runService }: ApiDeps = {}) {
   router.post('/settings', (_req, res) => {
     res.status(204).send();
   });
+
+  router.get(
+    '/runs/:id/events/stream',
+    asyncHandler(async (req, res) => {
+      const runId = Number(req.params.id);
+      const bus = runService?.eventBus;
+      if (!bus) {
+        res.status(503).json({ error: 'SSE unavailable' });
+        return;
+      }
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders?.();
+
+      res.write(`data: ${JSON.stringify({ type: 'connected', message: `Listening for run ${runId} events.`, runId })}\n\n`);
+
+      let alive = true;
+      const heartbeat = setInterval(() => {
+        if (alive) res.write(': heartbeat\n\n');
+      }, 15_000);
+
+      const onEvent = (event: RunSseEvent) => {
+        if (!alive) return;
+        try {
+          res.write(`data: ${JSON.stringify(event)}\n\n`);
+          if (['run_completed', 'run_failed'].includes(event.type)) {
+            alive = false;
+            clearInterval(heartbeat);
+            res.end();
+          }
+        } catch {
+          alive = false;
+          clearInterval(heartbeat);
+        }
+      };
+
+      bus.on(`run:${runId}`, onEvent);
+
+      req.on('close', () => {
+        alive = false;
+        clearInterval(heartbeat);
+        bus.removeListener(`run:${runId}`, onEvent);
+      });
+    })
+  );
+
+  router.post(
+    '/codex/run',
+    asyncHandler(async (req, res) => {
+      if (!runService?.runCodexParallel) {
+        res.status(503).json({ error: 'Codex parallel service unavailable' });
+        return;
+      }
+
+      const {
+        tokens,
+        searchStrings,
+        maxCrawledPlaces = 200,
+        regionGroup = 'US',
+        target = 100000,
+        actorId,
+      } = req.body as Record<string, unknown>;
+
+      if (!Array.isArray(tokens) || tokens.length === 0) {
+        res.status(400).json({ error: 'At least one token is required.' });
+        return;
+      }
+      if (!Array.isArray(searchStrings) || searchStrings.length === 0) {
+        res.status(400).json({ error: 'At least one search string is required.' });
+        return;
+      }
+
+      const result = await runService.runCodexParallel(
+        tokens,
+        searchStrings,
+        Number(maxCrawledPlaces),
+        String(regionGroup),
+        Number(target),
+        actorId ? String(actorId) : undefined
+      );
+
+      res.status(202).json({
+        data: {
+          leadCount: result.leadCount,
+          completedDatasets: result.completedDatasets,
+          target,
+        },
+      });
+    })
+  );
 
   router.use(async (error: unknown, req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof ValidationError) {

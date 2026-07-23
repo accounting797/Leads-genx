@@ -1,6 +1,8 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { RunRecord, RunStore } from './runService';
-import { NormalizedLead, ProviderStateWrite } from './types';
+import { ApifyRunCheckpoint, NormalizedLead, ProviderStateWrite } from './types';
 import { redactSecrets } from './redact';
 
 const LEAD_INSERT_BATCH_SIZE = 1000;
@@ -371,5 +373,40 @@ export class PrismaRunStore implements LocalFirstRunStore {
   async getRun(runId: number): Promise<RunRecord | undefined> {
     const run = await this.prisma.run.findUnique({ where: { id: runId } });
     return run ? toRunRecord(run) : undefined;
+  }
+}
+
+export interface ApifyCheckpointStore {
+  load(): Promise<ApifyRunCheckpoint>;
+  save(checkpoint: ApifyRunCheckpoint): Promise<void>;
+}
+
+export class FileApifyCheckpointStore implements ApifyCheckpointStore {
+  private readonly filePath: string;
+
+  constructor(dataDir: string, filename = 'apify_checkpoint.json') {
+    this.filePath = path.join(dataDir, filename);
+  }
+
+  async load(): Promise<ApifyRunCheckpoint> {
+    if (!fs.existsSync(this.filePath)) {
+      return {
+        target: 100_000,
+        runs: [],
+        completedDatasets: [],
+        queuedIndex: 0,
+        uniqueCount: 0,
+      };
+    }
+    const raw = fs.readFileSync(this.filePath, 'utf-8');
+    return JSON.parse(raw) as ApifyRunCheckpoint;
+  }
+
+  async save(checkpoint: ApifyRunCheckpoint): Promise<void> {
+    const dir = path.dirname(this.filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(this.filePath, JSON.stringify(checkpoint, null, 2), 'utf-8');
   }
 }

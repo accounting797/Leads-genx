@@ -206,6 +206,12 @@
           <span id="progressDuplicates">Duplicates 0</span>
           <span id="progressApi">API 0/50</span>
         </div>
+        <div class="progress-metrics codex-metrics" id="codexMetrics" style="display:none;">
+          <span id="progressCodexRuns">Codex 0/0</span>
+          <span id="progressCodexTokens">Tokens 0</span>
+          <span id="progressCodexVerified">MX Verified 0</span>
+          <span class="sse-badge" id="sseBadge">SSE Offline</span>
+        </div>
         <div class="mini-log" id="miniLog"></div>
       </aside>
 
@@ -232,7 +238,9 @@
             </div>
             <div class="inline-actions">
               <select id="leadRunFilter"><option value="">All runs</option></select>
-              <button id="downloadEmails" type="button" class="ghost-btn">Download Emails TXT</button>
+              <button id="downloadCsv" type="button" class="ghost-btn primary">Export CSV</button>
+              <button id="downloadJson" type="button" class="ghost-btn">Export JSON</button>
+              <button id="downloadEmails" type="button" class="ghost-btn">Emails TXT</button>
             </div>
           </div>
           <div id="leadsTable"></div>
