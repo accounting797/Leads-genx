@@ -45,6 +45,18 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}),
       }),
+    testApifyCredential: (body) =>
+      requestJson('/settings/test/apify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }),
+    testGoogleCredentials: (body) =>
+      requestJson('/settings/test/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }),
     downloadLeads: (runId, format) => {
       const params = new URLSearchParams();
       if (runId) params.set('runId', runId);

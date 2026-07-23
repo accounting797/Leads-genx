@@ -140,6 +140,65 @@
     }
   }
 
+  async function testApifyCredential() {
+    $('testApifyBtn').disabled = true;
+    $('apifyTestStatus').textContent = 'Testing...';
+    try {
+      const pasted = $('setApifyToken').value.trim();
+      const result = await api.testApifyCredential(pasted ? { apifyToken: pasted } : {});
+      $('apifyTestStatus').textContent = (result.ok ? '✓ ' : '✗ ') + result.detail + ' · ' + result.latencyMs + 'ms';
+      $('apifyTestStatus').className = result.ok ? 'settings-hint test-ok' : 'settings-hint test-fail';
+    } catch (error) {
+      $('apifyTestStatus').textContent = error.message;
+      $('apifyTestStatus').className = 'settings-hint test-fail';
+    } finally {
+      $('testApifyBtn').disabled = false;
+    }
+  }
+
+  async function testGoogleCredentials() {
+    $('testGoogleBtn').disabled = true;
+    $('googleTestSummary').textContent = 'Testing...';
+    $('googleTestResults').innerHTML = '';
+    try {
+      const pasted = $('setGoogleKeys').value.trim();
+      const result = await api.testGoogleCredentials(pasted ? { googleApiKeys: pasted } : {});
+      $('googleTestSummary').textContent = result.okCount + '/' + result.totalCount + ' live';
+      $('googleTestResults').innerHTML = result.results
+        .map((item) => {
+          const detail = item.ok ? 'LIVE · ' + item.latencyMs + 'ms' : escapeHtml(item.detail);
+          return (
+            '<div class="proxy-row ' + (item.ok ? 'ok' : 'fail') + '"><span>' +
+            escapeHtml(item.keyHint || 'key') +
+            '</span><span class="proxy-result">' +
+            detail +
+            '</span></div>'
+          );
+        })
+        .join('');
+    } catch (error) {
+      $('googleTestSummary').textContent = error.message;
+    } finally {
+      $('testGoogleBtn').disabled = false;
+    }
+  }
+
+  let settingsSummary = '';
+  async function refreshRunConfig() {
+    try {
+      const settings = await api.getSettings();
+      const parts = [
+        settings.hasSavedGoogleApiKeys ? 'Google: ' + settings.googleApiKeyCount + ' saved key(s)' : 'Google: no saved key',
+        settings.hasSavedApifyToken ? 'Apify: saved' : 'Apify: none',
+        settings.proxyCount ? 'Proxies: ' + settings.proxyCount + ' saved' : 'Proxies: none',
+      ];
+      settingsSummary = parts.join(' · ');
+    } catch {
+      settingsSummary = '';
+    }
+    $('runConfig').textContent = settingsSummary || 'Idle — manage keys and proxies in Settings.';
+  }
+
   async function testSavedProxies() {
     $('testProxiesBtn').disabled = true;
     $('proxyTestSummary').textContent = 'Testing...';
@@ -385,6 +444,9 @@
     setOrbit('orbitApify', run.actorId === 'hybrid'
       ? (types.includes('apify_shard_started') && engaged ? 'live' : 'standby')
       : 'standby');
+    $('runConfig').textContent =
+      (settingsSummary || 'Manage keys and proxies in Settings.') +
+      (run.routeMode ? ' · Route: ' + run.routeMode : '');
   }
 
   function resetRadar() {
@@ -410,6 +472,7 @@
     $('progressSubhead').textContent = 'Tracking run #' + runId;
     $('progressFill').style.width = '12%';
     resetRadar();
+    void refreshRunConfig();
     if (progressTimer) clearInterval(progressTimer);
     progressTimer = setInterval(checkProgress, 3000);
     void checkProgress();
@@ -563,6 +626,8 @@
     $('clearGoogleBtn').addEventListener('click', () => saveSettings({ googleApiKeys: '' }));
     $('clearProxiesBtn').addEventListener('click', () => saveSettings({ proxyUrls: '' }));
     $('testProxiesBtn').addEventListener('click', testSavedProxies);
+    $('testApifyBtn').addEventListener('click', testApifyCredential);
+    $('testGoogleBtn').addEventListener('click', testGoogleCredentials);
     $('runsTable').addEventListener('click', (event) => {
       const target = event.target;
       const viewRunId = target.dataset ? target.dataset.viewRun : undefined;

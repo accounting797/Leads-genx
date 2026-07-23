@@ -13,6 +13,11 @@ import {
   SECRET_MASK,
 } from '../domain/operatorSettings';
 import { testProxies, ProxyTestResult } from '../integrations/proxyTester';
+import {
+  testApifyToken,
+  testGoogleApiKey,
+  CredentialTestResult,
+} from '../integrations/credentialTester';
 import { asyncHandler } from '../utils/asyncHandler';
 
 export interface ApiRunService {
@@ -30,11 +35,17 @@ export interface ApiRunService {
   recoverInterruptedRuns?(): Promise<void>;
 }
 
+export interface CredentialTester {
+  testApifyToken(token: string): Promise<CredentialTestResult>;
+  testGoogleApiKey(apiKey: string): Promise<CredentialTestResult>;
+}
+
 export interface ApiDeps {
   prisma?: PrismaClient;
   runService?: ApiRunService;
   recoverOnStartup?: boolean;
   proxyTester?: (urls: string[]) => Promise<ProxyTestResult[]>;
+  credentialTester?: CredentialTester;
 }
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
@@ -65,7 +76,7 @@ function proxyListError(proxies: string[]): string | undefined {
   return undefined;
 }
 
-export function createApiRouter({ prisma, runService, proxyTester }: ApiDeps = {}) {
+export function createApiRouter({ prisma, runService, proxyTester, credentialTester }: ApiDeps = {}) {
   const router = Router();
 
   router.get('/health', (_req, res) => {
@@ -312,6 +323,45 @@ export function createApiRouter({ prisma, runService, proxyTester }: ApiDeps = {
       }
       const tester = proxyTester ?? ((urls: string[]) => testProxies(urls));
       const results = await tester(targets);
+      res.json({
+        data: {
+          results,
+          okCount: results.filter((result) => result.ok).length,
+          totalCount: results.length,
+        },
+      });
+    })
+  );
+
+  router.post(
+    '/settings/test/apify',
+    asyncHandler(async (req, res) => {
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      const provided = typeof body.apifyToken === 'string' ? body.apifyToken.trim() : '';
+      const token = provided || (await loadOperatorSettings(prisma)).apifyToken;
+      if (!token) {
+        res.status(400).json({ error: 'No Apify token to test. Save or paste one first.' });
+        return;
+      }
+      const tester = credentialTester ?? { testApifyToken, testGoogleApiKey };
+      const result = await tester.testApifyToken(token);
+      res.json({ data: result });
+    })
+  );
+
+  router.post(
+    '/settings/test/google',
+    asyncHandler(async (req, res) => {
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      const provided = asListInput(body.googleApiKeys);
+      const keys = provided?.length ? provided : (await loadOperatorSettings(prisma)).googleApiKeys;
+      if (!keys.length) {
+        res.status(400).json({ error: 'No Google API keys to test. Save or paste one first.' });
+        return;
+      }
+      const tester = credentialTester ?? { testApifyToken, testGoogleApiKey };
+      const results: CredentialTestResult[] = [];
+      for (const key of keys) results.push(await tester.testGoogleApiKey(key));
       res.json({
         data: {
           results,

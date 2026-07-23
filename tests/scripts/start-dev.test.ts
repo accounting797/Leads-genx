@@ -67,7 +67,7 @@ it('starts the compiled server in the background and returns immediately', async
   const [exitCode] = await once(child, 'exit');
   expect(exitCode).toBe(0);
   expect(stderr).toBe('');
-  expect(stdout).toContain('Leads-GenX background server started');
+  expect(stdout).toContain('Leads-GenX is LIVE');
   expect(stdout).toContain(String(testPort));
 
   const pidMatch = stdout.match(/pid\s+(\d+)/i);

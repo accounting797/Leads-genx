@@ -218,6 +218,7 @@
               <span id="radarMode">Standard — Docker + Google</span>
               <span id="radarHeartbeat" class="heartbeat">Standby</span>
             </div>
+            <div class="run-config" id="runConfig">Idle — manage keys and proxies in Settings.</div>
           </div>
           <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
           <div class="progress-meta">
@@ -299,15 +300,20 @@
                 <textarea id="setApifyToken" rows="2" autocomplete="off" spellcheck="false" placeholder="Leave blank to keep the saved token"></textarea>
               </label>
               <div class="inline-actions">
+                <button id="testApifyBtn" type="button" class="ghost-btn">Test Token</button>
                 <button id="clearApifyBtn" type="button" class="ghost-btn">Clear Token</button>
+                <span id="apifyTestStatus" class="settings-hint"></span>
               </div>
               <label>
                 <span>Google API Keys <small id="setGoogleStatus" class="settings-hint"></small></span>
                 <textarea id="setGoogleKeys" rows="3" autocomplete="off" spellcheck="false" placeholder="One per line — blank keeps saved keys"></textarea>
               </label>
               <div class="inline-actions">
+                <button id="testGoogleBtn" type="button" class="ghost-btn">Test Keys</button>
                 <button id="clearGoogleBtn" type="button" class="ghost-btn">Clear Keys</button>
+                <span id="googleTestSummary" class="settings-hint"></span>
               </div>
+              <div id="googleTestResults" class="proxy-list"></div>
             </section>
             <section class="settings-card">
               <h3>Proxy Pool <small id="setProxyStatus" class="settings-hint"></small></h3>

@@ -254,6 +254,63 @@ describe('API', () => {
     expect(JSON.stringify(res.body)).not.toContain('supersecret');
   });
 
+  it('live-tests saved credentials without exposing secrets', async () => {
+    const rows = new Map<string, string>([
+      ['apifyToken', 'saved-apify-secret'],
+      ['googleApiKeys', JSON.stringify(['AIzaSavedKey4321'])],
+    ]);
+    const prismaStub = {
+      appSetting: {
+        async findMany() {
+          return Array.from(rows.entries()).map(([key, value]) => ({ key, value }));
+        },
+        async upsert() {},
+        async deleteMany() {},
+      },
+    };
+    const seen: string[] = [];
+    const app = createApp({
+      prisma: prismaStub as never,
+      credentialTester: {
+        async testApifyToken(token: string) {
+          seen.push(`apify:${token}`);
+          return { ok: true, detail: 'Apify token is live (operator)', latencyMs: 31 };
+        },
+        async testGoogleApiKey(apiKey: string) {
+          seen.push(`google:${apiKey}`);
+          return { ok: true, detail: 'Google key is live', latencyMs: 55, keyHint: '••••4321' };
+        },
+      },
+    } as never);
+
+    const apifyRes = await request(app).post('/api/settings/test/apify').send({}).expect(200);
+    expect(seen).toContain('apify:saved-apify-secret');
+    expect(apifyRes.body.data).toMatchObject({ ok: true });
+    expect(JSON.stringify(apifyRes.body)).not.toContain('saved-apify-secret');
+
+    const googleRes = await request(app).post('/api/settings/test/google').send({}).expect(200);
+    expect(seen).toContain('google:AIzaSavedKey4321');
+    expect(googleRes.body.data).toEqual({
+      results: [{ ok: true, detail: 'Google key is live', latencyMs: 55, keyHint: '••••4321' }],
+      okCount: 1,
+      totalCount: 1,
+    });
+    expect(JSON.stringify(googleRes.body)).not.toContain('AIzaSavedKey4321');
+  });
+
+  it('returns a clear error when no credentials are saved or pasted', async () => {
+    const app = createApp({ prisma: {
+      appSetting: {
+        async findMany() { return []; },
+        async upsert() {},
+        async deleteMany() {},
+      },
+    } as never });
+
+    const res = await request(app).post('/api/settings/test/apify').send({}).expect(400);
+    expect(res.body.error).toContain('No Apify token');
+  });
+
   it('returns safe batch progress with a run detail', async () => {
     let received: unknown;
     const app = createApp({

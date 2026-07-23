@@ -13,6 +13,16 @@ const server = app.listen(port, () => {
   console.log(`Leads-GenX running on http://localhost:${port}`);
 });
 
+server.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is already in use — an older server is still running.`);
+    console.error('Stop it with: taskkill /F /IM node.exe');
+  } else {
+    console.error(`Server failed to start: ${error.message}`);
+  }
+  process.exit(1);
+});
+
 async function shutdown() {
   server.close();
   await prisma.$disconnect();

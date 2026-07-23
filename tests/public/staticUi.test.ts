@@ -190,6 +190,28 @@ describe('static dashboard settings page', () => {
     expect(html).toContain('id="gmUseSavedProxies"');
     expect(appJs).toContain("routeMode: $('gmUseSavedProxies').checked ? 'proxy' : undefined");
   });
+
+  it('live-tests Apify and Google credentials from the Settings page', () => {
+    const html = readPublicFile('index.html');
+    const apiJs = readPublicFile('api.js');
+    const appJs = readPublicFile('app.js');
+
+    expect(html).toContain('id="testApifyBtn"');
+    expect(html).toContain('id="testGoogleBtn"');
+    expect(apiJs).toContain("'/settings/test/apify'");
+    expect(apiJs).toContain("'/settings/test/google'");
+    expect(appJs).toContain('testApifyCredential');
+    expect(appJs).toContain('testGoogleCredentials');
+  });
+
+  it('shows the active run configuration beside the live progress radar', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+
+    expect(html).toContain('id="runConfig"');
+    expect(appJs).toContain('refreshRunConfig');
+    expect(appJs).toContain("' · Route: ' + run.routeMode");
+  });
 });
 
 describe('static dashboard chip inputs', () => {

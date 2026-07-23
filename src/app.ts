@@ -35,7 +35,15 @@ export function createApp(deps: ApiDeps = {}) {
   }
 
   app.use(express.json({ limit: '1mb' }));
-  app.use('/api', createApiRouter({ prisma: runtimePrisma, runService, proxyTester: deps.proxyTester }));
+  app.use(
+    '/api',
+    createApiRouter({
+      prisma: runtimePrisma,
+      runService,
+      proxyTester: deps.proxyTester,
+      credentialTester: deps.credentialTester,
+    })
+  );
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
   return app;
