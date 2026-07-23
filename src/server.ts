@@ -1,7 +1,12 @@
 import { createApp } from './app';
 import { prisma } from './db/client';
+import { backupSqliteDatabase } from './db/backup';
 
 const port = Number(process.env.PORT || 4177);
+
+const backupPath = backupSqliteDatabase(process.env.DATABASE_URL);
+if (backupPath) console.log(`Database backup saved to ${backupPath}`);
+
 const app = createApp({ recoverOnStartup: true });
 
 const server = app.listen(port, () => {

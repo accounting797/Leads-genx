@@ -8,3 +8,4 @@ logs/
 coverage/
 .superpowers/
 .worktrees/
+backups/
