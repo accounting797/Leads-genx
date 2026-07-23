@@ -214,20 +214,29 @@
 
   let activeSseSource = null;
 
+  function flashElement(id) {
+    const el = $(id);
+    if (!el) return;
+    el.classList.remove('count-flash', 'pop');
+    void el.offsetWidth;
+    el.classList.add('count-flash', 'pop');
+    setTimeout(() => el.classList.remove('pop'), 300);
+  }
+
   function connectSse(runId) {
     if (activeSseSource) {
       activeSseSource.close();
       activeSseSource = null;
     }
-    $('sseBadge').textContent = 'SSE Connecting…';
-    $('sseBadge').classList.remove('live');
+    $('sseBadge').textContent = 'Connecting…';
+    $('sseBadge').className = 'sse-badge connecting';
     $('codexMetrics').style.display = '';
     try {
       const source = new EventSource('/api/runs/' + runId + '/events/stream');
       activeSseSource = source;
       source.onopen = function () {
         $('sseBadge').textContent = 'SSE Live';
-        $('sseBadge').classList.add('live');
+        $('sseBadge').className = 'sse-badge live';
       };
       source.onmessage = function (event) {
         try {
@@ -237,13 +246,13 @@
       };
       source.onerror = function () {
         $('sseBadge').textContent = 'SSE Offline';
-        $('sseBadge').classList.remove('live');
+        $('sseBadge').className = 'sse-badge offline';
         source.close();
         activeSseSource = null;
       };
     } catch {
       $('sseBadge').textContent = 'SSE Offline';
-      $('sseBadge').classList.remove('live');
+      $('sseBadge').className = 'sse-badge offline';
     }
   }
 
@@ -252,26 +261,27 @@
     const message = data.message || '';
     $('codexMetrics').style.display = '';
     $('sseBadge').textContent = 'SSE Live';
-    $('sseBadge').classList.add('live');
+    $('sseBadge').className = 'sse-badge live';
 
     if (data.type === 'progress') {
       $('progressLabel').textContent = message;
       $('progressLatest').textContent = message;
-      if (data.leadCount != null) $('metricLeads').textContent = data.leadCount;
-      if (data.completedDatasets != null) $('progressCodexRuns').textContent = 'Codex ' + data.completedDatasets;
+      if (data.leadCount != null) { $('metricLeads').textContent = data.leadCount; flashElement('metricLeads'); }
+      if (data.completedDatasets != null) { $('progressCodexRuns').textContent = 'Codex ' + data.completedDatasets; flashElement('progressCodexRuns'); }
       if (data.target != null) $('progressCodexRuns').textContent = $('progressCodexRuns').textContent + '/' + data.target;
     } else if (data.type === 'run_started') {
       $('progressLabel').textContent = 'Running';
       $('progressFill').style.width = '12%';
       $('progressLatest').textContent = message;
-      if (data.tokenCount) $('progressCodexTokens').textContent = 'Tokens ' + data.tokenCount;
+      if (data.tokenCount) { $('progressCodexTokens').textContent = 'Tokens ' + data.tokenCount; flashElement('progressCodexTokens'); }
     } else if (data.type === 'run_completed') {
       $('progressLabel').textContent = 'Completed';
       $('progressFill').style.width = '100%';
       $('progressLatest').textContent = message;
-      if (data.leadCount != null) $('metricLeads').textContent = data.leadCount;
-      if (data.verifiedCount != null) $('progressCodexVerified').textContent = 'MX Verified ' + data.verifiedCount;
+      if (data.leadCount != null) { $('metricLeads').textContent = data.leadCount; flashElement('metricLeads'); }
+      if (data.verifiedCount != null) { $('progressCodexVerified').textContent = 'MX Verified ' + data.verifiedCount; flashElement('progressCodexVerified'); }
       $('sseBadge').textContent = 'SSE Done';
+      $('sseBadge').className = 'sse-badge done';
       void loadRuns(String(runId));
       void loadLeads();
     } else if (data.type === 'run_failed') {
@@ -279,6 +289,7 @@
       $('progressFill').style.width = '100%';
       $('progressLatest').textContent = message;
       $('sseBadge').textContent = 'SSE Offline';
+      $('sseBadge').className = 'sse-badge offline';
       void loadRuns(String(runId));
       void loadLogs();
     } else {
