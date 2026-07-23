@@ -49,6 +49,29 @@ type AppSettingDelegate = {
 
 type SettingsPrisma = Pick<PrismaClient, 'appSetting'> | { appSetting: AppSettingDelegate };
 
+/**
+ * Accepts the common vendor formats and normalizes them to full URLs:
+ *   host:port                 -> http://host:port
+ *   host:port:user:pass       -> http://user:pass@host:port
+ *   user:pass@host:port       -> http://user:pass@host:port
+ * Lines that already include a scheme (http://, https://, socks5://, socks5h://)
+ * are returned unchanged.
+ */
+export function normalizeProxyLine(line: string): string {
+  const raw = line.trim();
+  if (!raw || raw.includes('://') || raw.includes(SECRET_MASK)) return raw;
+
+  if (raw.includes('@')) return `http://${raw}`;
+
+  const parts = raw.split(':');
+  if (parts.length >= 4) {
+    const [host, port, user, ...rest] = parts;
+    return `http://${user}:${rest.join(':')}@${host}:${port}`;
+  }
+  if (parts.length === 2 || parts.length === 3) return `http://${raw}`;
+  return raw;
+}
+
 export function maskProxyUrl(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);

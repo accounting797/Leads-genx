@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   loadOperatorSettings,
   maskProxyUrl,
+  normalizeProxyLine,
   saveOperatorSettings,
   toSafeOperatorSettings,
   withSavedCredentials,
@@ -22,6 +23,24 @@ function fakeSettingsStore(seed: Record<string, string> = {}) {
   };
   return { appSetting, rows };
 }
+
+describe('normalizeProxyLine', () => {
+  it('converts common vendor formats to full URLs', () => {
+    expect(normalizeProxyLine('45.95.32.10:8080')).toBe('http://45.95.32.10:8080');
+    expect(normalizeProxyLine('45.95.32.10:8080:user123:pass456')).toBe(
+      'http://user123:pass456@45.95.32.10:8080'
+    );
+    expect(normalizeProxyLine('user123:pass456@45.95.32.10:8080')).toBe(
+      'http://user123:pass456@45.95.32.10:8080'
+    );
+  });
+
+  it('leaves full URLs and masked entries untouched', () => {
+    expect(normalizeProxyLine('socks5h://u:p@127.0.0.1:60001')).toBe('socks5h://u:p@127.0.0.1:60001');
+    expect(normalizeProxyLine('http://u:••••••@127.0.0.1:60001')).toBe('http://u:••••••@127.0.0.1:60001');
+    expect(normalizeProxyLine('')).toBe('');
+  });
+});
 
 describe('maskProxyUrl', () => {
   it('masks credentials but keeps scheme, host, and port visible', () => {

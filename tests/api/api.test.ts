@@ -203,6 +203,33 @@ describe('API', () => {
     expect(getRes.body.data.proxies).toEqual(['socks5h://operator:••••••@127.0.0.1:60001']);
   });
 
+  it('normalizes vendor proxy formats on save', async () => {
+    const rows = new Map<string, string>();
+    const prismaStub = {
+      appSetting: {
+        async findMany() {
+          return Array.from(rows.entries()).map(([key, value]) => ({ key, value }));
+        },
+        async upsert(args: { where: { key: string }; create: { value: string } }) {
+          rows.set(args.where.key, args.create.value);
+        },
+        async deleteMany() {},
+      },
+    };
+    const app = createApp({ prisma: prismaStub as never });
+
+    const res = await request(app)
+      .post('/api/settings')
+      .send({ proxyUrls: '45.95.32.10:8080:user123:pass456\n192.168.1.5:60001' })
+      .expect(200);
+
+    expect(res.body.data.proxies).toEqual([
+      'http://user123:••••••@45.95.32.10:8080',
+      'http://192.168.1.5:60001',
+    ]);
+    expect(JSON.stringify(res.body)).not.toContain('pass456');
+  });
+
   it('rejects invalid proxy entries with a field error', async () => {
     const prismaStub = {
       appSetting: {

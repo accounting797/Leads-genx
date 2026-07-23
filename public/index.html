@@ -319,9 +319,9 @@
               <h3>Proxy Pool <small id="setProxyStatus" class="settings-hint"></small></h3>
               <label>
                 <span>Proxy URLs (one per line)</span>
-                <textarea id="setProxyUrls" rows="4" autocomplete="off" spellcheck="false" placeholder="socks5h://user:password@127.0.0.1:60001"></textarea>
+                <textarea id="setProxyUrls" rows="4" autocomplete="off" spellcheck="false" placeholder="http://user:password@host:port — or paste host:port / host:port:user:pass"></textarea>
               </label>
-              <p class="settings-hint">Passwords are masked after saving. Saving a masked entry unchanged keeps the stored proxy.</p>
+              <p class="settings-hint">Any format works: http://user:pass@host:port, host:port, or host:port:user:pass (converted automatically). Prefix SOCKS proxies with socks5h:// — passwords are masked after saving.</p>
               <div id="savedProxyList" class="proxy-list"></div>
               <div class="inline-actions">
                 <button id="testProxiesBtn" type="button" class="ghost-btn">Test Proxies</button>

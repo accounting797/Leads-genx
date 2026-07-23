@@ -10,6 +10,7 @@ import {
   loadOperatorSettings,
   saveOperatorSettings,
   toSafeOperatorSettings,
+  normalizeProxyLine,
   SECRET_MASK,
 } from '../domain/operatorSettings';
 import { testProxies, ProxyTestResult } from '../integrations/proxyTester';
@@ -282,7 +283,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
         return;
       }
       const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-      const proxyUrls = asListInput(body.proxyUrls);
+      const proxyUrls = asListInput(body.proxyUrls)?.map(normalizeProxyLine);
       if (proxyUrls) {
         const error = proxyListError(proxyUrls);
         if (error) {
