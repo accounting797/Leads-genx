@@ -6,6 +6,11 @@
   let activeRunId = null;
   let progressTimer = null;
   let progressStartedAt = null;
+  let lastEventKey = null;
+  let lastEventChangeAt = null;
+  let knownBusinessCount = 0;
+
+  const RING_CIRCUMFERENCE = 326.7;
 
   function $(id) {
     return document.getElementById(id);
@@ -212,6 +217,110 @@
     }
   }
 
+  function formatDuration(seconds) {
+    if (seconds < 60) return Math.max(1, Math.round(seconds)) + 's';
+    const minutes = seconds / 60;
+    if (minutes < 60) return Math.round(minutes) + ' min';
+    return Math.round((minutes / 60) * 10) / 10 + ' h';
+  }
+
+  function estimateEtaRange(done, target, elapsed) {
+    if (!done || !elapsed || done >= target) return null;
+    const remaining = (target - done) / (done / elapsed);
+    return { low: remaining * 0.75, high: remaining * 1.4 };
+  }
+
+  function setOrbit(id, state) {
+    const element = $(id);
+    element.classList.remove('live', 'standby');
+    if (state) element.classList.add(state);
+  }
+
+  function spawnBlips(newCount) {
+    const layer = $('radarBlips');
+    for (let index = 0; index < Math.min(newCount, 4); index += 1) {
+      const seed = knownBusinessCount + index;
+      const angle = ((seed * 137.5) % 360) * (Math.PI / 180);
+      const radius = 22 + ((seed * 53) % 55);
+      const blip = document.createElement('span');
+      blip.className = 'radar-blip';
+      blip.style.left = 'calc(50% + ' + Math.round(Math.cos(angle) * radius) + 'px - 3.5px)';
+      blip.style.top = 'calc(50% + ' + Math.round(Math.sin(angle) * radius) + 'px - 3.5px)';
+      blip.addEventListener('animationend', () => blip.remove());
+      layer.appendChild(blip);
+    }
+    while (layer.children.length > 24) layer.firstChild.remove();
+  }
+
+  function updateRadar(run, events, fraction, elapsed) {
+    const shell = $('radarShell');
+    const newestEventAt = events.length ? new Date(events[events.length - 1].createdAt).getTime() : 0;
+    if (newestEventAt && newestEventAt !== lastEventKey) {
+      lastEventKey = newestEventAt;
+      lastEventChangeAt = Date.now();
+    }
+    const heartbeatAge = lastEventChangeAt ? Date.now() - lastEventChangeAt : null;
+
+    let state = 'idle';
+    if (run.status === 'completed') state = 'completed';
+    else if (run.status === 'failed') state = 'failed';
+    else if (['waiting_for_scraper', 'waiting_for_credentials', 'paused', 'cancelled', 'partially_completed'].includes(run.status)) state = 'waiting';
+    else if (['queued', 'running', 'cooling_down'].includes(run.status)) {
+      state = heartbeatAge !== null && heartbeatAge > 15000 ? 'stale' : 'active';
+    }
+    shell.dataset.state = state;
+
+    const heartbeatText = {
+      idle: 'Standby',
+      active: 'Live heartbeat',
+      stale: 'Stale heartbeat — no events for ' + Math.round((heartbeatAge || 0) / 1000) + 's',
+      waiting: 'Motion paused — run is not actively working',
+      failed: 'Heartbeat stopped',
+      completed: 'Session complete',
+    };
+    $('radarHeartbeat').textContent = heartbeatText[state];
+
+    const businesses = run.businessCount || 0;
+    if (businesses > knownBusinessCount) spawnBlips(businesses - knownBusinessCount);
+    knownBusinessCount = Math.max(knownBusinessCount, businesses);
+
+    const clamped = Math.min(1, Math.max(0, fraction));
+    $('radarRingFill').style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - clamped));
+    $('radarPercent').textContent = Math.round(clamped * 100) + '%';
+
+    const eta = state === 'active' ? estimateEtaRange(businesses, Math.max(1, run.maxResults || 1), elapsed) : null;
+    $('radarEta').textContent = eta
+      ? 'ETA ' + formatDuration(eta.low) + '–' + formatDuration(eta.high) + ' · est.'
+      : 'ETA —';
+
+    $('radarMode').textContent = run.actorId === 'hybrid'
+      ? 'Hybrid Max Output — Docker + Google + Apify'
+      : 'Standard — Docker + Google';
+
+    const types = events.map((event) => event.type);
+    const engaged = state === 'active' || state === 'completed' || state === 'stale';
+    setOrbit('orbitDocker', types.includes('local_batch_started') && engaged ? 'live' : null);
+    setOrbit('orbitGoogle', types.includes('google_places_started') && engaged ? 'live' : null);
+    setOrbit('orbitApify', run.actorId === 'hybrid'
+      ? (types.includes('apify_shard_started') && engaged ? 'live' : 'standby')
+      : 'standby');
+  }
+
+  function resetRadar() {
+    lastEventKey = null;
+    lastEventChangeAt = Date.now();
+    knownBusinessCount = 0;
+    $('radarBlips').innerHTML = '';
+    $('radarShell').dataset.state = 'active';
+    $('radarHeartbeat').textContent = 'Live heartbeat';
+    $('radarRingFill').style.strokeDashoffset = String(RING_CIRCUMFERENCE);
+    $('radarPercent').textContent = '0%';
+    $('radarEta').textContent = 'ETA —';
+    setOrbit('orbitDocker', null);
+    setOrbit('orbitGoogle', null);
+    setOrbit('orbitApify', null);
+  }
+
   function startProgress(runId) {
     activeRunId = runId;
     progressStartedAt = Date.now();
@@ -219,6 +328,7 @@
     $('progressLabel').textContent = 'Queued';
     $('progressSubhead').textContent = 'Tracking run #' + runId;
     $('progressFill').style.width = '12%';
+    resetRadar();
     if (progressTimer) clearInterval(progressTimer);
     progressTimer = setInterval(checkProgress, 3000);
     void checkProgress();
@@ -227,6 +337,10 @@
   function progressStage(events, status) {
     const types = events.map((event) => event.type);
     if (status === 'completed') return 'Completed';
+    if (status === 'partially_completed') return 'Partially completed — preserved output is available below';
+    if (status === 'cancelled') return 'Cancelled — preserved output is available below';
+    if (status === 'paused') return 'Paused — resume to continue discovery';
+    if (status === 'cooling_down') return 'Cooling down before the next provider burst';
     if (status === 'failed') return 'Failed — review the error below';
     if (status === 'waiting_for_scraper') return 'Docker unavailable — Google progress is preserved';
     if (status === 'waiting_for_credentials') return 'Google credentials required — Docker progress is preserved';
@@ -256,6 +370,9 @@
       const target = Math.max(1, run.maxResults || run.googleMapsMaxPlaces || 1);
       const resultCount = Math.max(run.businessCount || 0, run.leadCount || 0);
       const elapsed = Math.floor((Date.now() - progressStartedAt) / 1000);
+      const batchProgress = batches.length ? completedBatches / batches.length : 0;
+      const resultProgress = Math.min(1, resultCount / target);
+      const fraction = Math.max(batchProgress, resultProgress);
       $('progressElapsed').textContent = 'Elapsed ' + elapsed + 's';
       $('progressLabel').textContent = progressStage(events, run.status);
       $('progressSubhead').textContent = (run.businessCount || 0) + ' businesses · ' + (run.leadCount || 0) +
@@ -276,23 +393,30 @@
 
       if (run.status === 'completed') {
         $('progressFill').style.width = '100%';
+        updateRadar(run, events, 1, elapsed);
         clearInterval(progressTimer);
         await loadRuns(String(run.id));
         await loadLeads();
       } else if (run.status === 'failed') {
         $('progressFill').style.width = '100%';
+        updateRadar(run, events, fraction, elapsed);
         clearInterval(progressTimer);
         await loadRuns(String(run.id));
         await loadLogs();
+      } else if (['partially_completed', 'cancelled', 'paused'].includes(run.status)) {
+        $('progressFill').style.width = Math.min(94, Math.max(12, Math.round(fraction * 100))) + '%';
+        updateRadar(run, events, fraction, elapsed);
+        clearInterval(progressTimer);
+        await refreshLiveProgressTables(run.id);
       } else if (['waiting_for_scraper', 'waiting_for_credentials'].includes(run.status)) {
         $('progressFill').style.width = Math.min(92, Math.max(12, Math.round((resultCount / target) * 100))) + '%';
+        updateRadar(run, events, fraction, elapsed);
         clearInterval(progressTimer);
         await refreshLiveProgressTables(run.id);
       } else {
-        const batchProgress = batches.length ? completedBatches / batches.length : 0;
-        const resultProgress = Math.min(1, resultCount / target);
-        const width = Math.min(94, Math.max(12, Math.round(Math.max(batchProgress, resultProgress) * 100)));
+        const width = Math.min(94, Math.max(12, Math.round(fraction * 100)));
         $('progressFill').style.width = width + '%';
+        updateRadar(run, events, fraction, elapsed);
         await refreshLiveProgressTables(run.id);
       }
     } catch (error) {
@@ -379,6 +503,9 @@
       if (progressTimer) clearInterval(progressTimer);
       $('progressLabel').textContent = 'Idle';
       $('progressSubhead').textContent = 'No active run.';
+      resetRadar();
+      $('radarShell').dataset.state = 'idle';
+      $('radarHeartbeat').textContent = 'Standby';
     }
     if ($('leadRunFilter').value === String(runId)) $('leadRunFilter').value = '';
     window.LeadsGenXUi.toast('Run #' + runId + ' deleted');

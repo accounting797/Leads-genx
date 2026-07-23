@@ -193,6 +193,28 @@
             <span id="progressLabel">Idle</span>
             <span id="progressRunId">-</span>
           </div>
+          <div class="radar-shell" id="radarShell" data-state="idle">
+            <div class="radar" id="radar">
+              <div class="radar-grid"></div>
+              <div class="radar-sweep" id="radarSweep"></div>
+              <div class="radar-blips" id="radarBlips"></div>
+              <svg class="radar-ring" viewBox="0 0 120 120" aria-hidden="true">
+                <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+                <circle class="ring-fill" id="radarRingFill" cx="60" cy="60" r="52"></circle>
+              </svg>
+              <div class="radar-center">
+                <strong id="radarPercent">0%</strong>
+                <span id="radarEta">ETA —</span>
+              </div>
+              <span class="orbit orbit-docker" id="orbitDocker" title="Docker">D</span>
+              <span class="orbit orbit-google" id="orbitGoogle" title="Google">G</span>
+              <span class="orbit orbit-apify" id="orbitApify" title="Apify">A</span>
+            </div>
+            <div class="radar-legend">
+              <span id="radarMode">Standard — Docker + Google</span>
+              <span id="radarHeartbeat" class="heartbeat">Standby</span>
+            </div>
+          </div>
           <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
           <div class="progress-meta">
             <span id="progressElapsed">Elapsed 0s</span>

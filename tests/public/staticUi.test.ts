@@ -84,6 +84,71 @@ describe('static dashboard live progress', () => {
   });
 });
 
+describe('static dashboard command radar', () => {
+  it('renders the radar with sweep, blips, completion ring, orbits, and heartbeat legend', () => {
+    const html = readPublicFile('index.html');
+
+    for (const id of [
+      'radarShell',
+      'radarSweep',
+      'radarBlips',
+      'radarRingFill',
+      'radarPercent',
+      'radarEta',
+      'orbitDocker',
+      'orbitGoogle',
+      'orbitApify',
+      'radarMode',
+      'radarHeartbeat',
+    ]) {
+      expect(html).toContain(`id="${id}"`);
+    }
+  });
+
+  it('animates the sweep only from real heartbeat state and pauses motion otherwise', () => {
+    const css = readPublicFile('styles.css');
+    const appJs = readPublicFile('app.js');
+
+    expect(css).toContain('@keyframes radar-sweep-rotate');
+    expect(css).toContain(".radar-shell[data-state='active'] .radar-sweep");
+    expect(css).toContain(".radar-shell[data-state='stale'] .radar-sweep");
+    expect(css).toContain(".radar-shell[data-state='waiting'] .radar-sweep");
+    expect(css).toContain('animation-play-state: paused');
+    expect(css).toContain('prefers-reduced-motion');
+    expect(appJs).toContain('shell.dataset.state = state');
+    expect(appJs).toContain("'stale'");
+    expect(appJs).toContain('Stale heartbeat');
+  });
+
+  it('marks newly persisted businesses as blips and labels ETA as a range estimate', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('spawnBlips(businesses - knownBusinessCount)');
+    expect(appJs).toContain('estimateEtaRange');
+    expect(appJs).toContain('· est.');
+  });
+
+  it('glows provider orbits from provider events and output mode', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain("setOrbit('orbitDocker'");
+    expect(appJs).toContain("setOrbit('orbitGoogle'");
+    expect(appJs).toContain("setOrbit('orbitApify'");
+    expect(appJs).toContain("run.actorId === 'hybrid'");
+    expect(appJs).toContain("types.includes('local_batch_started')");
+    expect(appJs).toContain("types.includes('google_places_started')");
+  });
+
+  it('stops polling on every terminal state with labeled stages', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain("['partially_completed', 'cancelled', 'paused'].includes(run.status)");
+    expect(appJs).toContain('Partially completed');
+    expect(appJs).toContain('Cancelled');
+    expect(appJs).toContain('cooling_down');
+  });
+});
+
 describe('static dashboard Google Maps providers', () => {
   it('offers Standard Docker plus Google and an explicit Hybrid Max Output mode', () => {
     const html = readPublicFile('index.html');
