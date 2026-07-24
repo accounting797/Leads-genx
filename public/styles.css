@@ -1407,3 +1407,238 @@ tr:last-child td { border-bottom: 0; }
     animation: none !important;
   }
 }
+
+/* ---------------- Auth gate ---------------- */
+
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(94, 234, 212, 0.07), transparent 60%),
+    var(--bg, #0c1116);
+  padding: 24px;
+}
+
+.auth-gate[hidden] {
+  display: none;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--panel, #12181f);
+  border: 1px solid var(--line, rgba(148, 163, 184, 0.14));
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+}
+
+.auth-brand {
+  margin-bottom: 24px;
+}
+
+.auth-form h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.auth-sub {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--muted, #8b98a5);
+  line-height: 1.5;
+}
+
+.auth-form label {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.auth-form label span {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #8b98a5);
+  margin-bottom: 6px;
+}
+
+.auth-form input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.auth-form .primary-btn {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.auth-error {
+  min-height: 18px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--red, #f87171);
+}
+
+.auth-loading {
+  margin: 0;
+  text-align: center;
+  color: var(--muted, #8b98a5);
+  font-size: 14px;
+}
+
+/* ---------------- User chip & plan badges ---------------- */
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 14px;
+  margin-left: 6px;
+  border-left: 1px solid var(--line, rgba(148, 163, 184, 0.14));
+}
+
+.user-chip[hidden] {
+  display: none;
+}
+
+.user-chip-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.plan-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: var(--muted, #8b98a5);
+}
+
+.plan-badge[data-tier="HYBRID"] {
+  border-color: rgba(94, 234, 212, 0.5);
+  color: var(--teal, #5eead4);
+  background: rgba(94, 234, 212, 0.08);
+}
+
+.plan-badge[data-tier="ADMIN"] {
+  border-color: rgba(251, 191, 36, 0.5);
+  color: var(--amber, #fbbf24);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.plan-badge.large {
+  font-size: 13px;
+  padding: 4px 14px;
+}
+
+.account-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.account-plan p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted, #8b98a5);
+  line-height: 1.5;
+}
+
+/* ---------------- Admin panel ---------------- */
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line, rgba(148, 163, 184, 0.1));
+}
+
+.admin-table th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted, #8b98a5);
+}
+
+.admin-actions {
+  white-space: nowrap;
+}
+
+.admin-actions .ghost-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  margin-right: 4px;
+}
+
+.admin-users-card {
+  margin-top: 20px;
+}
+
+.upgrade-request {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line, rgba(148, 163, 184, 0.1));
+}
+
+.upgrade-request:last-child {
+  border-bottom: none;
+}
+
+.upgrade-request .settings-hint {
+  margin-left: 6px;
+}
+
+/* ---------------- Tier lock ---------------- */
+
+.hybrid-lock-hint {
+  color: var(--amber, #fbbf24);
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--teal, #5eead4);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mode-select[data-tier-locked="true"] .mode-card[data-mode="hybrid_max"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.mode-select[data-tier-locked="true"] .mode-card[data-mode="hybrid_max"] .mode-tag {
+  display: none;
+}
+
+.mode-select[data-tier-locked="true"] .mode-card[data-mode="hybrid_max"] .mode-name::after {
+  content: " · HYBRID PLAN";
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--amber, #fbbf24);
+}

@@ -13,7 +13,7 @@ function createPrismaStub(leads: unknown[], overrides: Record<string, unknown> =
 
 describe('API', () => {
   it('returns health with supported sources', async () => {
-    const app = createApp();
+    const app = createApp({ authDisabled: true });
 
     const res = await request(app).get('/api/health').expect(200);
 
@@ -28,6 +28,7 @@ describe('API', () => {
 
   it('starts a Google Maps run without echoing the Apify token', async () => {
     const app = createApp({
+      authDisabled: true,
       runService: {
         async startRun() {
           return {
@@ -78,6 +79,7 @@ describe('API', () => {
       },
     };
     const app = createApp({
+      authDisabled: true,
       prisma: prismaStub as never,
       runService: {
         async startRun(input) {
@@ -121,6 +123,7 @@ describe('API', () => {
       },
     };
     const app = createApp({
+      authDisabled: true,
       prisma: prismaStub as never,
       runService: {
         async startRun() {
@@ -142,6 +145,7 @@ describe('API', () => {
   it('starts a Google Places run without echoing the Google API key', async () => {
     let receivedInput: unknown;
     const app = createApp({
+      authDisabled: true,
       runService: {
         async startRun(input) {
           receivedInput = input;
@@ -185,6 +189,7 @@ describe('API', () => {
   it('records unexpected run-start failures and returns a safe actionable error', async () => {
     const errorLogs: Array<Record<string, unknown>> = [];
     const app = createApp({
+      authDisabled: true,
       runService: {
         async startRun() {
           throw new Error('Database write failed for secret abcdefghijklmnopqrstuvwxyz123456');
@@ -219,7 +224,7 @@ describe('API', () => {
   });
 
   it('returns safe operator settings', async () => {
-    const app = createApp();
+    const app = createApp({ authDisabled: true });
 
     const res = await request(app).get('/api/settings').expect(200);
 
@@ -339,6 +344,7 @@ describe('API', () => {
     };
     let testedUrls: string[] = [];
     const app = createApp({
+      authDisabled: true,
       prisma: prismaStub as never,
       proxyTester: async (urls: string[]) => {
         testedUrls = urls;
@@ -373,6 +379,7 @@ describe('API', () => {
     };
     const seen: string[] = [];
     const app = createApp({
+      authDisabled: true,
       prisma: prismaStub as never,
       credentialTester: {
         async testApifyToken(token: string) {
@@ -417,6 +424,7 @@ describe('API', () => {
   it('returns safe batch progress with a run detail', async () => {
     let received: unknown;
     const app = createApp({
+      authDisabled: true,
       prisma: createPrismaStub([], {
         run: {
           async findUnique(args: unknown) {
@@ -438,6 +446,7 @@ describe('API', () => {
 
   it('downloads email-only TXT leads when format is omitted', async () => {
     const app = createApp({
+      authDisabled: true,
       prisma: createPrismaStub([
         {
           leadType: 'person',
@@ -459,6 +468,7 @@ describe('API', () => {
 
   it('downloads email-only leads when format is emails', async () => {
     const app = createApp({
+      authDisabled: true,
       prisma: createPrismaStub([
         { email: 'jane@example.com' },
         { email: '' },
@@ -474,6 +484,7 @@ describe('API', () => {
 
   it('rejects unsupported lead download formats', async () => {
     const app = createApp({
+      authDisabled: true,
       prisma: createPrismaStub([]) as never,
     });
 
@@ -485,6 +496,7 @@ describe('API', () => {
   it('deletes a run and its dependent records', async () => {
     const deleted: number[] = [];
     const app = createApp({
+      authDisabled: true,
       prisma: createPrismaStub([], {
         run: {
           async findUnique({ where }: { where: { id: number } }) {
@@ -505,6 +517,7 @@ describe('API', () => {
 
   it('returns 404 when deleting a missing run', async () => {
     const app = createApp({
+      authDisabled: true,
       prisma: createPrismaStub([], {
         run: {
           async findUnique() {
@@ -524,6 +537,7 @@ describe('API', () => {
 
   it('reports local scraper health without exposing route credentials', async () => {
     const app = createApp({
+      authDisabled: true,
       runService: {
         async startRun() { throw new Error('not used'); },
         async scraperHealth() { return { ok: true, route: 'direct', healthyProxyCount: 0 }; },
@@ -537,6 +551,7 @@ describe('API', () => {
   it('resumes a checkpointed run without echoing request-scoped credentials', async () => {
     let received: unknown;
     const app = createApp({
+      authDisabled: true,
       runService: {
         async startRun() { throw new Error('not used'); },
         async resumeRun(runId, credentials) {
@@ -559,6 +574,7 @@ describe('API', () => {
   it('queues interrupted-run recovery once when startup recovery is enabled', async () => {
     let recoveries = 0;
     createApp({
+      authDisabled: true,
       recoverOnStartup: true,
       runService: {
         async startRun() { throw new Error('not used'); },
@@ -581,6 +597,7 @@ describe('run stopping and engineer quarantine clearing', () => {
       },
     };
     const app = createApp({
+      authDisabled: true,
       prisma: prismaStub as never,
       runService: {
         async stopRun(id: number) {
@@ -603,6 +620,7 @@ describe('run stopping and engineer quarantine clearing', () => {
       },
     };
     const app = createApp({
+      authDisabled: true,
       prisma: prismaStub as never,
       runService: { async stopRun() {} } as never,
     });
@@ -638,6 +656,7 @@ describe('run stopping and engineer quarantine clearing', () => {
       },
     };
     const app = createApp({
+      authDisabled: true,
       prisma: prismaStub as never,
       credentialTester: {
         async testApifyToken() {

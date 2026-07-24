@@ -4,7 +4,15 @@
   async function requestJson(path, options) {
     const res = await fetch(BASE + path, options);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Request failed');
+    if (res.status === 401 && !path.startsWith('/auth/')) {
+      window.dispatchEvent(new CustomEvent('lgx:unauthorized', { detail: data }));
+    }
+    if (!res.ok) {
+      const error = new Error(data.error || 'Request failed');
+      error.status = res.status;
+      error.payload = data;
+      throw error;
+    }
     return data.data;
   }
 
@@ -17,6 +25,44 @@
 
   window.LeadsGenXApi = {
     getHealth: () => requestJson('/health'),
+    getMe: () => requestJson('/auth/me'),
+    login: (body) =>
+      requestJson('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    logout: () => requestJson('/auth/logout', { method: 'POST' }),
+    setupAdmin: (body) =>
+      requestJson('/auth/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    changePassword: (body) =>
+      requestJson('/auth/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    requestUpgrade: () => requestJson('/auth/request-upgrade', { method: 'POST' }),
+    adminListUsers: () => requestJson('/admin/users'),
+    adminCreateUser: (body) =>
+      requestJson('/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    adminUpdateUser: (id, body) =>
+      requestJson('/admin/users/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    adminDeleteUser: (id) => requestJson('/admin/users/' + id, { method: 'DELETE' }),
+    adminListUpgradeRequests: () => requestJson('/admin/upgrade-requests'),
+    adminApproveUpgrade: (id) => requestJson('/admin/upgrade-requests/' + id + '/approve', { method: 'POST' }),
+    adminDenyUpgrade: (id) => requestJson('/admin/upgrade-requests/' + id + '/deny', { method: 'POST' }),
     getSuggestions: () => requestJson('/suggestions'),
     createRun: (body) =>
       requestJson('/runs', {

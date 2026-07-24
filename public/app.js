@@ -31,6 +31,15 @@
   }
 
   let selectedOutputMode = 'standard';
+  let currentUser = null;
+
+  function isAdmin() {
+    return Boolean(currentUser && currentUser.role === 'ADMIN');
+  }
+
+  function hybridUnlocked() {
+    return !currentUser || isAdmin() || currentUser.tier === 'HYBRID';
+  }
 
   function updatePipelineSummary() {
     const hybrid = selectedOutputMode === 'hybrid_max';
@@ -94,6 +103,8 @@
     if (tab === 'leads') loadLeads();
     if (tab === 'logs') loadLogs();
     if (tab === 'settings') loadSettings();
+    if (tab === 'account') loadAccount();
+    if (tab === 'admin') loadAdminPanel();
   }
 
   function renderSavedProxies(proxies) {
@@ -697,6 +708,11 @@
     document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
     document.querySelectorAll('#outputModeSelect .mode-card').forEach((card) =>
       card.addEventListener('click', (event) => {
+        if (card.dataset.mode === 'hybrid_max' && !hybridUnlocked()) {
+          $('hybridLockHint').hidden = false;
+          window.LeadsGenXUi.toast('Hybrid Max Output requires the Hybrid plan — request an upgrade in the Account tab.');
+          return;
+        }
         rippleModeCard(card, event);
         setOutputMode(card.dataset.mode);
       })
@@ -748,7 +764,7 @@
 
     await loadRuns();
     await loadLeads();
-    await loadLogs();
+    if (isAdmin()) await loadLogs();
   }
 
   async function stopRun(runId) {
@@ -787,5 +803,286 @@
     window.LeadsGenXUi.toast('Copied ' + count + ' emails from run #' + runId);
   }
 
-  void init().catch((error) => window.LeadsGenXUi.toast(error.message));
+  // ------------------------------------------------------------------
+  // Auth gate, role UI, account tab, admin panel
+  // ------------------------------------------------------------------
+
+  function showAuthGate(state) {
+    const gate = $('authGate');
+    gate.hidden = false;
+    gate.dataset.state = state;
+    $('authLoading').hidden = state !== 'loading';
+    $('loginForm').hidden = state !== 'login';
+    $('setupForm').hidden = state !== 'setup';
+  }
+
+  function hideAuthGate() {
+    $('authGate').hidden = true;
+  }
+
+  function applyRoleUI(user) {
+    currentUser = user;
+    document.querySelectorAll('[data-admin-only]').forEach((el) => {
+      el.hidden = !isAdmin();
+    });
+    const chip = $('userChip');
+    chip.hidden = false;
+    $('userChipName').textContent = user.username;
+    const badge = $('userPlanBadge');
+    badge.dataset.tier = user.role === 'ADMIN' ? 'ADMIN' : user.tier;
+    badge.textContent = user.role === 'ADMIN' ? 'Admin' : user.tier === 'HYBRID' ? 'Hybrid' : 'Standard';
+    if (!hybridUnlocked()) {
+      $('hybridLockHint').hidden = false;
+      $('outputModeSelect').dataset.tierLocked = 'true';
+      setOutputMode('standard');
+    } else {
+      $('hybridLockHint').hidden = true;
+      delete $('outputModeSelect').dataset.tierLocked;
+    }
+  }
+
+  async function enterApp(user) {
+    applyRoleUI(user);
+    hideAuthGate();
+    await init();
+  }
+
+  async function boot() {
+    showAuthGate('loading');
+    $('logoutBtn').addEventListener('click', async () => {
+      try {
+        await api.logout();
+      } finally {
+        window.location.reload();
+      }
+    });
+    $('loginForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      $('authError').textContent = '';
+      $('authLoginBtn').disabled = true;
+      try {
+        const result = await api.login({
+          username: $('authUsername').value.trim(),
+          password: $('authPassword').value,
+        });
+        await enterApp(result.user);
+      } catch (error) {
+        $('authError').textContent = error.message;
+      } finally {
+        $('authLoginBtn').disabled = false;
+      }
+    });
+    $('setupForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      $('setupError').textContent = '';
+      if ($('setupPassword').value !== $('setupPasswordConfirm').value) {
+        $('setupError').textContent = 'Passwords do not match.';
+        return;
+      }
+      $('authSetupBtn').disabled = true;
+      try {
+        const result = await api.setupAdmin({
+          username: $('setupUsername').value.trim(),
+          password: $('setupPassword').value,
+        });
+        await enterApp(result.user);
+      } catch (error) {
+        $('setupError').textContent = error.message;
+      } finally {
+        $('authSetupBtn').disabled = false;
+      }
+    });
+    $('hybridLockUpgrade').addEventListener('click', () => setTab('account'));
+    $('upgradeBtn').addEventListener('click', requestUpgrade);
+    $('acctPasswordBtn').addEventListener('click', changeOwnPassword);
+    $('adminCreateBtn').addEventListener('click', adminCreateUser);
+    $('refreshAdmin').addEventListener('click', loadAdminPanel);
+    $('adminUsersTable').addEventListener('click', onAdminUserAction);
+    $('upgradeRequests').addEventListener('click', onUpgradeAction);
+    window.addEventListener('lgx:unauthorized', () => window.location.reload());
+
+    try {
+      const me = await api.getMe();
+      await enterApp(me.user);
+    } catch (error) {
+      showAuthGate(error.payload && error.payload.needsSetup ? 'setup' : 'login');
+    }
+  }
+
+  // ---------------- Account tab ----------------
+
+  function loadAccount() {
+    if (!currentUser) return;
+    const badge = $('accountPlanBadge');
+    const hybrid = currentUser.role === 'ADMIN' || currentUser.tier === 'HYBRID';
+    badge.dataset.tier = currentUser.role === 'ADMIN' ? 'ADMIN' : currentUser.tier;
+    badge.textContent = currentUser.role === 'ADMIN' ? 'Admin' : hybrid ? 'Hybrid' : 'Standard';
+    $('accountPlanDesc').textContent = hybrid
+      ? 'Hybrid plan: Docker + Google + Apify output, up to 5,000 results per run, 25 runs per day.'
+      : 'Standard plan: Docker + Google output, up to 500 results per run, 5 runs per day.';
+    $('upgradeSection').style.display = hybrid ? 'none' : '';
+    $('accountSummary').textContent = 'Signed in as ' + currentUser.username + '.';
+  }
+
+  async function requestUpgrade() {
+    $('upgradeBtn').disabled = true;
+    try {
+      await api.requestUpgrade();
+      $('upgradeStatus').textContent = 'Upgrade requested — your administrator will review it.';
+      window.LeadsGenXUi.toast('Upgrade request sent to your administrator');
+    } catch (error) {
+      $('upgradeStatus').textContent = error.message;
+    } finally {
+      $('upgradeBtn').disabled = false;
+    }
+  }
+
+  async function changeOwnPassword() {
+    $('acctPasswordStatus').textContent = '';
+    try {
+      await api.changePassword({
+        currentPassword: $('acctCurrentPassword').value,
+        newPassword: $('acctNewPassword').value,
+      });
+      $('acctCurrentPassword').value = '';
+      $('acctNewPassword').value = '';
+      $('acctPasswordStatus').textContent = 'Password updated.';
+      window.LeadsGenXUi.toast('Password updated');
+    } catch (error) {
+      $('acctPasswordStatus').textContent = error.message;
+    }
+  }
+
+  // ---------------- Admin panel ----------------
+
+  async function loadAdminPanel() {
+    if (!isAdmin()) return;
+    const [users, requests] = await Promise.all([api.adminListUsers(), api.adminListUpgradeRequests()]);
+    renderAdminUsers(users);
+    renderUpgradeRequests(requests);
+  }
+
+  function renderAdminUsers(users) {
+    if (!users.length) {
+      $('adminUsersTable').innerHTML = '<p class="settings-hint">No users yet.</p>';
+      return;
+    }
+    $('adminUsersTable').innerHTML =
+      '<table class="admin-table"><thead><tr>' +
+      '<th>User</th><th>Role</th><th>Plan</th><th>Status</th><th>Runs</th><th>Actions</th>' +
+      '</tr></thead><tbody>' +
+      users
+        .map(
+          (user) =>
+            '<tr>' +
+            '<td><strong>' + escapeHtml(user.username) + '</strong></td>' +
+            '<td>' + (user.role === 'ADMIN' ? 'Admin' : 'User') + '</td>' +
+            '<td><span class="plan-badge" data-tier="' + user.tier + '">' +
+            (user.tier === 'HYBRID' ? 'Hybrid' : 'Standard') + '</span></td>' +
+            '<td>' + (user.status === 'ACTIVE' ? 'Active' : 'Disabled') + '</td>' +
+            '<td>' + user.runCount + '</td>' +
+            '<td class="admin-actions">' +
+            (currentUser && user.id === currentUser.id
+              ? '<span class="settings-hint">You</span>'
+              : '<button class="ghost-btn" data-admin-tier="' + user.id + '" data-tier="' + user.tier + '">' +
+                (user.tier === 'HYBRID' ? 'Set Standard' : 'Set Hybrid') + '</button> ' +
+                '<button class="ghost-btn" data-admin-status="' + user.id + '" data-status="' + user.status + '">' +
+                (user.status === 'ACTIVE' ? 'Disable' : 'Enable') + '</button> ' +
+                '<button class="ghost-btn" data-admin-reset="' + user.id + '">Reset Password</button> ' +
+                '<button class="ghost-btn danger" data-admin-delete="' + user.id + '">Delete</button>') +
+            '</td>' +
+            '</tr>'
+        )
+        .join('') +
+      '</tbody></table>';
+  }
+
+  function renderUpgradeRequests(requests) {
+    $('upgradeCount').textContent = requests.length ? requests.length + ' pending' : 'none pending';
+    if (!requests.length) {
+      $('upgradeRequests').innerHTML = '<p class="settings-hint">No pending upgrade requests.</p>';
+      return;
+    }
+    $('upgradeRequests').innerHTML = requests
+      .map(
+        (request) =>
+          '<div class="upgrade-request">' +
+          '<div><strong>' + escapeHtml(request.user.username) + '</strong>' +
+          '<span class="settings-hint"> requested Hybrid · ' + new Date(request.createdAt).toLocaleDateString() + '</span></div>' +
+          '<div class="inline-actions">' +
+          '<button class="ghost-btn" data-upgrade-approve="' + request.id + '">Approve</button>' +
+          '<button class="ghost-btn danger" data-upgrade-deny="' + request.id + '">Deny</button>' +
+          '</div></div>'
+      )
+      .join('');
+  }
+
+  async function adminCreateUser() {
+    $('adminCreateStatus').textContent = '';
+    try {
+      await api.adminCreateUser({
+        username: $('adminNewUsername').value.trim(),
+        password: $('adminNewPassword').value,
+        tier: $('adminNewTier').value,
+      });
+      $('adminNewUsername').value = '';
+      $('adminNewPassword').value = '';
+      $('adminCreateStatus').textContent = 'User created.';
+      window.LeadsGenXUi.toast('User created');
+      await loadAdminPanel();
+    } catch (error) {
+      $('adminCreateStatus').textContent = error.message;
+    }
+  }
+
+  async function onAdminUserAction(event) {
+    const target = event.target;
+    if (!target.dataset) return;
+    try {
+      if (target.dataset.adminTier) {
+        const next = target.dataset.tier === 'HYBRID' ? 'STANDARD' : 'HYBRID';
+        await api.adminUpdateUser(target.dataset.adminTier, { tier: next });
+        window.LeadsGenXUi.toast('Plan updated to ' + (next === 'HYBRID' ? 'Hybrid' : 'Standard'));
+      } else if (target.dataset.adminStatus) {
+        const next = target.dataset.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
+        await api.adminUpdateUser(target.dataset.adminStatus, { status: next });
+        window.LeadsGenXUi.toast(next === 'DISABLED' ? 'User disabled' : 'User enabled');
+      } else if (target.dataset.adminReset) {
+        const password = window.prompt('New password for this user (min 8 characters):');
+        if (!password) return;
+        await api.adminUpdateUser(target.dataset.adminReset, { password });
+        window.LeadsGenXUi.toast('Password reset — user must sign in again');
+      } else if (target.dataset.adminDelete) {
+        if (!window.confirm('Delete this user? Their runs and leads are kept.')) return;
+        await api.adminDeleteUser(target.dataset.adminDelete);
+        window.LeadsGenXUi.toast('User deleted');
+      } else {
+        return;
+      }
+      await loadAdminPanel();
+    } catch (error) {
+      window.LeadsGenXUi.toast(error.message);
+    }
+  }
+
+  async function onUpgradeAction(event) {
+    const target = event.target;
+    if (!target.dataset) return;
+    try {
+      if (target.dataset.upgradeApprove) {
+        await api.adminApproveUpgrade(target.dataset.upgradeApprove);
+        window.LeadsGenXUi.toast('Upgrade approved — user is now on Hybrid');
+      } else if (target.dataset.upgradeDeny) {
+        await api.adminDenyUpgrade(target.dataset.upgradeDeny);
+        window.LeadsGenXUi.toast('Upgrade request denied');
+      } else {
+        return;
+      }
+      await loadAdminPanel();
+    } catch (error) {
+      window.LeadsGenXUi.toast(error.message);
+    }
+  }
+
+  void boot().catch((error) => window.LeadsGenXUi.toast(error.message));
 })();

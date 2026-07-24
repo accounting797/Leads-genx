@@ -7,6 +7,54 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
+    <div id="authGate" class="auth-gate" data-state="loading" hidden>
+      <div class="auth-card">
+        <div class="brand auth-brand">
+          <div class="brand-mark">GX</div>
+          <div>
+            <h1>Leads-GenX</h1>
+            <p>Lead extraction console</p>
+          </div>
+        </div>
+
+        <form id="loginForm" class="auth-form" hidden>
+          <h2>Sign in</h2>
+          <p class="auth-sub">Enter the credentials your administrator gave you.</p>
+          <label>
+            <span>Username</span>
+            <input id="authUsername" type="text" autocomplete="username" spellcheck="false">
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="authPassword" type="password" autocomplete="current-password">
+          </label>
+          <button id="authLoginBtn" type="submit" class="primary-btn">Sign In</button>
+          <p id="authError" class="auth-error" role="alert"></p>
+        </form>
+
+        <form id="setupForm" class="auth-form" hidden>
+          <h2>First-run setup</h2>
+          <p class="auth-sub">No accounts exist yet. Create the administrator account — it gets full access to everything, including user management.</p>
+          <label>
+            <span>Admin Username</span>
+            <input id="setupUsername" type="text" autocomplete="username" spellcheck="false">
+          </label>
+          <label>
+            <span>Admin Password</span>
+            <input id="setupPassword" type="password" autocomplete="new-password">
+          </label>
+          <label>
+            <span>Confirm Password</span>
+            <input id="setupPasswordConfirm" type="password" autocomplete="new-password">
+          </label>
+          <button id="authSetupBtn" type="submit" class="primary-btn">Create Admin Account</button>
+          <p id="setupError" class="auth-error" role="alert"></p>
+        </form>
+
+        <p id="authLoading" class="auth-loading">Connecting to Leads-GenX…</p>
+      </div>
+    </div>
+
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark">GX</div>
@@ -19,6 +67,11 @@
         <div><strong id="metricRuns">0</strong><span>Runs</span></div>
         <button id="metricLeadsCard" type="button"><strong id="metricLeads">0</strong><span>Leads</span></button>
         <div><strong id="metricActive">0</strong><span>Active</span></div>
+        <div class="user-chip" id="userChip" hidden>
+          <span class="user-chip-name" id="userChipName">—</span>
+          <span class="plan-badge" id="userPlanBadge" data-tier="STANDARD">Standard</span>
+          <button id="logoutBtn" type="button" class="ghost-btn danger">Sign Out</button>
+        </div>
       </div>
     </header>
 
@@ -90,6 +143,7 @@
                 <span class="mode-conduit" aria-hidden="true"><span class="mode-conduit-flow"></span></span>
               </div>
               <small id="pipelineSummary" class="field-help">Google and Docker start together; Google stays inside your request budget.</small>
+              <small id="hybridLockHint" class="field-help hybrid-lock-hint" hidden>Hybrid Max Output is a Hybrid-plan feature. <button id="hybridLockUpgrade" type="button" class="link-btn">Request an upgrade</button> from your Account tab.</small>
             </div>
             <div class="filter-grid">
               <label>
@@ -288,8 +342,10 @@
         <nav class="tabs">
           <button class="tab active" data-tab="runs" type="button">Runs</button>
           <button class="tab" data-tab="leads" type="button">Leads</button>
-          <button class="tab" data-tab="logs" type="button">Logs</button>
-          <button class="tab" data-tab="settings" type="button">Settings</button>
+          <button class="tab" data-tab="account" type="button" id="accountTabBtn">Account</button>
+          <button class="tab" data-tab="logs" type="button" data-admin-only>Logs</button>
+          <button class="tab" data-tab="settings" type="button" data-admin-only>Settings</button>
+          <button class="tab" data-tab="admin" type="button" data-admin-only id="adminTabBtn">Admin</button>
         </nav>
 
         <div id="runsTab" class="tab-page active">
@@ -312,6 +368,85 @@
             </div>
           </div>
           <div id="leadsTable"></div>
+        </div>
+
+        <div id="accountTab" class="tab-page">
+          <div class="table-actions">
+            <div>
+              <h2>My Account</h2>
+              <p id="accountSummary">Your plan and security settings.</p>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <section class="settings-card">
+              <h3>Plan</h3>
+              <div class="account-plan">
+                <span class="plan-badge large" id="accountPlanBadge" data-tier="STANDARD">Standard</span>
+                <p id="accountPlanDesc">Standard plan: Docker + Google output, up to 500 results per run, 5 runs per day.</p>
+              </div>
+              <div id="upgradeSection">
+                <button id="upgradeBtn" type="button" class="primary-btn">Request Hybrid Upgrade</button>
+                <p id="upgradeStatus" class="settings-hint"></p>
+              </div>
+            </section>
+            <section class="settings-card">
+              <h3>Change Password</h3>
+              <label>
+                <span>Current Password</span>
+                <input id="acctCurrentPassword" type="password" autocomplete="current-password">
+              </label>
+              <label>
+                <span>New Password</span>
+                <input id="acctNewPassword" type="password" autocomplete="new-password">
+              </label>
+              <div class="inline-actions">
+                <button id="acctPasswordBtn" type="button" class="primary-btn">Update Password</button>
+                <span id="acctPasswordStatus" class="settings-hint"></span>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div id="adminTab" class="tab-page">
+          <div class="table-actions">
+            <div>
+              <h2>Admin Panel</h2>
+              <p>Create users, set their plan, and approve upgrade requests.</p>
+            </div>
+            <button id="refreshAdmin" type="button" class="ghost-btn">Refresh</button>
+          </div>
+          <div class="settings-grid">
+            <section class="settings-card">
+              <h3>Create User</h3>
+              <label>
+                <span>Username</span>
+                <input id="adminNewUsername" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. client.jane">
+              </label>
+              <label>
+                <span>Password</span>
+                <input id="adminNewPassword" type="text" autocomplete="off" spellcheck="false" placeholder="Minimum 8 characters">
+              </label>
+              <label>
+                <span>Plan</span>
+                <select id="adminNewTier">
+                  <option value="STANDARD">Standard — Docker + Google</option>
+                  <option value="HYBRID">Hybrid — Docker + Google + Apify</option>
+                </select>
+              </label>
+              <div class="inline-actions">
+                <button id="adminCreateBtn" type="button" class="primary-btn">Create User</button>
+                <span id="adminCreateStatus" class="settings-hint"></span>
+              </div>
+            </section>
+            <section class="settings-card">
+              <h3>Upgrade Requests <span id="upgradeCount" class="settings-hint"></span></h3>
+              <div id="upgradeRequests"></div>
+            </section>
+          </div>
+          <section class="settings-card admin-users-card">
+            <h3>Users</h3>
+            <div id="adminUsersTable"></div>
+          </section>
         </div>
 
         <div id="logsTab" class="tab-page">

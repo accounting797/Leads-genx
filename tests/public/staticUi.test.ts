@@ -422,3 +422,87 @@ describe('static dashboard Sales Navigator credentials', () => {
     expect(appJs).toContain('maxResults.value = maxResultsBySource[source]');
   });
 });
+
+describe('static dashboard accounts and access control', () => {
+  it('ships an auth gate with login and first-run setup forms', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const apiJs = readPublicFile('api.js');
+
+    expect(html).toContain('id="authGate"');
+    expect(html).toContain('id="loginForm"');
+    expect(html).toContain('id="setupForm"');
+    expect(html).toContain('id="authUsername"');
+    expect(html).toContain('id="setupPasswordConfirm"');
+    expect(appJs).toContain('showAuthGate');
+    expect(appJs).toContain('api.getMe()');
+    expect(appJs).toContain('needsSetup');
+    expect(apiJs).toContain("'/auth/login'");
+    expect(apiJs).toContain("'/auth/setup'");
+    expect(apiJs).toContain("'/auth/logout'");
+  });
+
+  it('marks admin-only surfaces and hides them for non-admins', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+
+    expect(html).toContain('data-admin-only');
+    expect(html).toContain('id="adminTabBtn"');
+    expect(appJs).toContain("[data-admin-only]");
+    expect(appJs).toContain('isAdmin()');
+  });
+
+  it('locks the Hybrid Max card for standard-tier users', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const css = readPublicFile('styles.css');
+
+    expect(html).toContain('id="hybridLockHint"');
+    expect(html).toContain('id="hybridLockUpgrade"');
+    expect(appJs).toContain('hybridUnlocked()');
+    expect(appJs).toContain("tierLocked");
+    expect(css).toContain('[data-tier-locked="true"]');
+  });
+
+  it('ships an admin panel for user management and upgrade approvals', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const apiJs = readPublicFile('api.js');
+
+    expect(html).toContain('id="adminTab"');
+    expect(html).toContain('id="adminNewUsername"');
+    expect(html).toContain('id="adminNewTier"');
+    expect(html).toContain('id="adminUsersTable"');
+    expect(html).toContain('id="upgradeRequests"');
+    expect(appJs).toContain('adminCreateUser');
+    expect(appJs).toContain('data-upgrade-approve');
+    expect(appJs).toContain('data-admin-delete');
+    expect(apiJs).toContain("'/admin/users'");
+    expect(apiJs).toContain("'/admin/upgrade-requests'");
+  });
+
+  it('ships an account tab with plan info, upgrade request, and password change', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const apiJs = readPublicFile('api.js');
+
+    expect(html).toContain('id="accountTab"');
+    expect(html).toContain('id="upgradeBtn"');
+    expect(html).toContain('id="acctNewPassword"');
+    expect(appJs).toContain('requestUpgrade');
+    expect(appJs).toContain('changeOwnPassword');
+    expect(apiJs).toContain("'/auth/request-upgrade'");
+    expect(apiJs).toContain("'/auth/password'");
+  });
+
+  it('shows the signed-in user chip with a plan badge and sign-out', () => {
+    const html = readPublicFile('index.html');
+    const css = readPublicFile('styles.css');
+
+    expect(html).toContain('id="userChip"');
+    expect(html).toContain('id="userPlanBadge"');
+    expect(html).toContain('id="logoutBtn"');
+    expect(css).toContain('.plan-badge');
+    expect(css).toContain('.auth-gate');
+  });
+});

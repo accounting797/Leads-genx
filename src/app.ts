@@ -45,6 +45,7 @@ export function createApp(deps: ApiDeps = {}) {
       runService,
       proxyTester: deps.proxyTester,
       credentialTester: deps.credentialTester,
+      authDisabled: deps.authDisabled,
     })
   );
   app.use(express.static(path.join(__dirname, '..', 'public')));

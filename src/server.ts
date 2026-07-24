@@ -1,8 +1,21 @@
+import { execSync } from 'child_process';
+import path from 'path';
 import { createApp } from './app';
 import { prisma } from './db/client';
 import { backupSqliteDatabase } from './db/backup';
 
 const port = Number(process.env.PORT || 4177);
+
+// Self-migrate on boot so updates that add tables/columns (e.g. accounts)
+// apply cleanly even when the update script forgets to run prisma db push.
+try {
+  execSync('npx prisma db push --skip-generate', {
+    cwd: path.join(__dirname, '..'),
+    stdio: 'ignore',
+  });
+} catch (error) {
+  console.warn(`Schema sync skipped: ${error instanceof Error ? error.message : error}`);
+}
 
 const backupPath = backupSqliteDatabase(process.env.DATABASE_URL);
 if (backupPath) console.log(`Database backup saved to ${backupPath}`);

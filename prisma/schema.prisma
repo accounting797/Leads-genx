@@ -7,8 +7,45 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  role         String   @default("USER")
+  tier         String   @default("STANDARD")
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  sessions     Session[]
+  runs         Run[]
+  upgradeRequests UpgradeRequest[]
+}
+
+model Session {
+  token     String   @id
+  userId    Int
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model UpgradeRequest {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  status     String    @default("PENDING")
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
 model Run {
   id             Int        @id @default(autoincrement())
+  userId         Int?
   status         String     @default("queued")
   leadSource     String     @default("google_maps")
   searchUrl      String?
@@ -45,6 +82,9 @@ model Run {
   batches        RunBatch[]
   businesses     DiscoveredBusiness[]
   providerStates RunProviderState[]
+  user           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
 }
 
 model RunBatch {

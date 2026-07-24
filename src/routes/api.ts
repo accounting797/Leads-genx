@@ -24,6 +24,16 @@ import {
 } from '../integrations/credentialTester';
 import { asyncHandler } from '../utils/asyncHandler';
 import { analyzeRun } from '../domain/runAnalyst';
+import {
+  attachUser,
+  canAccessRun,
+  currentUser,
+  requireAdmin,
+  requireAuth,
+} from '../domain/auth';
+import { limitsForUser, outputModeAllowed, startOfToday } from '../domain/tierLimits';
+import { createAuthRouter } from './auth';
+import { createAdminRouter } from './admin';
 
 function parseEventMetadata(metadataJson: string | null): { kind?: string } | undefined {
   if (!metadataJson) return undefined;
@@ -36,7 +46,7 @@ function parseEventMetadata(metadataJson: string | null): { kind?: string } | un
 }
 
 export interface ApiRunService {
-  startRun(input: ReturnType<typeof validateCreateRunInput>): Promise<{
+  startRun(input: ReturnType<typeof validateCreateRunInput>, options?: { userId?: number }): Promise<{
     id: number;
     status: string;
     leadSource: string;
@@ -62,6 +72,8 @@ export interface ApiDeps {
   recoverOnStartup?: boolean;
   proxyTester?: (urls: string[]) => Promise<ProxyTestResult[]>;
   credentialTester?: CredentialTester;
+  /** Explicitly disable auth enforcement (tests only — production never sets this). */
+  authDisabled?: boolean;
 }
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
@@ -89,8 +101,17 @@ function proxyListError(proxies: string[]): string | undefined {
   return undefined;
 }
 
-export function createApiRouter({ prisma, runService, proxyTester, credentialTester }: ApiDeps = {}) {
+export function createApiRouter({ prisma, runService, proxyTester, credentialTester, authDisabled }: ApiDeps = {}) {
   const router = Router();
+
+  // Auth is enforced whenever a real user/session store is present and not
+  // explicitly disabled (tests pass stubs without user models or authDisabled).
+  const authEnabled = !authDisabled && Boolean(prisma?.user && prisma?.session);
+  const passThrough = (_req: Request, _res: Response, next: NextFunction) => next();
+  const guard = authEnabled ? requireAuth : passThrough;
+  const adminGuard = authEnabled ? requireAdmin : passThrough;
+
+  router.use(attachUser(authEnabled ? prisma : undefined));
 
   router.get('/health', (_req, res) => {
     res.json({
@@ -101,6 +122,17 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
       },
     });
   });
+
+  if (authEnabled && prisma) {
+    router.use('/auth', createAuthRouter({ prisma }));
+  }
+
+  // Everything below this line requires a signed-in user when auth is enabled.
+  router.use(guard);
+
+  if (authEnabled && prisma) {
+    router.use('/admin', adminGuard, createAdminRouter({ prisma }));
+  }
 
   router.get('/suggestions', (_req, res) => {
     res.json({ data: suggestions });
@@ -142,7 +174,40 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
         hasSavedToken = false;
       }
       const input = validateCreateRunInput(body, hasSavedToken);
-      const run = await runService.startRun(input);
+
+      // Tier gate: Hybrid Max output is a Hybrid-plan feature, enforced
+      // server-side so it cannot be bypassed from the browser.
+      const user = currentUser(res);
+      if (!outputModeAllowed(user, input.outputMode)) {
+        res.status(403).json({
+          error: 'Hybrid Max Output requires the Hybrid plan. Request an upgrade from the Account tab.',
+          upgradeRequired: true,
+        });
+        return;
+      }
+
+      // Plan quotas: results-per-run cap and runs-per-day cap.
+      const limits = limitsForUser(user);
+      if (input.maxResults > limits.maxResultsPerRun) {
+        res.status(400).json({
+          error: `Your ${limits.label} plan allows up to ${limits.maxResultsPerRun} results per run.`,
+          fields: { maxResults: `Plan limit: ${limits.maxResultsPerRun}` },
+        });
+        return;
+      }
+      if (user && prisma?.run) {
+        const runsToday = await prisma.run.count({
+          where: { userId: user.id, createdAt: { gte: startOfToday() } },
+        });
+        if (runsToday >= limits.runsPerDay) {
+          res.status(429).json({
+            error: `Daily run limit reached — your ${limits.label} plan allows ${limits.runsPerDay} runs per day. Try again tomorrow or request an upgrade.`,
+          });
+          return;
+        }
+      }
+
+      const run = await runService.startRun(input, user ? { userId: user.id } : undefined);
 
       res.status(202).json({
         data: {
@@ -157,8 +222,11 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
   router.get(
     '/runs',
     asyncHandler(async (_req, res) => {
+      const user = currentUser(res);
+      const scoped = user && user.role !== 'ADMIN' ? { userId: user.id } : undefined;
       const runs = prisma
         ? await prisma.run.findMany({
+            where: scoped,
             orderBy: { createdAt: 'desc' },
             include: { _count: { select: { leads: true, batches: true } } },
           })
@@ -182,7 +250,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
             },
           })
         : null;
-      if (!run) {
+      if (!run || !canAccessRun(currentUser(res), run)) {
         res.status(404).json({ error: 'Run not found' });
         return;
       }
@@ -196,6 +264,14 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
       if (!runService?.resumeRun) {
         res.status(503).json({ error: 'Run recovery unavailable' });
         return;
+      }
+      const resumeUser = currentUser(res);
+      if (resumeUser && prisma) {
+        const owned = await prisma.run.findUnique({ where: { id: Number(req.params.id) } });
+        if (!owned || !canAccessRun(resumeUser, owned)) {
+          res.status(404).json({ error: 'Run not found' });
+          return;
+        }
       }
       const parsed = validateResumeCredentials(req.body);
       const resumed = await runService.resumeRun(Number(req.params.id), {
@@ -213,7 +289,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
       const id = Number(req.params.id);
       if (prisma) {
         const run = await prisma.run.findUnique({ where: { id } });
-        if (!run) {
+        if (!run || !canAccessRun(currentUser(res), run)) {
           res.status(404).json({ error: 'Run not found' });
           return;
         }
@@ -241,7 +317,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
 
       const id = Number(req.params.id);
       const run = await prisma.run.findUnique({ where: { id } });
-      if (!run) {
+      if (!run || !canAccessRun(currentUser(res), run)) {
         res.status(404).json({ error: 'Run not found' });
         return;
       }
@@ -255,6 +331,13 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
     '/runs/:id/events',
     asyncHandler(async (req, res) => {
       const runId = Number(req.params.id);
+      if (prisma) {
+        const run = await prisma.run.findUnique({ where: { id: runId } });
+        if (!run || !canAccessRun(currentUser(res), run)) {
+          res.status(404).json({ error: 'Run not found' });
+          return;
+        }
+      }
       const events = prisma
         ? await prisma.runEvent.findMany({ where: { runId }, orderBy: { createdAt: 'asc' } })
         : [];
@@ -271,7 +354,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
       }
       const runId = Number(req.params.id);
       const run = await prisma.run.findUnique({ where: { id: runId } });
-      if (!run) {
+      if (!run || !canAccessRun(currentUser(res), run)) {
         res.status(404).json({ error: 'Run not found' });
         return;
       }
@@ -305,13 +388,22 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
     })
   );
 
+  function leadScope(res: Response, runId?: number): Record<string, unknown> | undefined {
+    const user = currentUser(res);
+    if (!prisma) return undefined;
+    const where: Record<string, unknown> = {};
+    if (runId) where.runId = runId;
+    if (user && user.role !== 'ADMIN') where.run = { userId: user.id };
+    return Object.keys(where).length ? where : undefined;
+  }
+
   router.get(
     '/leads',
     asyncHandler(async (req, res) => {
       const runId = req.query.runId ? Number(req.query.runId) : undefined;
       const leads = prisma
         ? await prisma.lead.findMany({
-            where: runId ? { runId } : undefined,
+            where: leadScope(res, runId),
             orderBy: { createdAt: 'desc' },
           })
         : [];
@@ -325,7 +417,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
       const runId = req.query.runId ? Number(req.query.runId) : undefined;
       const leads = prisma
         ? await prisma.lead.findMany({
-            where: runId ? { runId } : undefined,
+            where: leadScope(res, runId),
             orderBy: { createdAt: 'desc' },
           })
         : [];
@@ -349,6 +441,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
 
   router.get(
     '/errors',
+    adminGuard,
     asyncHandler(async (_req, res) => {
       const errors = prisma
         ? await prisma.errorLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 })
@@ -359,6 +452,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
 
   router.get(
     '/settings',
+    adminGuard,
     asyncHandler(async (_req, res) => {
       const settings = await loadOperatorSettings(prisma);
       const quarantined = await loadQuarantinedCredentials(prisma);
@@ -380,6 +474,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
 
   router.post(
     '/settings',
+    adminGuard,
     asyncHandler(async (req, res) => {
       if (!prisma) {
         res.status(503).json({ error: 'Settings store unavailable' });
@@ -428,6 +523,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
 
   router.post(
     '/settings/proxies/test',
+    adminGuard,
     asyncHandler(async (req, res) => {
       const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
       const provided = asListInput(body.proxyUrls)?.map(normalizeProxyLine);
@@ -452,6 +548,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
 
   router.post(
     '/settings/test/apify',
+    adminGuard,
     asyncHandler(async (req, res) => {
       const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
       const provided = typeof body.apifyToken === 'string' ? body.apifyToken.trim() : '';
@@ -479,6 +576,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
 
   router.post(
     '/settings/test/google',
+    adminGuard,
     asyncHandler(async (req, res) => {
       const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
       const provided = asListInput(body.googleApiKeys);

@@ -17,6 +17,7 @@ import { RunEngineer } from './runEngineer';
 
 export interface RunRecord {
   id: number;
+  userId?: number | null;
   status: string;
   leadSource: LeadSource;
   searchUrl?: string;
@@ -79,6 +80,8 @@ export interface RunServiceDeps {
 
 export interface StartRunOptions {
   background?: boolean;
+  /** Owner of the run in multi-user mode (null = legacy single-operator). */
+  userId?: number;
 }
 
 interface RunApifyShardsOptions {
@@ -923,6 +926,7 @@ export function createRunService({
         ? { actorId: 'google_places' }
         : buildActorInput(input);
     const run = await store.createRun({
+      userId: options.userId ?? null,
       status: 'queued',
       leadSource: input.leadSource,
       searchUrl: input.searchUrl,
