@@ -51,6 +51,18 @@
     updatePipelineSummary();
   }
 
+  function rippleModeCard(card, event) {
+    const rect = card.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height) * 1.1;
+    const ripple = document.createElement('span');
+    ripple.className = 'mode-ripple';
+    ripple.style.width = ripple.style.height = size + 'px';
+    ripple.style.left = (event.clientX - rect.left) + 'px';
+    ripple.style.top = (event.clientY - rect.top) + 'px';
+    card.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 600);
+  }
+
   function applySourceLimits(source) {
     const maxResults = $('maxResults');
     if (source === 'sales_navigator') {
@@ -624,7 +636,10 @@
     );
     document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
     document.querySelectorAll('#outputModeSelect .mode-card').forEach((card) =>
-      card.addEventListener('click', () => setOutputMode(card.dataset.mode))
+      card.addEventListener('click', (event) => {
+        rippleModeCard(card, event);
+        setOutputMode(card.dataset.mode);
+      })
     );
     setOutputMode('standard');
     $('runForm').addEventListener('submit', submitRun);

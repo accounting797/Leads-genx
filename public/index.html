@@ -50,33 +50,44 @@
           <section id="googleMapsFields" class="source-fields active">
             <div class="mode-field">
               <span class="mode-field-label">Output Mode</span>
-              <div class="mode-select" id="outputModeSelect" role="tablist" aria-label="Output mode">
+              <div class="mode-select" id="outputModeSelect" data-selected="standard" role="tablist" aria-label="Output mode">
                 <button type="button" class="mode-card active" data-mode="standard" role="tab" aria-selected="true">
-                  <span class="mode-emblem" aria-hidden="true">
-                    <span class="mode-ring"></span>
-                    <span class="mode-ring mode-ring-late"></span>
-                    <span class="mode-core"></span>
-                  </span>
-                  <span class="mode-text">
+                  <span class="mode-scan" aria-hidden="true"></span>
+                  <span class="mode-head">
+                    <span class="mode-led" aria-hidden="true"></span>
                     <span class="mode-name">Standard</span>
-                    <span class="mode-desc">Docker + Google</span>
+                    <span class="mode-tag" aria-hidden="true">ENGAGED</span>
+                  </span>
+                  <span class="mode-desc">Docker + Google</span>
+                  <span class="mode-meta">
+                    <span class="mode-engines" aria-hidden="true">
+                      <i class="mode-engine"></i>
+                      <i class="mode-engine"></i>
+                    </span>
+                    <span class="mode-meta-text">2 engines · budget-safe</span>
                   </span>
                 </button>
                 <button type="button" class="mode-card" data-mode="hybrid_max" role="tab" aria-selected="false">
-                  <span class="mode-emblem" aria-hidden="true">
-                    <span class="mode-ring"></span>
-                    <span class="mode-ring mode-ring-late"></span>
-                    <span class="mode-core"></span>
-                    <span class="mode-satellite sat-one"></span>
-                    <span class="mode-satellite sat-two"></span>
-                    <span class="mode-satellite sat-three"></span>
-                  </span>
-                  <span class="mode-text">
+                  <span class="mode-scan" aria-hidden="true"></span>
+                  <span class="mode-head">
+                    <span class="mode-led" aria-hidden="true"></span>
                     <span class="mode-name">Hybrid Max Output</span>
-                    <span class="mode-desc">Docker + Google + Apify</span>
+                    <span class="mode-tag" aria-hidden="true">ENGAGED</span>
+                  </span>
+                  <span class="mode-desc">Docker + Google + Apify</span>
+                  <span class="mode-meta">
+                    <span class="mode-engines" aria-hidden="true">
+                      <i class="mode-engine"></i>
+                      <i class="mode-engine"></i>
+                      <i class="mode-engine"></i>
+                    </span>
+                    <span class="mode-meta-text">3 engines · maximum yield</span>
                   </span>
                 </button>
-                <span class="mode-beam" aria-hidden="true"></span>
+                <span class="mode-glider" aria-hidden="true">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                </span>
+                <span class="mode-conduit" aria-hidden="true"><span class="mode-conduit-flow"></span></span>
               </div>
               <small id="pipelineSummary" class="field-help">Google and Docker start together; Google stays inside your request budget.</small>
             </div>

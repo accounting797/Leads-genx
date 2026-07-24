@@ -228,7 +228,7 @@ describe('static dashboard chip inputs', () => {
 });
 
 describe('static dashboard Google Maps providers', () => {
-  it('offers an animated Standard and Hybrid Max Output mode selector', () => {
+  it('offers an official console-style Standard and Hybrid Max Output mode selector', () => {
     const html = readPublicFile('index.html');
     const css = readPublicFile('styles.css');
 
@@ -237,14 +237,22 @@ describe('static dashboard Google Maps providers', () => {
     expect(html).toContain('data-mode="hybrid_max"');
     expect(html).toContain('Docker + Google');
     expect(html).toContain('Hybrid Max Output');
-    expect(html).toContain('class="mode-beam"');
+    expect(html).toContain('class="mode-glider"');
+    expect(html).toContain('class="mode-conduit"');
+    expect(html).toContain('class="mode-led"');
+    expect(html).toContain('ENGAGED');
+    expect(html).toContain('2 engines');
+    expect(html).toContain('3 engines');
     expect(html).not.toContain('value="apify"');
     expect(html).not.toContain('value="google_places"');
     expect(html).toContain('id="gmApiBudget"');
     expect(html).toContain('id="gmProxyUrls"');
-    expect(css).toContain('@keyframes mode-ping');
     expect(css).toContain('.mode-card.active');
-    expect(css).toContain(".mode-select[data-selected='hybrid_max'] .mode-beam");
+    expect(css).toContain(".mode-select[data-selected='hybrid_max'] .mode-glider");
+    expect(css).toContain('@keyframes engine-ignite');
+    expect(css).toContain('@keyframes conduit-flow');
+    expect(css).toContain('@keyframes mode-ripple');
+    expect(css).toContain('@keyframes mode-led-breathe');
   });
 
   it('keeps credentials out of the run form and points operators to Settings', () => {
