@@ -20,6 +20,13 @@ function fakeStore(run: RunRecord, seeded: { batches?: RunBatchRecord[]; busines
     },
     async addLeads(_id, incoming) { leads.push(...incoming); calls.push('email:save'); },
     async addErrorLog() {},
+    async upsertProviderState() {},
+    async upsertContact(_id, contact) {
+      if (leads.some((existing) => existing.normalizedEmail && existing.normalizedEmail === contact.normalizedEmail)) return 'duplicate';
+      leads.push(contact);
+      calls.push('contact:save');
+      return 'inserted';
+    },
     async upsertBatch(runId, batch: RunBatchWrite) {
       calls.push(`batch:${batch.status}`);
       const existing = batches.find((item) => item.batchKey === batch.batchKey);

@@ -1,15 +1,12 @@
 import { GooglePlacesClient, GooglePlacesError } from '../integrations/googlePlacesClient';
 import { LocalScraperError, ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
-import { businessIdentity } from './businessIdentity';
-import { EmailExtractor, keepEmailLeadsOnly } from './emailExtractor';
+import { EmailExtractor } from './emailExtractor';
 import { safeErrorMessage } from './errorLogger';
 import { buildLocalDiscoveryBatches, LocalDiscoveryBatch } from './localDiscoveryBatch';
-import { normalizeLead } from './leadNormalizer';
-import { applyLeadQualityFilters } from './leadQuality';
-import { DiscoveredBusinessWrite, LocalFirstRunStore } from './prismaRunStore';
+import { LocalFirstRunStore } from './prismaRunStore';
+import { RunIngestionCoordinator, IngestionSnapshot } from './runIngestionCoordinator';
 import type { RunRecord } from './runService';
-import { SerialTaskQueue } from './serialTaskQueue';
-import { NormalizedLead, ValidatedRunInput } from './types';
+import { ValidatedRunInput } from './types';
 
 export interface BalancedGoogleMapsRunDeps {
   store: LocalFirstRunStore;
@@ -22,6 +19,7 @@ export interface BalancedGoogleMapsRunDeps {
 
 export interface BalancedGoogleMapsExecutionOptions {
   finalize?: boolean;
+  ingestionCoordinator?: RunIngestionCoordinator;
 }
 
 export interface BalancedGoogleMapsRunOutcome {
@@ -32,55 +30,20 @@ export interface BalancedGoogleMapsRunOutcome {
 }
 
 type ProviderState = 'completed' | 'failed' | 'waiting_for_scraper' | 'waiting_for_credentials';
-type Provider = 'local' | 'google';
 
 const EMPTY_BATCH_CIRCUIT_THRESHOLD = 3;
-
-function reconciliationIdentity(lead: NormalizedLead): string {
-  if (lead.website || lead.phone) {
-    return businessIdentity({ ...lead, rawJson: undefined, placeUrl: undefined });
-  }
-  return businessIdentity(lead);
-}
-
-function businessWrite(lead: NormalizedLead, provenance: Provider): DiscoveredBusinessWrite {
-  return {
-    identityKey: reconciliationIdentity(lead),
-    provenance: [provenance],
-    companyName: lead.companyName,
-    categoryName: lead.categoryName,
-    address: lead.address,
-    website: lead.website,
-    phone: lead.phone,
-    placeUrl: lead.placeUrl,
-    rating: lead.rating,
-    reviewsCount: lead.reviewsCount,
-    emails: lead.email ? [lead.email] : undefined,
-    rawJson: lead.rawJson,
-  };
-}
 
 function errorCode(error: unknown): string {
   return error instanceof LocalScraperError ? error.code : 'failed';
 }
 
-function metrics(businesses: Awaited<ReturnType<LocalFirstRunStore['listBusinesses']>>) {
+function seedFromRun(run: RunRecord): Partial<IngestionSnapshot> {
   return {
-    businessCount: businesses.length,
-    localBusinessCount: businesses.filter((business) => business.provenance?.includes('local')).length,
-    googleBusinessCount: businesses.filter((business) => business.provenance?.includes('google')).length,
-    websiteCount: businesses.filter((business) => Boolean(business.website)).length,
+    qualifiedContactCount: run.leadCount ?? 0,
+    rawContactCount: run.rawContactCount ?? 0,
+    companiesWithQualifiedEmailCount: run.companiesWithQualifiedEmailCount ?? 0,
+    duplicateCount: run.duplicateCount ?? 0,
   };
-}
-
-function websiteScanKey(lead: NormalizedLead): string {
-  let website = lead.website ?? '';
-  try {
-    website = new URL(website).origin.toLowerCase();
-  } catch {
-    website = website.toLowerCase();
-  }
-  return `${reconciliationIdentity(lead)}:${website}:${lead.email?.toLowerCase() ?? ''}`;
 }
 
 export async function executeBalancedGoogleMapsRun(
@@ -99,19 +62,55 @@ export async function executeBalancedGoogleMapsRun(
     await store.upsertBatch(run.id, { batchKey: batch.key, query: batch.query, status: 'pending' });
   }
 
-  let persistedBusinesses = await store.listBusinesses(run.id);
-  const seenEmails = new Set(
-    persistedBusinesses.flatMap((business) => business.emails ?? []).map((email) => email.toLowerCase())
-  );
-  const seenProviderRecords = new Set<string>();
-  const seenWebsiteScans = new Set<string>();
-  const persistenceQueue = new SerialTaskQueue();
-  const emailQueue = new SerialTaskQueue();
-  const emailTasks: Promise<void>[] = [];
-  let leadCount = run.leadCount ?? seenEmails.size;
-  let duplicateCount = run.duplicateCount ?? 0;
+  const coordinator =
+    options.ingestionCoordinator ??
+    new RunIngestionCoordinator({
+      runId: run.id,
+      target: input.maxResults,
+      store,
+      emailExtractor,
+      websiteConcurrency: emailConcurrency,
+      seed: seedFromRun(run),
+    });
+  await coordinator.refreshBusinessMetrics();
+
   let apiRequestsUsed = run.apiRequestsUsed ?? 0;
   let googleKeyAccepted = false;
+
+  const heartbeat = async (
+    provider: 'docker' | 'google' | 'email',
+    status: 'standby' | 'running' | 'completed' | 'failed',
+    operation: string,
+    yieldCount: number,
+    extra: { budgetUsed?: number; budgetMax?: number; errorCode?: string; errorMessage?: string } = {}
+  ) => {
+    await store.upsertProviderState(run.id, {
+      provider,
+      status,
+      operation,
+      yieldCount,
+      budgetUsed: extra.budgetUsed,
+      budgetMax: extra.budgetMax,
+      errorCode: extra.errorCode,
+      errorMessage: extra.errorMessage,
+      heartbeatAt: now(),
+    });
+  };
+
+  const snapshotMetrics = async () => {
+    const snap = coordinator.snapshot();
+    return {
+      businessCount: snap.businessCount,
+      localBusinessCount: snap.localBusinessCount,
+      googleBusinessCount: snap.googleBusinessCount,
+      websiteCount: snap.websiteCount,
+      duplicateCount: snap.duplicateCount,
+      leadCount: snap.qualifiedContactCount,
+      rawContactCount: snap.rawContactCount,
+      companiesWithQualifiedEmailCount: snap.companiesWithQualifiedEmailCount,
+      apiRequestsUsed,
+    };
+  };
 
   await store.updateRun(run.id, {
     status: 'running',
@@ -127,79 +126,8 @@ export async function executeBalancedGoogleMapsRun(
     googleRequestBudget: filters.apiRequestBudget ?? 0,
   });
 
-  async function ingestProviderItems(items: unknown[], provenance: Provider): Promise<void> {
-    const normalized = applyLeadQualityFilters(
-      items.map((item) => normalizeLead(item, 'google_maps')),
-      filters
-    );
-    if (!normalized.length) return;
-
-    await persistenceQueue.enqueue(async () => {
-      const scanCandidates: NormalizedLead[] = [];
-      let accepted = 0;
-      for (const lead of normalized) {
-        const identity = reconciliationIdentity(lead);
-        const providerKey = `${provenance}:${identity}`;
-        if (seenProviderRecords.has(providerKey)) continue;
-        seenProviderRecords.add(providerKey);
-        accepted += 1;
-        const outcome = await store.upsertBusiness(run.id, businessWrite(lead, provenance));
-        if (outcome === 'merged') duplicateCount += 1;
-        const scanKey = websiteScanKey(lead);
-        if ((lead.email || lead.website) && !seenWebsiteScans.has(scanKey)) {
-          seenWebsiteScans.add(scanKey);
-          scanCandidates.push(lead);
-        }
-      }
-
-      persistedBusinesses = await store.listBusinesses(run.id);
-      await store.updateRun(run.id, {
-        ...metrics(persistedBusinesses),
-        duplicateCount,
-        leadCount,
-        apiRequestsUsed,
-      });
-      await store.addEvent(
-        run.id,
-        'source_results',
-        `${provenance === 'google' ? 'Google Places' : 'Docker'} returned ${accepted} new provider records.`,
-        {
-          provider: provenance === 'google' ? 'google_places' : 'local_maps_scraper',
-          itemCount: accepted,
-          websiteCount: scanCandidates.filter((lead) => Boolean(lead.website)).length,
-        }
-      );
-
-      if (!scanCandidates.length) return;
-      const emailTask = emailQueue.enqueue(async () => {
-        await store.addEvent(run.id, 'email_scan_started', `Scanning ${scanCandidates.length} businesses for emails.`, {
-          provider: provenance,
-          websiteCount: scanCandidates.filter((lead) => Boolean(lead.website)).length,
-          concurrency: emailConcurrency,
-        });
-        const candidates = await keepEmailLeadsOnly(scanCandidates, emailExtractor, emailConcurrency);
-        await persistenceQueue.enqueue(async () => {
-          const fresh = candidates.filter((lead) => {
-            if (!lead.email) return false;
-            const key = lead.email.toLowerCase();
-            if (seenEmails.has(key)) return false;
-            seenEmails.add(key);
-            return true;
-          });
-          if (fresh.length) await store.addLeads(run.id, fresh);
-          leadCount += fresh.length;
-          await store.updateRun(run.id, { leadCount, apiRequestsUsed });
-          await store.addEvent(run.id, 'email_scan_completed', `Saved ${leadCount} unique email leads.`, {
-            provider: provenance,
-            leadCount,
-            newLeadCount: fresh.length,
-            scannedBusinessCount: scanCandidates.length,
-            concurrency: emailConcurrency,
-          });
-        });
-      });
-      emailTasks.push(emailTask);
-    });
+  async function ingestProviderItems(items: unknown[], provenance: 'local' | 'google'): Promise<void> {
+    await coordinator.ingest(items, provenance === 'local' ? 'docker' : 'google', filters);
   }
 
   async function recordProviderFailure(provider: 'google_places' | 'local_maps_scraper', error: unknown): Promise<void> {
@@ -226,6 +154,7 @@ export async function executeBalancedGoogleMapsRun(
     const budget = filters.apiRequestBudget ?? 0;
     if (budget <= 0) {
       await store.addEvent(run.id, 'google_places_skipped', 'Google Places skipped because the request budget is zero.');
+      await heartbeat('google', 'standby', 'Skipped — request budget is zero', 0, { budgetUsed: 0, budgetMax: 0 });
       return 'completed';
     }
     if (!input.googleApiKey) return 'waiting_for_credentials';
@@ -238,6 +167,7 @@ export async function executeBalancedGoogleMapsRun(
       provider: 'google_places',
       requestBudget: budget,
     });
+    await heartbeat('google', 'running', 'Searching Google Places', 0, { budgetUsed: 0, budgetMax: budget });
     try {
       const items = await googleClient.search({
         apiKey: input.googleApiKey,
@@ -245,18 +175,20 @@ export async function executeBalancedGoogleMapsRun(
         filters,
         maxResults: input.maxResults,
         requestBudget: budget,
-        shouldStop: () => persistedBusinesses.length >= input.maxResults,
+        shouldStop: () => coordinator.snapshot().businessCount >= input.maxResults,
         onRequestEvent: async (event) => {
           if (event.type === 'attempted') {
             apiRequestsUsed = event.requestCount;
-            await persistenceQueue.enqueue(async () => {
-              await store.updateRun(run.id, { apiRequestsUsed });
-              await store.addEvent(
-                run.id,
-                'google_request_attempted',
-                `Google request ${apiRequestsUsed}/${event.budget} sent.`,
-                { requestCount: apiRequestsUsed, requestBudget: event.budget }
-              );
+            await store.updateRun(run.id, { apiRequestsUsed });
+            await store.addEvent(
+              run.id,
+              'google_request_attempted',
+              `Google request ${apiRequestsUsed}/${event.budget} sent.`,
+              { requestCount: apiRequestsUsed, requestBudget: event.budget }
+            );
+            await heartbeat('google', 'running', 'Searching Google Places', coordinator.snapshot().businessCount, {
+              budgetUsed: apiRequestsUsed,
+              budgetMax: event.budget,
             });
           } else if (event.type === 'succeeded' && !googleKeyAccepted) {
             googleKeyAccepted = true;
@@ -300,9 +232,19 @@ export async function executeBalancedGoogleMapsRun(
       await store.addEvent(run.id, 'google_places_completed', 'Google Places discovery completed.', {
         apiRequestsUsed,
       });
+      await heartbeat('google', 'completed', 'Google Places discovery completed', coordinator.snapshot().businessCount, {
+        budgetUsed: apiRequestsUsed,
+        budgetMax: budget,
+      });
       return 'completed';
     } catch (error) {
       await recordProviderFailure('google_places', error);
+      await heartbeat('google', 'failed', 'Google Places failed', coordinator.snapshot().businessCount, {
+        budgetUsed: apiRequestsUsed,
+        budgetMax: budget,
+        errorCode: error instanceof GooglePlacesError ? error.code : 'failed',
+        errorMessage: safeErrorMessage(error),
+      });
       return 'failed';
     }
   }
@@ -311,9 +253,10 @@ export async function executeBalancedGoogleMapsRun(
     const runnable = await store.listRunnableBatches(run.id, now());
     let consecutiveEmptyBatches = 0;
     let successfulBatchCount = (await store.listBatches(run.id)).filter((batch) => batch.status === 'completed').length;
+    let dockerYield = 0;
 
     for (let batchIndex = 0; batchIndex < runnable.length; batchIndex += 1) {
-      if (persistedBusinesses.length >= input.maxResults) break;
+      if (coordinator.snapshot().businessCount >= input.maxResults) break;
       const checkpoint = runnable[batchIndex];
       const batch: LocalDiscoveryBatch | undefined = plannedByKey.get(checkpoint.batchKey);
       if (!batch) continue;
@@ -324,10 +267,12 @@ export async function executeBalancedGoogleMapsRun(
         attemptCount,
         route: input.routeMode ?? 'direct',
       });
+      await heartbeat('docker', 'running', `Discovery batch ${batchIndex + 1}/${runnable.length}`, dockerYield);
 
       try {
         const result = await localClient.searchBatch({ batch, proxies: input.proxyUrls ?? [] });
         successfulBatchCount += 1;
+        dockerYield += result.rawBusinessCount;
         if (result.rawBusinessCount === 0) {
           consecutiveEmptyBatches += 1;
           await store.addEvent(run.id, 'local_batch_empty', 'Docker discovery batch returned no businesses.', {
@@ -350,6 +295,7 @@ export async function executeBalancedGoogleMapsRun(
           batchKey: batch.key,
           resultCount: result.rawBusinessCount,
         });
+        await heartbeat('docker', 'running', `Discovery batch ${batchIndex + 1}/${runnable.length}`, dockerYield);
 
         if (consecutiveEmptyBatches >= EMPTY_BATCH_CIRCUIT_THRESHOLD) {
           const remaining = runnable.slice(batchIndex + 1);
@@ -385,6 +331,12 @@ export async function executeBalancedGoogleMapsRun(
           'Docker discovery batch did not complete.',
           { batchKey: batch.key, attemptCount, errorCode: code }
         );
+        if (terminal) {
+          await heartbeat('docker', 'failed', 'Docker discovery batch failed', dockerYield, {
+            errorCode: code,
+            errorMessage: safeErrorMessage(error),
+          });
+        }
       }
     }
 
@@ -393,37 +345,44 @@ export async function executeBalancedGoogleMapsRun(
       return 'waiting_for_scraper';
     }
     if (successfulBatchCount === 0 && checkpoints.some((batch) => batch.status === 'failed')) return 'failed';
+    await heartbeat('docker', 'completed', 'Docker discovery completed', dockerYield);
     return 'completed';
   }
 
   const googleTask = runGoogleProvider();
   const localTask = runLocalProvider();
   const [googleResult, localResult] = await Promise.allSettled([googleTask, localTask]);
-  await emailQueue.drain();
-  const emailResults = await Promise.allSettled(emailTasks);
-  await persistenceQueue.drain();
-  const failedEmailTask = emailResults.find((result) => result.status === 'rejected');
-  if (failedEmailTask?.status === 'rejected') throw failedEmailTask.reason;
+  if (!options.ingestionCoordinator) await coordinator.drain();
+  const snap = coordinator.snapshot();
+  await store.addEvent(run.id, 'email_scan_completed', `Saved ${snap.qualifiedContactCount} unique email leads.`, {
+    provider: 'all',
+    leadCount: snap.qualifiedContactCount,
+    scannedBusinessCount: snap.scanCount,
+    concurrency: coordinator.websiteConcurrency,
+  });
+  await heartbeat('email', 'completed', 'Website contact scan completed', snap.qualifiedContactCount);
 
   const googleState: ProviderState = googleResult.status === 'fulfilled' ? googleResult.value : 'failed';
   const localState: ProviderState = localResult.status === 'fulfilled' ? localResult.value : 'failed';
-  persistedBusinesses = await store.listBusinesses(run.id);
-  const finalMetrics = metrics(persistedBusinesses);
 
   if (googleState === 'waiting_for_credentials') {
     await store.updateRun(run.id, {
       status: 'waiting_for_credentials',
-      ...finalMetrics,
-      duplicateCount,
-      leadCount,
-      apiRequestsUsed,
+      ...(await snapshotMetrics()),
     });
-    await store.addEvent(run.id, 'run_waiting_for_credentials', 'Google credentials must be re-entered.', { leadCount });
-    return { status: 'waiting_for_credentials', leadCount, businessCount: persistedBusinesses.length, seenEmails };
+    await store.addEvent(run.id, 'run_waiting_for_credentials', 'Google credentials must be re-entered.', {
+      leadCount: snap.qualifiedContactCount,
+    });
+    return {
+      status: 'waiting_for_credentials',
+      leadCount: snap.qualifiedContactCount,
+      businessCount: snap.businessCount,
+      seenEmails: coordinator.seenEmails,
+    };
   }
 
   if (localState === 'waiting_for_scraper') {
-    if (googleState === 'completed' && persistedBusinesses.length > 0) {
+    if (googleState === 'completed' && snap.businessCount > 0) {
       const checkpoints = await store.listBatches(run.id);
       for (const checkpoint of checkpoints.filter((batch) =>
         batch.status === 'retry' || batch.status === 'pending' || batch.status === 'running'
@@ -441,45 +400,53 @@ export async function executeBalancedGoogleMapsRun(
     } else {
       await store.updateRun(run.id, {
         status: 'waiting_for_scraper',
-        ...finalMetrics,
-        duplicateCount,
-        leadCount,
-        apiRequestsUsed,
+        ...(await snapshotMetrics()),
       });
-      await store.addEvent(run.id, 'run_waiting', 'Run checkpointed and waiting for the Docker scraper.', { leadCount });
-      return { status: 'waiting_for_scraper', leadCount, businessCount: persistedBusinesses.length, seenEmails };
+      await store.addEvent(run.id, 'run_waiting', 'Run checkpointed and waiting for the Docker scraper.', {
+        leadCount: snap.qualifiedContactCount,
+      });
+      return {
+        status: 'waiting_for_scraper',
+        leadCount: snap.qualifiedContactCount,
+        businessCount: snap.businessCount,
+        seenEmails: coordinator.seenEmails,
+      };
     }
   }
 
-  if (googleState === 'failed' && localState === 'failed' && persistedBusinesses.length === 0) {
+  if (googleState === 'failed' && localState === 'failed' && snap.businessCount === 0) {
     throw new Error('Google Places and Docker discovery both failed before producing businesses.');
   }
 
   if (options.finalize === false) {
     await store.updateRun(run.id, {
       status: 'running',
-      ...finalMetrics,
-      duplicateCount,
-      leadCount,
-      apiRequestsUsed,
+      ...(await snapshotMetrics()),
     });
-    return { status: 'running', leadCount, businessCount: persistedBusinesses.length, seenEmails };
+    return {
+      status: 'running',
+      leadCount: snap.qualifiedContactCount,
+      businessCount: snap.businessCount,
+      seenEmails: coordinator.seenEmails,
+    };
   }
 
   await store.updateRun(run.id, {
     status: 'completed',
     actorId: 'local_first',
     datasetId: 'balanced_google_docker',
-    ...finalMetrics,
-    duplicateCount,
-    leadCount,
-    apiRequestsUsed,
+    ...(await snapshotMetrics()),
   });
   await store.addEvent(run.id, 'run_completed', 'Standard Google and Docker run completed.', {
-    leadCount,
-    businessCount: persistedBusinesses.length,
+    leadCount: snap.qualifiedContactCount,
+    businessCount: snap.businessCount,
     target: input.maxResults,
     apiRequestsUsed,
   });
-  return { status: 'completed', leadCount, businessCount: persistedBusinesses.length, seenEmails };
+  return {
+    status: 'completed',
+    leadCount: snap.qualifiedContactCount,
+    businessCount: snap.businessCount,
+    seenEmails: coordinator.seenEmails,
+  };
 }
