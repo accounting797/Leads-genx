@@ -123,7 +123,19 @@ export class DeployConflictError extends Error {}
 
 export function createDeployService(deps: DeployDeps = {}) {
   const runRemote = deps.runRemote ?? sshRunRemote;
-  const resolve4 = deps.resolve4 ?? ((domain: string) => dns.resolve4(domain));
+  // DNS checks go to public resolvers directly — a stale ISP/router cache on
+  // the operator's machine must never hold a deployment hostage.
+  const publicResolver = new dns.Resolver();
+  publicResolver.setServers(['8.8.8.8', '1.1.1.1']);
+  const resolve4 =
+    deps.resolve4 ??
+    (async (domain: string) => {
+      try {
+        return await publicResolver.resolve4(domain);
+      } catch {
+        return dns.resolve4(domain);
+      }
+    });
   const httpsOk = deps.httpsOk ?? defaultHttpsOk;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const dnsIntervalMs = deps.dnsIntervalMs ?? 30000;
@@ -172,12 +184,21 @@ export function createDeployService(deps: DeployDeps = {}) {
 
   function buildSecureCommand(params: DeployParams): string {
     const setupPayload = JSON.stringify({ username: params.adminUsername, password: params.adminPassword });
+    // Idempotent: a re-run after a partial deployment must not fail when the
+    // admin was already claimed (setup answers 403 once users exist).
     const lines: string[] = [
       'cd /tmp',
       "cat > lgx-admin.json << 'LGXEOF'",
       setupPayload,
       'LGXEOF',
-      "curl -fsS -c lgx.jar -X POST http://127.0.0.1:4177/api/auth/setup -H 'Content-Type: application/json' -d @lgx-admin.json > /dev/null",
+      'HTTP_CODE=$(curl -s -o /dev/null -w \'%{http_code}\' -c lgx.jar -X POST http://127.0.0.1:4177/api/auth/setup -H \'Content-Type: application/json\' -d @lgx-admin.json)',
+      'if [ "$HTTP_CODE" = "403" ]; then',
+      "  echo 'Admin account already claimed — skipping.'",
+      'elif [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then',
+      '  echo "Admin claim failed (HTTP $HTTP_CODE)"',
+      '  rm -f lgx-admin.json lgx-settings.json lgx.jar',
+      '  exit 1',
+      'fi',
     ];
     const settings = params.settings;
     const hasSettings = Boolean(
@@ -197,13 +218,17 @@ export function createDeployService(deps: DeployDeps = {}) {
         defaultSalesNavigatorActorId: settings.defaultSalesNavigatorActorId,
       });
       lines.push(
-        "cat > lgx-settings.json << 'LGXEOF'",
+        // Only copy settings when this run created the session (a 403 means
+        // the admin was claimed earlier and we hold no valid cookie).
+        'if [ "$HTTP_CODE" != "403" ]; then',
+        "  cat > lgx-settings.json << 'LGXEOF'",
         settingsPayload,
         'LGXEOF',
-        "curl -fsS -b lgx.jar -X POST http://127.0.0.1:4177/api/settings -H 'Content-Type: application/json' -d @lgx-settings.json > /dev/null"
+        "  curl -fsS -b lgx.jar -X POST http://127.0.0.1:4177/api/settings -H 'Content-Type: application/json' -d @lgx-settings.json > /dev/null",
+        'fi'
       );
     }
-    lines.push('rm -f lgx-admin.json lgx-settings.json lgx.jar', "echo 'Server secured: admin account created, settings copied.'");
+    lines.push('rm -f lgx-admin.json lgx-settings.json lgx.jar', "echo 'Server secured: admin account ready, settings in place.'");
     return lines.join('\n');
   }
 
