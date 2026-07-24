@@ -38,29 +38,47 @@
         <form id="runForm" class="run-form">
           <div class="form-grid two">
             <label>
-              <span>Apify API Tokens (Hybrid Max Output only)</span>
-              <textarea id="apifyToken" rows="3" autocomplete="off" spellcheck="false" placeholder="Paste Apify tokens, one per line"></textarea>
-            </label>
-            <label>
               <span>Max Results</span>
               <input id="maxResults" type="number" min="1" value="250">
             </label>
+            <div class="settings-hint">
+              <span>Credentials</span>
+              <p>Apify tokens, Google API keys, and proxies are managed once in the <strong>Settings</strong> tab and power every run.</p>
+            </div>
           </div>
 
           <section id="googleMapsFields" class="source-fields active">
-            <div class="form-grid two compact">
-              <label class="pipeline-card">
-                <span>Output Mode</span>
-                <select id="gmProvider">
-                  <option value="local_first">Standard — Docker + Google</option>
-                  <option value="hybrid">Hybrid Max Output — Docker + Google + Apify</option>
-                </select>
-                <small id="pipelineSummary" class="field-help">Google and Docker start together; Google stays inside your request budget.</small>
-              </label>
-              <label>
-                <span>Google API Keys</span>
-                <textarea id="googleApiKey" rows="3" autocomplete="off" spellcheck="false" placeholder="Paste Google API keys, one per line"></textarea>
-              </label>
+            <div class="mode-field">
+              <span class="mode-field-label">Output Mode</span>
+              <div class="mode-select" id="outputModeSelect" role="tablist" aria-label="Output mode">
+                <button type="button" class="mode-card active" data-mode="standard" role="tab" aria-selected="true">
+                  <span class="mode-emblem" aria-hidden="true">
+                    <span class="mode-ring"></span>
+                    <span class="mode-ring mode-ring-late"></span>
+                    <span class="mode-core"></span>
+                  </span>
+                  <span class="mode-text">
+                    <span class="mode-name">Standard</span>
+                    <span class="mode-desc">Docker + Google</span>
+                  </span>
+                </button>
+                <button type="button" class="mode-card" data-mode="hybrid_max" role="tab" aria-selected="false">
+                  <span class="mode-emblem" aria-hidden="true">
+                    <span class="mode-ring"></span>
+                    <span class="mode-ring mode-ring-late"></span>
+                    <span class="mode-core"></span>
+                    <span class="mode-satellite sat-one"></span>
+                    <span class="mode-satellite sat-two"></span>
+                    <span class="mode-satellite sat-three"></span>
+                  </span>
+                  <span class="mode-text">
+                    <span class="mode-name">Hybrid Max Output</span>
+                    <span class="mode-desc">Docker + Google + Apify</span>
+                  </span>
+                </button>
+                <span class="mode-beam" aria-hidden="true"></span>
+              </div>
+              <small id="pipelineSummary" class="field-help">Google and Docker start together; Google stays inside your request budget.</small>
             </div>
             <div class="filter-grid">
               <label>
@@ -219,6 +237,20 @@
               <span id="radarHeartbeat" class="heartbeat">Standby</span>
             </div>
             <div class="run-config" id="runConfig">Idle — manage keys and proxies in Settings.</div>
+          </div>
+          <div class="analyst-panel" id="analystPanel" data-verdict="idle">
+            <div class="analyst-head">
+              <span class="analyst-orb" aria-hidden="true">
+                <span class="analyst-orb-sweep"></span>
+                <span class="analyst-orb-core"></span>
+              </span>
+              <div class="analyst-title">
+                <h3>AI Analyst</h3>
+                <span class="analyst-verdict" id="analystVerdict" data-verdict="idle">Standby</span>
+              </div>
+            </div>
+            <p class="analyst-headline" id="analystHeadline">Start a run and I will report on its health live.</p>
+            <ul class="analyst-lines" id="analystLines"></ul>
           </div>
           <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
           <div class="progress-meta">

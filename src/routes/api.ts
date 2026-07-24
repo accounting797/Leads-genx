@@ -20,6 +20,7 @@ import {
   CredentialTestResult,
 } from '../integrations/credentialTester';
 import { asyncHandler } from '../utils/asyncHandler';
+import { analyzeRun } from '../domain/runAnalyst';
 
 export interface ApiRunService {
   startRun(input: ReturnType<typeof validateCreateRunInput>): Promise<{
@@ -110,7 +111,14 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
         return;
       }
 
-      const input = validateCreateRunInput(req.body, false);
+      let hasSavedToken = false;
+      try {
+        const savedSettings = await loadOperatorSettings(prisma);
+        hasSavedToken = Boolean(savedSettings.apifyToken);
+      } catch {
+        hasSavedToken = false;
+      }
+      const input = validateCreateRunInput(req.body, hasSavedToken);
       const run = await runService.startRun(input);
 
       res.status(202).json({
@@ -204,6 +212,44 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
         ? await prisma.runEvent.findMany({ where: { runId }, orderBy: { createdAt: 'asc' } })
         : [];
       res.json({ data: events });
+    })
+  );
+
+  router.get(
+    '/runs/:id/analyst',
+    asyncHandler(async (req, res) => {
+      if (!prisma) {
+        res.status(503).json({ error: 'Database unavailable' });
+        return;
+      }
+      const runId = Number(req.params.id);
+      const run = await prisma.run.findUnique({ where: { id: runId } });
+      if (!run) {
+        res.status(404).json({ error: 'Run not found' });
+        return;
+      }
+      const [events, providerStates, errorLogs] = await Promise.all([
+        prisma.runEvent.findMany({ where: { runId }, orderBy: { createdAt: 'asc' }, take: 200 }),
+        prisma.runProviderState.findMany({ where: { runId } }),
+        prisma.errorLog.findMany({ where: { runId }, orderBy: { createdAt: 'desc' }, take: 20 }),
+      ]);
+      const report = analyzeRun({
+        run: {
+          status: run.status,
+          leadCount: run.leadCount,
+          rawContactCount: run.rawContactCount,
+          businessCount: run.businessCount,
+          maxResults: run.maxResults,
+          apiRequestsUsed: run.apiRequestsUsed,
+          apiRequestBudget: run.apiRequestBudget,
+          actorId: run.actorId,
+          errorMessage: run.errorMessage ?? undefined,
+        },
+        events,
+        providerStates,
+        errorLogs,
+      });
+      res.json({ data: report });
     })
   );
 

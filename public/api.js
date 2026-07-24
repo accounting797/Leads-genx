@@ -28,6 +28,7 @@
     getRun: (id) => requestJson('/runs/' + id),
     deleteRun: (id) => requestJson('/runs/' + id, { method: 'DELETE' }),
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
+    getRunAnalyst: (id) => requestJson('/runs/' + id + '/analyst'),
     listLeads: (runId) => requestJson('/leads' + (runId ? '?runId=' + runId : '')),
     getLeadEmailsTxt: (runId) =>
       requestText('/leads/download?format=emails' + (runId ? '&runId=' + runId : '')),

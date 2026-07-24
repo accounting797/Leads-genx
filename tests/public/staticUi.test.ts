@@ -228,37 +228,67 @@ describe('static dashboard chip inputs', () => {
 });
 
 describe('static dashboard Google Maps providers', () => {
-  it('offers Standard Docker plus Google and an explicit Hybrid Max Output mode', () => {
+  it('offers an animated Standard and Hybrid Max Output mode selector', () => {
     const html = readPublicFile('index.html');
+    const css = readPublicFile('styles.css');
 
-    expect(html).toContain('id="gmProvider"');
-    expect(html).toContain('<select id="gmProvider"');
-    expect(html).toContain('value="local_first"');
-    expect(html).toContain('value="hybrid"');
+    expect(html).toContain('id="outputModeSelect"');
+    expect(html).toContain('data-mode="standard"');
+    expect(html).toContain('data-mode="hybrid_max"');
     expect(html).toContain('Docker + Google');
     expect(html).toContain('Hybrid Max Output');
+    expect(html).toContain('class="mode-beam"');
     expect(html).not.toContain('value="apify"');
     expect(html).not.toContain('value="google_places"');
-    expect(html).toContain('id="googleApiKey"');
     expect(html).toContain('id="gmApiBudget"');
     expect(html).toContain('id="gmProxyUrls"');
-    expect(html).toContain('one per line');
+    expect(css).toContain('@keyframes mode-ping');
+    expect(css).toContain('.mode-card.active');
+    expect(css).toContain(".mode-select[data-selected='hybrid_max'] .mode-beam");
   });
 
-  it('submits the selected Google Maps provider and Google API key', () => {
+  it('keeps credentials out of the run form and points operators to Settings', () => {
+    const html = readPublicFile('index.html');
     const appJs = readPublicFile('app.js');
 
-    expect(appJs).toContain("provider: $('gmProvider').value");
-    expect(appJs).toContain("googleApiKey: $('googleApiKey').value.trim()");
+    expect(html).not.toContain('id="apifyToken"');
+    expect(html).not.toContain('id="googleApiKey"');
+    expect(html).toContain('Settings');
+    expect(appJs).not.toContain("$('apifyToken')");
+    expect(appJs).not.toContain("$('googleApiKey')");
+  });
+
+  it('submits the selected output mode and proxy route', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('outputMode: selectedOutputMode');
     expect(appJs).toContain("proxyUrls: $('gmProxyUrls').value.trim()");
+    expect(appJs).toContain("routeMode: $('gmUseSavedProxies').checked ? 'proxy' : undefined");
   });
 
   it('submits Standard by default and switches to Hybrid only when selected', () => {
     const appJs = readPublicFile('app.js');
 
-    expect(appJs).toContain("provider: $('gmProvider').value");
-    expect(appJs).toContain("$('gmProvider').addEventListener('change', updatePipelineSummary)");
-    expect(appJs).toContain("$('gmProvider').value === 'hybrid'");
+    expect(appJs).toContain("selectedOutputMode = 'standard'");
+    expect(appJs).toContain("selectedOutputMode === 'hybrid_max'");
+    expect(appJs).toContain("setOutputMode(card.dataset.mode)");
+  });
+
+  it('renders an AI Analyst live report panel under Live Progress', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const apiJs = readPublicFile('api.js');
+    const css = readPublicFile('styles.css');
+
+    expect(html).toContain('id="analystPanel"');
+    expect(html).toContain('id="analystVerdict"');
+    expect(html).toContain('id="analystHeadline"');
+    expect(html).toContain('id="analystLines"');
+    expect(apiJs).toContain("'/runs/' + id + '/analyst'");
+    expect(appJs).toContain('renderAnalyst');
+    expect(css).toContain(".analyst-verdict[data-verdict='needs_attention']");
+    expect(css).toContain(".analyst-verdict[data-verdict='perfect']");
+    expect(css).toContain('.analyst-orb-sweep');
   });
 });
 
@@ -276,24 +306,8 @@ describe('static dashboard source-aware progress', () => {
 });
 
 describe('static dashboard credential entry', () => {
-  it('uses multiline credential boxes for Apify and Google keys', () => {
-    const html = readPublicFile('index.html');
-
-    expect(html).toContain('<textarea id="apifyToken"');
-    expect(html).toContain('<textarea id="googleApiKey"');
-  });
-
-  it('normalizes pasted credentials into one key per line', () => {
-    const appJs = readPublicFile('app.js');
-
-    expect(appJs).toContain('normalizeCredentialBox');
-    expect(appJs).toContain("normalizeCredentialBox($('apifyToken'))");
-    expect(appJs).toContain("normalizeCredentialBox($('googleApiKey'))");
-  });
-
   it('clears request-scoped secrets immediately after a run is accepted', () => {
     const appJs = readPublicFile('app.js');
-    expect(appJs).toContain("$('googleApiKey').value = ''");
     expect(appJs).toContain("$('gmProxyUrls').value = ''");
     expect(appJs).toContain("$('snCookies').value = ''");
     expect(appJs).toContain("$('snUserAgent').value = ''");

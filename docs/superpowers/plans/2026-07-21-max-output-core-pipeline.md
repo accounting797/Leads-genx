@@ -817,11 +817,11 @@ git commit -m "feat: separate qualified and raw contacts"
 - Produces: `BoundedTaskPool`, `RunIngestionCoordinator.ingest()`, `drain()`, and `snapshot()`.
 - Consumes: `LocalFirstRunStore`, `EmailExtractor`, provider name, and normalized businesses.
 
-- [ ] **Step 1: Write a strict concurrency test**
+- [x] **Step 1: Write a strict concurrency test**
 
 Submit 80 deferred jobs to `new BoundedTaskPool(50)`, record active and peak counts, resolve all jobs, and assert `peak === 50` and that every returned promise resolves. Add a constructor test asserting `new BoundedTaskPool(0)` throws `Concurrency must be at least 1.`
 
-- [ ] **Step 2: Write a continuous-persistence coordinator test**
+- [x] **Step 2: Write a continuous-persistence coordinator test**
 
 Use a fake store and two site scans, hold the second scan open, release the first, and assert the first contact was passed to `upsertContact()` before the second finishes. Assert:
 
@@ -834,13 +834,13 @@ expect(coordinator.snapshot()).toMatchObject({
 });
 ```
 
-- [ ] **Step 3: Verify both modules are missing**
+- [x] **Step 3: Verify both modules are missing**
 
 Run: `npm.cmd test -- tests/domain/boundedTaskPool.test.ts tests/domain/runIngestionCoordinator.test.ts`
 
 Expected: FAIL with module resolution errors.
 
-- [ ] **Step 4: Implement the bounded pool**
+- [x] **Step 4: Implement the bounded pool**
 
 Use a FIFO queue of `{ run, resolve, reject }`, increment `active` immediately before invoking a task, decrement it in `finally`, and call `pump()` after every completion. `drain()` resolves only when `active === 0 && queue.length === 0`. Do not create one pool per provider or per batch.
 
@@ -854,7 +854,7 @@ export class BoundedTaskPool {
 }
 ```
 
-- [ ] **Step 5: Implement the run-scoped ingestion coordinator**
+- [x] **Step 5: Implement the run-scoped ingestion coordinator**
 
 Constructor:
 
@@ -891,17 +891,17 @@ snapshot(): {
 
 For each normalized business: apply business quality filters; upsert it; update run business/provider metrics; emit a redacted `business_persisted` event containing provider and counts but no query; then submit one website task. Each website task calls `collectContactCandidates()`, calls `upsertContact()` for every decision, updates qualified/raw/company counts after each inserted contact, and emits `contact_persisted` with quality and reason only. Use a `Set<string>` of business identity keys to count each company with a qualified email once.
 
-- [ ] **Step 6: Replace the serial email queue in the balanced service**
+- [x] **Step 6: Replace the serial email queue in the balanced service**
 
 Construct one coordinator at the start of `executeBalancedGoogleMapsRun()`. Replace `ingestProviderItems()` internals with `coordinator.ingest(items, provenance === 'local' ? 'docker' : 'google', filters)`. Remove `emailQueue`, `emailTasks`, and batch-level `keepEmailLeadsOnly()` calls. Call `await coordinator.drain()` after provider promises settle and before terminal status calculation. Map `snapshot().qualifiedContactCount` to `leadCount` and `snapshot().rawContactCount` to `rawContactCount`.
 
-- [ ] **Step 7: Run focused concurrency and orchestration tests**
+- [x] **Step 7: Run focused concurrency and orchestration tests**
 
 Run: `npm.cmd test -- tests/domain/boundedTaskPool.test.ts tests/domain/runIngestionCoordinator.test.ts tests/domain/balancedGoogleMapsRunService.test.ts`
 
 Expected: PASS; peak website concurrency is exactly 50, the first completed site persists without waiting for the second, and provider failures preserve prior contacts.
 
-- [ ] **Step 8: Commit continuous ingestion**
+- [x] **Step 8: Commit continuous ingestion**
 
 ```bash
 git add src/domain/boundedTaskPool.ts src/domain/runIngestionCoordinator.ts src/domain/balancedGoogleMapsRunService.ts tests/domain/boundedTaskPool.test.ts tests/domain/runIngestionCoordinator.test.ts tests/domain/balancedGoogleMapsRunService.test.ts
@@ -925,7 +925,7 @@ git commit -m "feat: persist website contacts continuously"
 - Produces: explicit `outputMode`, default Google budget `50`, provider-state heartbeats, and concurrent Hybrid Apify execution.
 - Consumes: `RunIngestionCoordinator`, balanced provider outcome, and existing Apify shard runner.
 
-- [ ] **Step 1: Add output-mode validation tests**
+- [x] **Step 1: Add output-mode validation tests**
 
 Assert an omitted mode for Google Maps validates to:
 
@@ -938,17 +938,17 @@ expect(result).toMatchObject({
 
 Assert `outputMode: 'hybrid_max'` requires an Apify token and maps to `googleMaps.provider: 'hybrid'`. Assert unknown mode returns field error `outputMode must be standard or hybrid_max.`
 
-- [ ] **Step 2: Add a Hybrid concurrency test**
+- [x] **Step 2: Add a Hybrid concurrency test**
 
 Use deferred Google/Docker and Apify fakes. Start the run, wait until all three have marked themselves started, and assert Apify started before either Google or Docker is released. After releasing all providers, assert the terminal event lists `['docker', 'google', 'apify', 'email']` and status is `completed` or `partially_completed` according to settled results.
 
-- [ ] **Step 3: Run focused tests and observe sequential Apify behavior**
+- [x] **Step 3: Run focused tests and observe sequential Apify behavior**
 
 Run: `npm.cmd test -- tests/domain/validation.test.ts tests/domain/runService.test.ts tests/domain/balancedGoogleMapsRunService.test.ts`
 
 Expected: FAIL because Hybrid currently starts Apify only after Docker and Google finish.
 
-- [ ] **Step 4: Make output mode explicit and budget defaults deterministic**
+- [x] **Step 4: Make output mode explicit and budget defaults deterministic**
 
 Add `outputMode?: OutputMode` to `ValidatedRunInput`. In validation:
 
@@ -960,7 +960,7 @@ const apiRequestBudget = parsedBudget === undefined ? 50 : parsedBudget;
 
 Preserve explicit budget `0`. Serialize `outputMode` in safe filters. Store it on the run without storing credentials.
 
-- [ ] **Step 5: Share one ingestion coordinator across selected providers**
+- [x] **Step 5: Share one ingestion coordinator across selected providers**
 
 Add an optional `ingestionCoordinator` dependency to `executeBalancedGoogleMapsRun()` so `runService` can construct one coordinator and pass it to Docker/Google and Apify. Change `runApifyShards()` to accept the same coordinator and call `coordinator.ingest(items, 'apify', filters)` instead of its independent email batch path for Google Maps sessions.
 
@@ -985,19 +985,19 @@ const results = await Promise.allSettled([
 
 After all selected providers settle, drain the coordinator once. Mark `completed` when all selected providers complete, `partially_completed` when at least one provider fails after output was persisted, `failed` when every selected provider fails before output, and retain `waiting_for_credentials`, `waiting_for_scraper`, `paused`, or `cancelled` when those explicit stop states apply.
 
-- [ ] **Step 6: Persist truthful provider state and redacted events**
+- [x] **Step 6: Persist truthful provider state and redacted events**
 
 At provider start, heartbeat, completion, and failure, call `upsertProviderState()`. Store Google `budgetUsed/budgetMax`, Apify run yield without token values, Docker yield with no paid budget, and email scanner active/completed counts. Event metadata may contain `workUnitId`, tier, counts, status, and error code; it must not contain query text, API keys, tokens, or proxy URLs.
 
 At run start, set `plannedUnitCount` to the sum of non-recovery Google first-page units, Docker checkpoint batches, and Apify shards selected for the mode. Increment `completedUnitCount` exactly once for every terminal work-unit callback. When Google recovery emits `extended`, set `extendedRun: true` and add its recovery unit count to `plannedUnitCount`; never reduce the denominator after work begins.
 
-- [ ] **Step 7: Run orchestration suites**
+- [x] **Step 7: Run orchestration suites**
 
 Run: `npm.cmd test -- tests/domain/validation.test.ts tests/domain/runService.test.ts tests/domain/balancedGoogleMapsRunService.test.ts`
 
 Expected: PASS; Standard starts Docker and Google, Hybrid starts all three discovery providers before any finishes, and partial failures preserve output.
 
-- [ ] **Step 8: Commit the session coordinator behavior**
+- [x] **Step 8: Commit the session coordinator behavior**
 
 ```bash
 git add src/domain/types.ts src/domain/validation.ts src/domain/runService.ts src/domain/balancedGoogleMapsRunService.ts tests/domain/validation.test.ts tests/domain/runService.test.ts tests/domain/balancedGoogleMapsRunService.test.ts

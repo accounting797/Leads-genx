@@ -21,26 +21,6 @@
     return value ? Number(value) : undefined;
   }
 
-  function normalizeCredentialBox(element) {
-    const credentials = element.value
-      .split(/[\s,]+/)
-      .map((value) => value.trim())
-      .filter(Boolean);
-    element.value = credentials.join('\n');
-  }
-
-  function setupCredentialBox(element) {
-    element.addEventListener('blur', () => normalizeCredentialBox(element));
-    element.addEventListener('paste', () => {
-      setTimeout(() => normalizeCredentialBox(element), 0);
-    });
-    element.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey) {
-        setTimeout(() => normalizeCredentialBox(element), 0);
-      }
-    });
-  }
-
   function escapeHtml(value) {
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;')
@@ -50,11 +30,25 @@
       .replace(/'/g, '&#039;');
   }
 
+  let selectedOutputMode = 'standard';
+
   function updatePipelineSummary() {
-    const hybrid = $('gmProvider').value === 'hybrid';
+    const hybrid = selectedOutputMode === 'hybrid_max';
     $('pipelineSummary').textContent = hybrid
-      ? 'Google and Docker start together, then Apify expands maximum-output coverage. Google and Apify keys are required.'
+      ? 'Docker, Google, and Apify all start at once and feed one ingestion pipeline — maximum emails per session. Saved Apify and Google keys are required.'
       : 'Google and Docker start together; Google stays inside your request budget.';
+  }
+
+  function setOutputMode(mode) {
+    selectedOutputMode = mode === 'hybrid_max' ? 'hybrid_max' : 'standard';
+    const select = $('outputModeSelect');
+    select.dataset.selected = selectedOutputMode;
+    select.querySelectorAll('.mode-card').forEach((card) => {
+      const active = card.dataset.mode === selectedOutputMode;
+      card.classList.toggle('active', active);
+      card.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    updatePipelineSummary();
   }
 
   function applySourceLimits(source) {
@@ -230,10 +224,9 @@
 
   function buildBody() {
     const body = {
-      apifyToken: $('apifyToken').value.trim(),
-      googleApiKey: $('googleApiKey').value.trim() || undefined,
       proxyUrls: $('gmProxyUrls').value.trim() || undefined,
       routeMode: $('gmUseSavedProxies').checked ? 'proxy' : undefined,
+      outputMode: selectedOutputMode,
       leadSource: activeSource,
       actorId: $('actorId').value.trim() || undefined,
       maxResults: numberValue('maxResults') || 100,
@@ -241,7 +234,6 @@
 
     if (activeSource === 'google_maps') {
       body.googleMaps = {
-        provider: $('gmProvider').value,
         apiRequestBudget: numberValue('gmApiBudget') ?? 50,
         searchTerms: chips.gmSearchTerms.commitPending(),
         categoryFilters: chips.gmCategories.commitPending(),
@@ -278,8 +270,6 @@
     $('formStatus').textContent = 'Starting...';
     try {
       const run = await api.createRun(buildBody());
-      $('apifyToken').value = '';
-      $('googleApiKey').value = '';
       $('gmProxyUrls').value = '';
       $('snCookies').value = '';
       $('snUserAgent').value = '';
@@ -311,6 +301,13 @@
       runs.map((run) => '<option value="' + run.id + '">Run #' + run.id + ' - ' + run.leadSource + '</option>').join('');
     if (selectedRunId && runs.some((run) => String(run.id) === String(selectedRunId))) {
       $('leadRunFilter').value = selectedRunId;
+    }
+    // Reattach live tracking to the newest active run after a page reload.
+    if (!activeRunId) {
+      const active = runs.find((run) =>
+        ['queued', 'running', 'cooling_down', 'waiting_for_scraper', 'waiting_for_credentials'].includes(run.status)
+      );
+      if (active) startProgress(active.id);
     }
   }
 
@@ -504,11 +501,29 @@
     return status === 'queued' ? 'Preparing Google and Docker' : status;
   }
 
+  function renderAnalyst(report) {
+    const panel = $('analystPanel');
+    if (!panel) return;
+    panel.dataset.verdict = report.verdict;
+    const pill = $('analystVerdict');
+    pill.dataset.verdict = report.verdict;
+    pill.textContent = report.verdictLabel;
+    $('analystHeadline').textContent = report.headline;
+    $('analystLines').innerHTML = report.lines
+      .map((line) => '<li data-tone="' + escapeHtml(line.tone) + '">' + escapeHtml(line.text) + '</li>')
+      .join('');
+  }
+
   async function checkProgress() {
     if (!activeRunId) return;
     try {
       const run = await api.getRun(activeRunId);
       const events = await api.getRunEvents(activeRunId);
+      try {
+        renderAnalyst(await api.getRunAnalyst(activeRunId));
+      } catch {
+        // The analyst panel is advisory; never break progress polling on it.
+      }
       const batches = run.batches || [];
       const completedBatches = batches.filter((batch) => batch.status === 'completed').length;
       const target = Math.max(1, run.maxResults || run.googleMapsMaxPlaces || 1);
@@ -608,13 +623,10 @@
       btn.addEventListener('click', () => setSource(btn.dataset.source))
     );
     document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
-    $('gmProvider').value = 'local_first';
-    $('gmProvider').addEventListener('change', updatePipelineSummary);
-    updatePipelineSummary();
-    setupCredentialBox($('apifyToken'));
-    setupCredentialBox($('googleApiKey'));
-    normalizeCredentialBox($('apifyToken'));
-    normalizeCredentialBox($('googleApiKey'));
+    document.querySelectorAll('#outputModeSelect .mode-card').forEach((card) =>
+      card.addEventListener('click', () => setOutputMode(card.dataset.mode))
+    );
+    setOutputMode('standard');
     $('runForm').addEventListener('submit', submitRun);
     $('refreshRuns').addEventListener('click', loadRuns);
     $('refreshLogs').addEventListener('click', loadLogs);
