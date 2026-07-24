@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  credentialFingerprint,
+  filterQuarantined,
   loadOperatorSettings,
+  loadQuarantinedCredentials,
   maskProxyUrl,
   normalizeProxyLine,
+  quarantineCredential,
   saveOperatorSettings,
   toSafeOperatorSettings,
   withSavedCredentials,
@@ -173,5 +177,66 @@ describe('withSavedCredentials', () => {
     expect(merged.googleApiKey).toBe('request-key');
     expect(merged.googleApiKeys).toBeUndefined();
     expect(merged.proxyUrls).toBeUndefined();
+  });
+});
+
+describe('credential quarantine (engineer memory)', () => {
+  it('fingerprints credentials without storing the secret', () => {
+    const fingerprint = credentialFingerprint('super-secret-token');
+    expect(fingerprint).toHaveLength(16);
+    expect(fingerprint).not.toContain('super-secret-token');
+    expect(credentialFingerprint('super-secret-token')).toBe(fingerprint);
+  });
+
+  it('remembers quarantined credentials and never duplicates them', async () => {
+    const store = fakeSettingsStore();
+    await quarantineCredential(store as never, 'apify', 'dead-token', 'authentication token is not valid');
+    await quarantineCredential(store as never, 'apify', 'dead-token', 'authentication token is not valid');
+    await quarantineCredential(store as never, 'google', 'dead-key', 'key rejected');
+
+    const quarantined = await loadQuarantinedCredentials(store as never);
+    expect(quarantined).toHaveLength(2);
+    expect(quarantined[0]).toMatchObject({ provider: 'apify' });
+    expect(quarantined[1]).toMatchObject({ provider: 'google' });
+    expect(JSON.stringify(quarantined)).not.toContain('dead-token');
+    expect(JSON.stringify(quarantined)).not.toContain('dead-key');
+  });
+
+  it('filters quarantined credentials out of candidate lists', async () => {
+    const store = fakeSettingsStore();
+    await quarantineCredential(store as never, 'apify', 'dead-token', 'rejected');
+
+    const { kept, skipped } = filterQuarantined(
+      ['dead-token', 'live-token'],
+      await loadQuarantinedCredentials(store as never)
+    );
+    expect(kept).toEqual(['live-token']);
+    expect(skipped).toBe(1);
+  });
+});
+
+describe('pruneQuarantinedCredentials', () => {
+  it('clears the engineer memory for replaced credentials and keeps live ones', async () => {
+    const store = fakeSettingsStore();
+    await quarantineCredential(store as never, 'apify', 'dead-token', 'rejected');
+    await quarantineCredential(store as never, 'google', 'dead-key', 'rejected');
+
+    // User replaces the Apify token but keeps the same Google key.
+    const { pruneQuarantinedCredentials } = await import('../../src/domain/operatorSettings');
+    await pruneQuarantinedCredentials(store as never, ['brand-new-token', 'dead-key']);
+
+    const quarantined = await loadQuarantinedCredentials(store as never);
+    expect(quarantined).toHaveLength(1);
+    expect(quarantined[0].provider).toBe('google');
+  });
+
+  it('removes the quarantine store entirely when nothing dead remains', async () => {
+    const store = fakeSettingsStore();
+    await quarantineCredential(store as never, 'apify', 'dead-token', 'rejected');
+
+    const { pruneQuarantinedCredentials } = await import('../../src/domain/operatorSettings');
+    await pruneQuarantinedCredentials(store as never, ['brand-new-token']);
+
+    expect(await loadQuarantinedCredentials(store as never)).toEqual([]);
   });
 });

@@ -11,7 +11,8 @@ import { RunIngestionCoordinator } from './runIngestionCoordinator';
 import type { LocalFirstRunStore } from './prismaRunStore';
 import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
 import { GoogleMapsFilters, LeadSource, NormalizedLead, OutputMode, RouteMode, ValidatedRunInput } from './types';
-import { OperatorSettings, withSavedCredentials } from './operatorSettings';
+import { OperatorSettings, QuarantinedCredential, filterQuarantined, withSavedCredentials } from './operatorSettings';
+import { RunEngineer } from './runEngineer';
 
 export interface RunRecord {
   id: number;
@@ -68,6 +69,11 @@ export interface RunServiceDeps {
   emailExtractionConcurrency?: number;
   enableLocalMapsScraper?: boolean;
   loadOperatorSettings?: () => Promise<OperatorSettings>;
+  /** Run Engineer memory: persist and recall quarantined (dead) credentials. */
+  quarantineCredential?: (provider: string, credential: string, reason: string) => Promise<void>;
+  loadQuarantinedCredentials?: () => Promise<QuarantinedCredential[]>;
+  /** Injectable sleeper for engineer backoff (tests). */
+  engineerSleep?: (ms: number) => Promise<void>;
 }
 
 export interface StartRunOptions {
@@ -77,6 +83,7 @@ export interface StartRunOptions {
 interface RunApifyShardsOptions {
   continueOnShardError?: boolean;
   ingestionCoordinator?: RunIngestionCoordinator;
+  engineer?: RunEngineer;
 }
 
 interface RunGooglePlacesOptions {
@@ -127,6 +134,9 @@ export function createRunService({
   emailExtractionConcurrency = 50,
   enableLocalMapsScraper = true,
   loadOperatorSettings,
+  quarantineCredential,
+  loadQuarantinedCredentials,
+  engineerSleep,
 }: RunServiceDeps) {
   async function saveEmailLeadsInBatches(
     runId: number,
@@ -202,27 +212,33 @@ export function createRunService({
       await heartbeat('running', `Apify shard ${index + 1}/${actorInputs.length}`, leadCount);
 
       try {
-        const actorRun = await actorClient.startRun(actorInput);
-        apifyRunIds.push(actorRun.runId);
-        if (actorRun.datasetId) datasetIds.push(actorRun.datasetId);
-        await store.updateRun(run.id, {
-          apifyRunId: actorRun.runId,
-          datasetId: actorRun.datasetId,
-        });
+        const shardOperation = `Apify shard ${index + 1}/${actorInputs.length}`;
+        const shardWork = async () => {
+          const actorRun = await actorClient.startRun(actorInput);
+          apifyRunIds.push(actorRun.runId);
+          if (actorRun.datasetId) datasetIds.push(actorRun.datasetId);
+          await store.updateRun(run.id, {
+            apifyRunId: actorRun.runId,
+            datasetId: actorRun.datasetId,
+          });
 
-        if (actorRun.status !== 'SUCCEEDED') {
-          throw new Error(`Actor finished with status ${actorRun.status}`);
-        }
+          if (actorRun.status !== 'SUCCEEDED') {
+            throw new Error(`Actor finished with status ${actorRun.status}`);
+          }
 
-        await store.addEvent(run.id, 'actor_succeeded', 'Actor run succeeded.', {
-          apifyRunId: actorRun.runId,
-          datasetId: actorRun.datasetId,
-          shard: index + 1,
-        });
+          await store.addEvent(run.id, 'actor_succeeded', 'Actor run succeeded.', {
+            apifyRunId: actorRun.runId,
+            datasetId: actorRun.datasetId,
+            shard: index + 1,
+          });
 
-        const items = actorRun.datasetId
-          ? await actorClient.getDatasetItems(actorRun.datasetId, actorInput.token)
-          : [];
+          return actorRun.datasetId
+            ? actorClient.getDatasetItems(actorRun.datasetId, actorInput.token)
+            : [];
+        };
+        const items = options.engineer
+          ? await options.engineer.attempt('apify', shardOperation, shardWork, actorInput.token)
+          : await shardWork();
 
         if (options.ingestionCoordinator && input.leadSource === 'google_maps') {
           await options.ingestionCoordinator.ingest(items, 'apify', input.googleMaps ?? {});
@@ -463,6 +479,20 @@ export function createRunService({
   }
 
   async function executeRun(run: RunRecord, input: ValidatedRunInput) {
+    const engineer = new RunEngineer({
+      runId: run.id,
+      store,
+      sleep: engineerSleep,
+      quarantineCredential: quarantineCredential
+        ? (provider, credential, reason) => quarantineCredential(provider, credential ?? '', reason)
+        : undefined,
+      probe: {
+        docker:
+          typeof (localMapsScraperClient as Partial<ResumableLocalMapsScraperClient>)?.health === 'function'
+            ? () => (localMapsScraperClient as ResumableLocalMapsScraperClient).health()
+            : undefined,
+      },
+    });
     try {
       if (isLocalFirstRun(input)) {
         if (!localMapsScraperClient) throw new Error('Local Google Maps scraper client is not configured');
@@ -475,6 +505,7 @@ export function createRunService({
             googleClient: googlePlacesClient,
             emailExtractor,
             emailConcurrency: emailExtractionConcurrency,
+            engineer,
           }, run, input);
           return;
         }
@@ -560,12 +591,14 @@ export function createRunService({
             googleClient: googlePlacesClient,
             emailExtractor,
             emailConcurrency: emailExtractionConcurrency,
+            engineer,
           }, run, input, { finalize: false, ingestionCoordinator: coordinator })
             .then((outcome) => ({ ok: true as const, outcome }))
             .catch((error: unknown) => ({ ok: false as const, error }));
           const apifyTask = runApifyShards(run, input, undefined, undefined, {
             continueOnShardError: true,
             ingestionCoordinator: coordinator,
+            engineer,
           })
             .then((result) => ({ ok: true as const, result }))
             .catch((error: unknown) => ({ ok: false as const, error }));
@@ -620,7 +653,9 @@ export function createRunService({
               message: safeErrorMessage(apifySettled.error),
               details: { provider: 'apify' },
             });
-          } else if (apifySettled.result.failedShardCount > 0 && apifySettled.result.apifyRunIds.length === 0) {
+          } else if (apifySettled.result.apifyRunIds.length === 0) {
+            // No Apify run ever started — every shard failed or all tokens
+            // were quarantined. The Hybrid report must say so.
             failedProviders.push('apify');
           }
 
@@ -671,6 +706,7 @@ export function createRunService({
         if (input.apifyToken) {
           const result = await runApifyShards(run, input, seenEmails, leadCount, {
             continueOnShardError: Boolean(input.googleApiKey),
+            engineer,
           });
           leadCount = result.leadCount;
         }
@@ -727,7 +763,7 @@ export function createRunService({
         actorId: actorInput.actorId,
       });
 
-      const { leadCount } = await runApifyShards(run, input);
+      const { leadCount } = await runApifyShards(run, input, undefined, undefined, { engineer });
       if (leadCount === 0) {
         await store.addEvent(run.id, 'leads_saved', 'Saved 0 email leads.', { leadCount: 0 });
       }
@@ -823,9 +859,31 @@ export function createRunService({
   }
 
   async function startRun(rawInput: ValidatedRunInput, options: StartRunOptions = {}) {
-    const input = loadOperatorSettings
+    const merged = loadOperatorSettings
       ? withSavedCredentials(rawInput, await loadOperatorSettings())
       : rawInput;
+
+    // The engineer's memory: credentials that previously failed authentication
+    // are skipped before they can waste a provider shard again.
+    let skippedDeadCredentials = 0;
+    const input = { ...merged };
+    if (loadQuarantinedCredentials) {
+      const quarantined = await loadQuarantinedCredentials();
+      if (quarantined.length) {
+        if (input.apifyTokens?.length) {
+          const { kept, skipped } = filterQuarantined(input.apifyTokens, quarantined);
+          input.apifyTokens = kept.length ? kept : undefined;
+          input.apifyToken = kept[0];
+          skippedDeadCredentials += skipped;
+        }
+        if (input.googleApiKeys?.length) {
+          const { kept, skipped } = filterQuarantined(input.googleApiKeys, quarantined);
+          input.googleApiKeys = kept.length ? kept : undefined;
+          input.googleApiKey = kept[0];
+          skippedDeadCredentials += skipped;
+        }
+      }
+    }
     const actorInput = isLocalFirstRun(input)
       ? { actorId: 'local_first' }
       : isHybridRun(input)
@@ -851,6 +909,19 @@ export function createRunService({
     await store.addEvent(run.id, 'run_queued', 'Run queued.', {
       leadSource: input.leadSource,
     });
+
+    if (skippedDeadCredentials > 0) {
+      await store.addEvent(
+        run.id,
+        'engineer_action',
+        `Engineer skipped ${skippedDeadCredentials} previously-quarantined credential${skippedDeadCredentials === 1 ? '' : 's'} — replace ${skippedDeadCredentials === 1 ? 'it' : 'them'} in Settings.`,
+        {
+          provider: 'all',
+          kind: 'credential_skipped',
+          reasoning: 'These credentials were rejected by their provider before; reusing them would only waste a shard.',
+        }
+      );
+    }
 
     const runInBackground = options.background ?? true;
     if (runInBackground) {

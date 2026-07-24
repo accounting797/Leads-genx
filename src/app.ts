@@ -9,7 +9,7 @@ import { GooglePlacesApiClient } from './integrations/googlePlacesClient';
 import { LocalMapsScraperKitClient } from './integrations/localMapsScraperClient';
 import { ApiDeps, createApiRouter } from './routes/api';
 import { safeErrorMessage } from './domain/errorLogger';
-import { loadOperatorSettings } from './domain/operatorSettings';
+import { loadOperatorSettings, loadQuarantinedCredentials, quarantineCredential } from './domain/operatorSettings';
 
 export function createApp(deps: ApiDeps = {}) {
   const app = express();
@@ -24,6 +24,9 @@ export function createApp(deps: ApiDeps = {}) {
       emailExtractor: new WebsiteEmailExtractor(),
       enableLocalMapsScraper: process.env.ENABLE_LOCAL_MAPS_SCRAPER === 'true',
       loadOperatorSettings: () => loadOperatorSettings(runtimePrisma),
+      loadQuarantinedCredentials: () => loadQuarantinedCredentials(runtimePrisma),
+      quarantineCredential: (provider, credential, reason) =>
+        quarantineCredential(runtimePrisma, provider, credential, reason),
     });
 
   if (deps.recoverOnStartup && runService.recoverInterruptedRuns) {

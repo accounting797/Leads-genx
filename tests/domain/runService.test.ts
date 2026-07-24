@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { credentialFingerprint } from '../../src/domain/operatorSettings';
 import { createRunService, RunStore, serializeSafeFilters } from '../../src/domain/runService';
 import { ActorClient } from '../../src/integrations/actorClient';
 import { NormalizedLead } from '../../src/domain/types';
@@ -1115,5 +1116,85 @@ describe('createRunService', () => {
     expect(providerStates.some((state) => state.provider === 'apify' && state.status === 'completed')).toBe(true);
     expect(providerStates.some((state) => state.provider === 'docker')).toBe(true);
     expect(providerStates.some((state) => state.provider === 'google')).toBe(true);
+  });
+
+  it('quarantines a dead Apify token when a shard is rejected and reports its reasoning', async () => {
+    const store = createStore();
+    const quarantined: Array<{ provider: string; credential: string; reason: string }> = [];
+    const authError = new Error('User was not found or authentication token is not valid') as Error & { statusCode: number };
+    authError.statusCode = 401;
+    const actorClient: ActorClient = {
+      async startRun() { throw authError; },
+      async getRun() { throw new Error('not used'); },
+      async getDatasetItems() { return []; },
+    };
+
+    const service = createRunService({
+      store,
+      actorClient,
+      engineerSleep: async () => {},
+      quarantineCredential: async (provider, credential, reason) => {
+        quarantined.push({ provider, credential, reason });
+      },
+    });
+
+    await service.startRun({
+      apifyToken: 'dead-apify-token',
+      leadSource: 'google_maps',
+      maxResults: 50,
+      googleMaps: { provider: 'apify', searchTerms: ['dentist'], locationQuery: 'Austin, TX' },
+    }, { background: false });
+
+    expect(store.runs[0].status).toBe('failed');
+    expect(quarantined).toEqual([
+      { provider: 'apify', credential: 'dead-apify-token', reason: 'User was not found or authentication token is not valid' },
+    ]);
+    const engineerEvents = store.events.filter((event) => event.type === 'engineer_action');
+    expect(engineerEvents.some((event) => event.metadata?.kind === 'diagnosis')).toBe(true);
+    expect(engineerEvents.some((event) => event.metadata?.kind === 'credential_quarantined')).toBe(true);
+  });
+
+  it('skips previously-quarantined credentials before they waste a shard', async () => {
+    const store = createStore();
+    const seenTokens: string[] = [];
+    const actorClient: ActorClient = {
+      async startRun(input) {
+        seenTokens.push(input.token);
+        return { runId: 'run-1', status: 'SUCCEEDED', datasetId: 'ds-1' };
+      },
+      async getRun() { throw new Error('not used'); },
+      async getDatasetItems() {
+        return [{ title: 'Lead Co', email: 'lead@example.com' }];
+      },
+    };
+
+    const service = createRunService({
+      store,
+      actorClient,
+      engineerSleep: async () => {},
+      loadQuarantinedCredentials: async () => [
+        {
+          fingerprint: credentialFingerprint('dead-token'),
+          provider: 'apify',
+          reason: 'authentication token is not valid',
+          at: new Date().toISOString(),
+        },
+      ],
+    });
+
+    await service.startRun({
+      apifyTokens: ['dead-token', 'live-token'],
+      leadSource: 'google_maps',
+      maxResults: 50,
+      googleMaps: { provider: 'apify', searchTerms: ['dentist'], locationQuery: 'Austin, TX' },
+    }, { background: false });
+
+    expect(seenTokens).toEqual(['live-token']);
+    expect(store.runs[0].status).toBe('completed');
+    const skipped = store.events.find(
+      (event) => event.type === 'engineer_action' && event.metadata?.kind === 'credential_skipped'
+    );
+    expect(skipped).toBeTruthy();
+    expect(skipped?.message).toContain('quarantined');
   });
 });

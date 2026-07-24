@@ -232,6 +232,7 @@ describe('API', () => {
         googleApiKeyCount: 0,
         proxyCount: 0,
         proxies: [],
+        quarantinedCredentials: [],
       },
     });
   });

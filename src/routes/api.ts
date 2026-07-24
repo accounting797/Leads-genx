@@ -8,6 +8,8 @@ import { validateCreateRunInput, validateResumeCredentials, ValidationError } fr
 import { appendErrorLogToFile, safeErrorMessage } from '../domain/errorLogger';
 import {
   loadOperatorSettings,
+  loadQuarantinedCredentials,
+  pruneQuarantinedCredentials,
   saveOperatorSettings,
   toSafeOperatorSettings,
   normalizeProxyLine,
@@ -21,6 +23,16 @@ import {
 } from '../integrations/credentialTester';
 import { asyncHandler } from '../utils/asyncHandler';
 import { analyzeRun } from '../domain/runAnalyst';
+
+function parseEventMetadata(metadataJson: string | null): { kind?: string } | undefined {
+  if (!metadataJson) return undefined;
+  try {
+    const parsed = JSON.parse(metadataJson);
+    return parsed && typeof parsed === 'object' ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface ApiRunService {
   startRun(input: ReturnType<typeof validateCreateRunInput>): Promise<{
@@ -254,7 +266,12 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
           actorId: run.actorId,
           errorMessage: run.errorMessage ?? undefined,
         },
-        events,
+        events: events.map((event) => ({
+          type: event.type,
+          message: event.message,
+          createdAt: event.createdAt,
+          metadata: parseEventMetadata(event.metadataJson),
+        })),
         providerStates,
         errorLogs,
       });
@@ -318,11 +335,19 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
     '/settings',
     asyncHandler(async (_req, res) => {
       const settings = await loadOperatorSettings(prisma);
+      const quarantined = await loadQuarantinedCredentials(prisma);
       res.json({
-        data: toSafeOperatorSettings(settings, {
-          googleMapsActorId: DEFAULT_GOOGLE_MAPS_ACTOR_ID,
-          salesNavigatorActorId: DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
-        }),
+        data: {
+          ...toSafeOperatorSettings(settings, {
+            googleMapsActorId: DEFAULT_GOOGLE_MAPS_ACTOR_ID,
+            salesNavigatorActorId: DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
+          }),
+          quarantinedCredentials: quarantined.map((entry) => ({
+            provider: entry.provider,
+            reason: entry.reason,
+            at: entry.at,
+          })),
+        },
       });
     })
   );
@@ -353,11 +378,24 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
       });
 
       const settings = await loadOperatorSettings(prisma);
+      // Replacing or removing a credential resets the engineer's memory for it.
+      await pruneQuarantinedCredentials(
+        prisma,
+        [settings.apifyToken, ...settings.googleApiKeys].filter((value): value is string => Boolean(value))
+      );
+      const quarantined = await loadQuarantinedCredentials(prisma);
       res.json({
-        data: toSafeOperatorSettings(settings, {
-          googleMapsActorId: DEFAULT_GOOGLE_MAPS_ACTOR_ID,
-          salesNavigatorActorId: DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
-        }),
+        data: {
+          ...toSafeOperatorSettings(settings, {
+            googleMapsActorId: DEFAULT_GOOGLE_MAPS_ACTOR_ID,
+            salesNavigatorActorId: DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
+          }),
+          quarantinedCredentials: quarantined.map((entry) => ({
+            provider: entry.provider,
+            reason: entry.reason,
+            at: entry.at,
+          })),
+        },
       });
     })
   );

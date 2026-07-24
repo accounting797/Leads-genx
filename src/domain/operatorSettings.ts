@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { createHash } from 'node:crypto';
 
 export const OPERATOR_SETTING_KEYS = [
   'defaultGoogleMapsActorId',
@@ -177,6 +178,82 @@ export function toSafeOperatorSettings(
     proxyCount: settings.proxyUrls.length,
     proxies: settings.proxyUrls.map(maskProxyUrl),
   };
+}
+
+export interface QuarantinedCredential {
+  fingerprint: string;
+  provider: string;
+  reason: string;
+  at: string;
+}
+
+const QUARANTINE_KEY = 'quarantinedCredentials';
+
+/** Fingerprints a credential without storing any part of the secret. */
+export function credentialFingerprint(credential: string): string {
+  return createHash('sha256').update(credential).digest('hex').slice(0, 16);
+}
+
+export async function loadQuarantinedCredentials(prisma?: SettingsPrisma): Promise<QuarantinedCredential[]> {
+  if (!prisma) return [];
+  const rows = await prisma.appSetting.findMany({ where: { key: QUARANTINE_KEY } });
+  if (!rows.length) return [];
+  try {
+    const parsed = JSON.parse(rows[0].value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The engineer's memory: remember a dead credential so future runs skip it. */
+export async function quarantineCredential(
+  prisma: SettingsPrisma,
+  provider: string,
+  credential: string,
+  reason: string
+): Promise<void> {
+  const existing = await loadQuarantinedCredentials(prisma);
+  const fingerprint = credentialFingerprint(credential);
+  if (existing.some((entry) => entry.fingerprint === fingerprint)) return;
+  const next = [...existing, { fingerprint, provider, reason, at: new Date().toISOString() }].slice(-50);
+  await prisma.appSetting.upsert({
+    where: { key: QUARANTINE_KEY },
+    create: { key: QUARANTINE_KEY, value: JSON.stringify(next), secret: false },
+    update: { value: JSON.stringify(next) },
+  });
+}
+
+/** Filters quarantined credentials out of a candidate list. */
+export function filterQuarantined(credentials: string[], quarantined: QuarantinedCredential[]): { kept: string[]; skipped: number } {
+  const dead = new Set(quarantined.map((entry) => entry.fingerprint));
+  const kept = credentials.filter((credential) => !dead.has(credentialFingerprint(credential)));
+  return { kept, skipped: credentials.length - kept.length };
+}
+
+/**
+ * Drops quarantine entries for credentials that are no longer configured —
+ * replacing or removing a credential in Settings resets the engineer's memory
+ * for it, while entries for still-present dead credentials stay active.
+ */
+export async function pruneQuarantinedCredentials(
+  prisma: SettingsPrisma,
+  activeCredentials: string[]
+): Promise<void> {
+  const existing = await loadQuarantinedCredentials(prisma);
+  if (!existing.length) return;
+  const active = new Set(activeCredentials.map(credentialFingerprint));
+  const next = existing.filter((entry) => active.has(entry.fingerprint));
+  if (next.length === existing.length) return;
+  if (!next.length) {
+    await prisma.appSetting.deleteMany({ where: { key: QUARANTINE_KEY } });
+    return;
+  }
+  await prisma.appSetting.upsert({
+    where: { key: QUARANTINE_KEY },
+    create: { key: QUARANTINE_KEY, value: JSON.stringify(next), secret: false },
+    update: { value: JSON.stringify(next) },
+  });
 }
 
 export interface CredentialCarrier {

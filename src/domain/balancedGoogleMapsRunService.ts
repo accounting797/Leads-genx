@@ -4,6 +4,7 @@ import { EmailExtractor } from './emailExtractor';
 import { safeErrorMessage } from './errorLogger';
 import { buildLocalDiscoveryBatches, LocalDiscoveryBatch } from './localDiscoveryBatch';
 import { LocalFirstRunStore } from './prismaRunStore';
+import { RunEngineer, diagnoseFailure } from './runEngineer';
 import { RunIngestionCoordinator, IngestionSnapshot } from './runIngestionCoordinator';
 import type { RunRecord } from './runService';
 import { ValidatedRunInput } from './types';
@@ -14,6 +15,7 @@ export interface BalancedGoogleMapsRunDeps {
   googleClient?: GooglePlacesClient;
   emailExtractor?: EmailExtractor;
   emailConcurrency?: number;
+  engineer?: RunEngineer;
   now?: () => Date;
 }
 
@@ -47,7 +49,7 @@ function seedFromRun(run: RunRecord): Partial<IngestionSnapshot> {
 }
 
 export async function executeBalancedGoogleMapsRun(
-  { store, localClient, googleClient, emailExtractor, emailConcurrency = 50, now = () => new Date() }: BalancedGoogleMapsRunDeps,
+  { store, localClient, googleClient, emailExtractor, emailConcurrency = 50, engineer, now = () => new Date() }: BalancedGoogleMapsRunDeps,
   run: RunRecord,
   input: ValidatedRunInput,
   options: BalancedGoogleMapsExecutionOptions = {}
@@ -239,6 +241,7 @@ export async function executeBalancedGoogleMapsRun(
       return 'completed';
     } catch (error) {
       await recordProviderFailure('google_places', error);
+      if (engineer) await engineer.diagnose('google', error, input.googleApiKey);
       await heartbeat('google', 'failed', 'Google Places failed', coordinator.snapshot().businessCount, {
         budgetUsed: apiRequestsUsed,
         budgetMax: budget,
@@ -251,6 +254,7 @@ export async function executeBalancedGoogleMapsRun(
 
   async function runLocalProvider(): Promise<ProviderState> {
     const runnable = await store.listRunnableBatches(run.id, now());
+    const reconnectTried = new Set<string>();
     let consecutiveEmptyBatches = 0;
     let successfulBatchCount = (await store.listBatches(run.id)).filter((batch) => batch.status === 'completed').length;
     let dockerYield = 0;
@@ -317,6 +321,18 @@ export async function executeBalancedGoogleMapsRun(
       } catch (error) {
         consecutiveEmptyBatches = 0;
         const code = errorCode(error);
+
+        // The engineer gets first shot at a down scraper: probe it once per
+        // batch and retry immediately if it answers before we checkpoint.
+        if (engineer && diagnoseFailure(error, 'docker').category === 'docker_down' && !reconnectTried.has(batch.key)) {
+          reconnectTried.add(batch.key);
+          const back = await engineer.reconnect('docker');
+          if (back) {
+            batchIndex -= 1;
+            continue;
+          }
+        }
+
         const terminal = code === 'unsupported_location' || attemptCount >= 2;
         await store.upsertBatch(run.id, {
           ...checkpoint,

@@ -165,9 +165,20 @@ describe('static dashboard settings page', () => {
       'testProxiesBtn',
       'saveSettingsBtn',
       'settingsStatus',
+      'quarantineBanner',
     ]) {
       expect(html).toContain(`id="${id}"`);
     }
+  });
+
+  it('surfaces engineer-quarantined credentials in Settings', () => {
+    const appJs = readPublicFile('app.js');
+    const css = readPublicFile('styles.css');
+
+    expect(appJs).toContain('renderQuarantineBanner');
+    expect(appJs).toContain('quarantinedCredentials');
+    expect(appJs).toContain('Engineer alert');
+    expect(css).toContain('.quarantine-banner');
   });
 
   it('loads, saves, and clears settings without redisplaying secrets', () => {

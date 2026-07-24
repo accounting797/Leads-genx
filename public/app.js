@@ -113,6 +113,29 @@
       : '· not saved';
     $('setProxyStatus').textContent = settings.proxyCount ? '· ' + settings.proxyCount + ' saved' : '· none saved';
     renderSavedProxies(settings.proxies || []);
+    renderQuarantineBanner(settings.quarantinedCredentials || []);
+  }
+
+  function renderQuarantineBanner(quarantined) {
+    const banner = $('quarantineBanner');
+    if (!quarantined.length) {
+      banner.hidden = true;
+      banner.innerHTML = '';
+      return;
+    }
+    banner.hidden = false;
+    banner.innerHTML =
+      '<strong>Engineer alert:</strong> ' +
+      quarantined
+        .map(
+          (entry) =>
+            '<span class="quarantine-item">' +
+            escapeHtml(entry.provider === 'apify' ? 'Apify token' : entry.provider === 'google' ? 'Google API key' : entry.provider) +
+            ' was rejected by the provider and quarantined (' +
+            escapeHtml(entry.reason) +
+            '). Save a fresh credential below to clear this.</span>'
+        )
+        .join(' ');
   }
 
   async function loadSettings() {

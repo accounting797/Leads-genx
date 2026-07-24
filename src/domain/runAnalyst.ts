@@ -1,7 +1,7 @@
 export type AnalystVerdict = 'perfect' | 'good' | 'bad' | 'needs_attention';
 
 export interface AnalystLine {
-  tone: 'ok' | 'info' | 'warn' | 'error';
+  tone: 'ok' | 'info' | 'warn' | 'error' | 'engineer';
   text: string;
 }
 
@@ -39,6 +39,7 @@ export interface AnalystEvent {
   type: string;
   message: string;
   createdAt: Date | string;
+  metadata?: { kind?: string };
 }
 
 export interface AnalystErrorLog {
@@ -137,6 +138,27 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
     }
   }
 
+  // --- The Run Engineer's live activity ------------------------------------
+  const engineerEvents = events.filter((event) => event.type === 'engineer_action');
+  const engineerTone = (kind: string | undefined): AnalystLine['tone'] => {
+    switch (kind) {
+      case 'retry_succeeded':
+        return 'ok';
+      case 'credential_quarantined':
+      case 'credential_skipped':
+      case 'guidance':
+        return 'warn';
+      default:
+        return 'engineer';
+    }
+  };
+  for (const event of engineerEvents.slice(-3)) {
+    lines.push({ tone: engineerTone(event.metadata?.kind), text: event.message });
+  }
+  const engineerQuarantined = engineerEvents.some((event) => event.metadata?.kind === 'credential_quarantined');
+  const engineerActive = engineerEvents.length > 0;
+  if (engineerQuarantined) escalate('bad');
+
   // --- Output so far -----------------------------------------------------
   if (run.businessCount > 0 || run.leadCount > 0) {
     lines.push({
@@ -197,7 +219,9 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
   } else {
     headline =
       verdict === 'good'
-        ? 'Everything is running smoothly — all systems healthy.'
+        ? engineerActive
+          ? 'Everything is running smoothly — the engineer is actively guarding this run.'
+          : 'Everything is running smoothly — all systems healthy.'
         : 'The run is active but needs attention — see the warnings below.';
   }
 

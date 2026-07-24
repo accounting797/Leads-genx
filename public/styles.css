@@ -1247,6 +1247,16 @@ tr:last-child td { border-bottom: 0; }
 .analyst-lines li[data-tone='warn']::before { background: var(--amber); }
 .analyst-lines li[data-tone='error']::before { background: var(--red); }
 
+.analyst-lines li[data-tone='engineer'] {
+  color: var(--soft);
+}
+
+.analyst-lines li[data-tone='engineer']::before {
+  background: linear-gradient(135deg, var(--cyan), var(--green));
+  border-radius: 1px;
+  transform: rotate(45deg) translateY(-1px);
+}
+
 .analyst-lines li[data-tone='warn'],
 .analyst-lines li[data-tone='error'] {
   color: var(--soft);
@@ -1263,4 +1273,26 @@ tr:last-child td { border-bottom: 0; }
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ---- Engineer quarantine banner ---- */
+
+.quarantine-banner {
+  background: rgba(245, 184, 75, 0.08);
+  border: 1px solid rgba(245, 184, 75, 0.4);
+  border-radius: 10px;
+  color: var(--soft);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+}
+
+.quarantine-banner strong {
+  color: var(--amber);
+}
+
+.quarantine-item {
+  display: block;
+  margin-top: 4px;
 }

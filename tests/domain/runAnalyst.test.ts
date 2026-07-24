@@ -155,6 +155,54 @@ describe('analyzeRun', () => {
     expect(report.lines.some((line) => line.text.includes('Apify failed'))).toBe(true);
   });
 
+  it('narrates engineer actions and escalates when a credential is quarantined', () => {
+    const report = analyzeRun(
+      baseInput({
+        events: [
+          {
+            type: 'engineer_action',
+            message: 'Engineer diagnosis (Apify): authentication token is not valid',
+            createdAt: new Date(NOW.getTime() - 4000),
+            metadata: { kind: 'diagnosis' },
+          },
+          {
+            type: 'engineer_action',
+            message: 'Engineer quarantined the dead Apify credential — future runs will skip it. Update it in Settings.',
+            createdAt: new Date(NOW.getTime() - 3000),
+            metadata: { kind: 'credential_quarantined' },
+          },
+          {
+            type: 'business_persisted',
+            message: 'Docker persisted 5 new businesses.',
+            createdAt: new Date(NOW.getTime() - 2000),
+          },
+        ],
+      })
+    );
+
+    expect(report.verdict).toBe('bad');
+    expect(report.lines.some((line) => line.tone === 'engineer' && line.text.includes('Engineer diagnosis'))).toBe(true);
+    expect(report.lines.some((line) => line.tone === 'warn' && line.text.includes('quarantined'))).toBe(true);
+  });
+
+  it('mentions the engineer is guarding a healthy run', () => {
+    const report = analyzeRun(
+      baseInput({
+        events: [
+          {
+            type: 'engineer_action',
+            message: 'Engineer is retrying Apify shard 1/2 (attempt 2/3) after 4s.',
+            createdAt: new Date(NOW.getTime() - 2000),
+            metadata: { kind: 'retry' },
+          },
+        ],
+      })
+    );
+
+    expect(report.verdict).toBe('good');
+    expect(report.headline).toMatch(/engineer is actively guarding/i);
+  });
+
   it('explains waiting_for_scraper as a safe pause, not a crash', () => {
     const report = analyzeRun(
       baseInput({
