@@ -15,8 +15,6 @@ describe('buildQueryPlan', () => {
       'oilfield services Tulsa, OK',
       'Oil & Gas Houston, TX',
       'Oil & Gas Tulsa, OK',
-      'oilfield services Oil & Gas Houston, TX',
-      'oilfield services Oil & Gas Tulsa, OK',
     ]);
     expect(queriesForTier(plan, 'expansion').map((item) => item.text)).toEqual([
       'oilfield services Distributor Houston, TX',

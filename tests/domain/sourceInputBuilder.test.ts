@@ -16,7 +16,7 @@ describe('suggestions', () => {
       expect.arrayContaining(['general contractor', 'trucking company', 'solar energy company', 'accounting firm'])
     );
     expect(suggestions.googleMaps.businessCategories).toEqual(
-      expect.arrayContaining(['Construction', 'Mining', 'Financial Services'])
+      expect.arrayContaining(['Construction', 'Roofing Services', 'Financial Services'])
     );
     expect(suggestions.googleMaps.companyTypes).toEqual(
       expect.arrayContaining(['LLC', 'Franchise', 'Family Owned'])
@@ -79,13 +79,7 @@ describe('buildGoogleMapsInput', () => {
     });
 
     expect(input).toMatchObject({
-      searchStringsArray: [
-        'dentist',
-        'orthodontist',
-        'Dental clinic',
-        'dentist Dental clinic',
-        'orthodontist Dental clinic',
-      ],
+      searchStringsArray: ['dentist', 'orthodontist', 'Dental clinic'],
       locationQuery: 'Austin, TX',
       maxCrawledPlacesPerSearch: 500,
       placeMinimumStars: 'four',
@@ -133,7 +127,6 @@ describe('buildGoogleMapsInput', () => {
         'roofer Phoenix, AZ',
         'Dental clinic Austin, TX',
         'Dental clinic Phoenix, AZ',
-        'dentist Dental clinic Austin, TX',
         'Dental clinic Public Company Phoenix, AZ',
       ])
     );
@@ -159,7 +152,6 @@ describe('buildGoogleMapsInput', () => {
         'aviation maintenance Detroit, MI',
         'Aerospace & Defense Detroit, MI',
         'Manufacturing Detroit, MI',
-        'aviation maintenance Aerospace & Defense Detroit, MI',
         'Manufacturing Wholesaler Detroit, MI',
       ])
     );
@@ -183,11 +175,15 @@ describe('buildGoogleMapsInput', () => {
       expect.arrayContaining([
         'oilfield services Houston, TX',
         'Oil & Gas Wholesaler Houston, TX',
-        'oilfield services Oil & Gas Houston, TX',
         'oilfield services Wholesaler Tulsa, OK',
       ])
     );
-    expect(input.searchStringsArray).toHaveLength(10);
+    // Precision queries are exactly the picked terms/categories — no junk
+    // term×category cross-products ("medical clinic Mining Austin, TX").
+    expect(input.searchStringsArray).not.toEqual(
+      expect.arrayContaining(['oilfield services Oil & Gas Houston, TX'])
+    );
+    expect(input.searchStringsArray).toHaveLength(8);
   });
 });
 

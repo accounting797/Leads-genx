@@ -13,8 +13,6 @@ describe('buildGoogleMapsSearchQueries', () => {
       'oilfield services Austin, TX',
       'Oil & Gas Washington, DC',
       'Oil & Gas Austin, TX',
-      'oilfield services Oil & Gas Washington, DC',
-      'oilfield services Oil & Gas Austin, TX',
       'oilfield services Distributor Washington, DC',
       'oilfield services Distributor Austin, TX',
       'oilfield services Corporation Washington, DC',

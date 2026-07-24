@@ -246,11 +246,10 @@ describe('GooglePlacesApiClient', () => {
       expect.arrayContaining([
         'oilfield services Houston, TX',
         'Oil & Gas Wholesaler Houston, TX',
-        'oilfield services Oil & Gas Houston, TX',
         'oilfield services Wholesaler Tulsa, OK',
       ])
     );
-    expect(queries).toHaveLength(10);
+    expect(queries).toHaveLength(8);
     expect(new Set(queries).size).toBe(queries.length);
   });
 

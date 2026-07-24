@@ -44,11 +44,14 @@ export function buildQueryPlan(filters: GoogleMapsFilters): PlannedQuery[] {
   for (const location of effectiveLocations) {
     const locationPlan: PlannedQuery[] = [];
     const suffix = location ? ` ${location}` : '';
+    // Precision queries are exactly what the operator picked — each term and
+    // each category on its own. We deliberately do NOT cross terms with
+    // categories ("medical clinic Mining Austin, TX" is junk that burns
+    // budget on untargeted results). Volume comes from the expansion tier.
     const precision = [
       ...terms,
       ...categories,
       ...(terms.length === 0 && categories.length === 0 ? companyTypes : []),
-      ...terms.flatMap((term) => categories.map((category) => `${term} ${category}`)),
     ];
     if (precision.length === 0) {
       if (location) locationPlan.push(item('precision', location, location));

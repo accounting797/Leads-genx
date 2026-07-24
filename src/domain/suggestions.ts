@@ -15,23 +15,24 @@ export const suggestions = {
     // finance, health) and mapped business-function queries (real estate,
     // marketing, consulting, engineering, security).
     searchTemplates: [
-      // Construction & heavy industry
+      // Construction & industrial (email-rich local businesses everywhere)
       'general contractor',
       'commercial construction company',
-      'defense contractor',
-      'oilfield services company',
-      'aerospace manufacturer',
-      'mining company',
-      'heavy equipment dealer',
+      'commercial roofing contractor',
+      'electrical contractor',
+      'excavation contractor',
+      'steel fabrication company',
+      'machinery manufacturer',
+      'industrial supply company',
       'equipment rental company',
+      'heavy equipment dealer',
       // Health & care
       'medical clinic',
       'urgent care clinic',
       'home health care agency',
       // Energy & renewables
       'solar energy company',
-      'energy services company',
-      // Transportation, logistics & supply chain
+      // Transportation & logistics
       'trucking company',
       'freight brokerage',
       'logistics company',
@@ -41,14 +42,13 @@ export const suggestions = {
       'investment advisory firm',
       'insurance agency',
       'accounting firm',
-      'cpa firm',
       'law firm',
-      // Function-mapped business services
+      // Business services (function-mapped, email-rich)
       'real estate developer',
       'property management company',
       'marketing agency',
-      'public relations agency',
-      'management consulting firm',
+      'staffing agency',
+      'IT services company',
       'engineering firm',
       'security services company',
     ],
@@ -58,26 +58,28 @@ export const suggestions = {
       // Construction & industrial
       'Construction',
       'Commercial Construction',
-      'Defense Contracting',
-      'Oil and Gas Services',
-      'Aerospace Manufacturing',
-      'Mining',
-      'Heavy Equipment Sales',
+      'Roofing Services',
+      'Electrical Services',
+      'Excavation',
+      'Steel Fabrication',
+      'Machinery Manufacturing',
+      'Industrial Supplies',
       'Equipment Rental',
+      'Heavy Equipment Sales',
       // Health & care
       'Medical Clinics',
-      'Hospitals',
-      'Home Health Care',
       'Urgent Care',
-      // Energy & utilities
+      'Home Health Care',
+      // Energy & renewables
       'Solar Energy',
-      'Energy Services',
-      'Utilities',
+      // Local business services
+      'Staffing Services',
+      'IT Services',
       // Transportation & logistics
       'Trucking',
       'Freight & Logistics',
       'Warehousing',
-      'Supply Chain Services',
+      'Moving Services',
       // Financial & professional
       'Financial Services',
       'Investment Services',
@@ -85,10 +87,9 @@ export const suggestions = {
       'Accounting',
       'Legal Services',
       'Real Estate Development',
+      'Property Management',
       // Business services
       'Marketing Services',
-      'Public Relations',
-      'Management Consulting',
       'Engineering Services',
       'Security Services',
     ],
