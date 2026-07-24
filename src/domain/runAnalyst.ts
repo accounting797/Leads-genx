@@ -10,6 +10,7 @@ export interface AnalystReport {
   verdictLabel: string;
   headline: string;
   lines: AnalystLine[];
+  checkedAt: string;
 }
 
 export interface AnalystRunSnapshot {
@@ -234,5 +235,6 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
     verdictLabel: VERDICT_LABEL[verdict],
     headline,
     lines: lines.slice(0, 8),
+    checkedAt: now.toISOString(),
   };
 }

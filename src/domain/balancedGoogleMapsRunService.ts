@@ -4,6 +4,7 @@ import { EmailExtractor } from './emailExtractor';
 import { safeErrorMessage } from './errorLogger';
 import { buildLocalDiscoveryBatches, LocalDiscoveryBatch } from './localDiscoveryBatch';
 import { LocalFirstRunStore } from './prismaRunStore';
+import { RunCancelledError, throwIfCancelled } from './runCancelled';
 import { RunEngineer, diagnoseFailure } from './runEngineer';
 import { RunIngestionCoordinator, IngestionSnapshot } from './runIngestionCoordinator';
 import type { RunRecord } from './runService';
@@ -16,6 +17,7 @@ export interface BalancedGoogleMapsRunDeps {
   emailExtractor?: EmailExtractor;
   emailConcurrency?: number;
   engineer?: RunEngineer;
+  isCancelled?: () => Promise<boolean>;
   now?: () => Date;
 }
 
@@ -49,7 +51,7 @@ function seedFromRun(run: RunRecord): Partial<IngestionSnapshot> {
 }
 
 export async function executeBalancedGoogleMapsRun(
-  { store, localClient, googleClient, emailExtractor, emailConcurrency = 50, engineer, now = () => new Date() }: BalancedGoogleMapsRunDeps,
+  { store, localClient, googleClient, emailExtractor, emailConcurrency = 50, engineer, isCancelled, now = () => new Date() }: BalancedGoogleMapsRunDeps,
   run: RunRecord,
   input: ValidatedRunInput,
   options: BalancedGoogleMapsExecutionOptions = {}
@@ -260,6 +262,7 @@ export async function executeBalancedGoogleMapsRun(
     let dockerYield = 0;
 
     for (let batchIndex = 0; batchIndex < runnable.length; batchIndex += 1) {
+      await throwIfCancelled(isCancelled);
       if (coordinator.snapshot().businessCount >= input.maxResults) break;
       const checkpoint = runnable[batchIndex];
       const batch: LocalDiscoveryBatch | undefined = plannedByKey.get(checkpoint.batchKey);
@@ -368,6 +371,7 @@ export async function executeBalancedGoogleMapsRun(
   const googleTask = runGoogleProvider();
   const localTask = runLocalProvider();
   const [googleResult, localResult] = await Promise.allSettled([googleTask, localTask]);
+  await throwIfCancelled(isCancelled);
   if (!options.ingestionCoordinator) {
     // Internally owned coordinator: drain and report. A shared coordinator is
     // drained once by the caller after every provider settles.

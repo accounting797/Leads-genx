@@ -13,6 +13,7 @@ import {
   saveOperatorSettings,
   toSafeOperatorSettings,
   normalizeProxyLine,
+  unquarantineCredential,
   SECRET_MASK,
 } from '../domain/operatorSettings';
 import { testProxies, ProxyTestResult } from '../integrations/proxyTester';
@@ -40,6 +41,7 @@ export interface ApiRunService {
     status: string;
     leadSource: string;
   }>;
+  stopRun?(id: number): Promise<void>;
   resumeRun?(runId: number, credentials: {
     googleApiKey?: string;
     googleApiKeys?: string[];
@@ -202,6 +204,30 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
         proxyUrls: parsed.proxyUrls,
       });
       res.status(202).json({ data: { id: resumed.id, status: resumed.status } });
+    })
+  );
+
+  router.post(
+    '/runs/:id/stop',
+    asyncHandler(async (req, res) => {
+      const id = Number(req.params.id);
+      if (prisma) {
+        const run = await prisma.run.findUnique({ where: { id } });
+        if (!run) {
+          res.status(404).json({ error: 'Run not found' });
+          return;
+        }
+        if (['completed', 'failed', 'cancelled', 'partially_completed'].includes(run.status)) {
+          res.status(409).json({ error: `Run already finished with status ${run.status.replace(/_/g, ' ')}.` });
+          return;
+        }
+      }
+      if (!runService?.stopRun) {
+        res.status(503).json({ error: 'Stop unavailable' });
+        return;
+      }
+      await runService.stopRun(id);
+      res.json({ data: { id, status: 'cancelled' } });
     })
   );
 
@@ -436,6 +462,17 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
       }
       const tester = credentialTester ?? { testApifyToken, testGoogleApiKey };
       const result = await tester.testApifyToken(token);
+      // A passing live test is proof of life: release the credential from
+      // the engineer's quarantine so runs trust it again.
+      if (result.ok) {
+        try {
+          if (prisma && (await unquarantineCredential(prisma, token))) {
+            result.detail = `${result.detail} — quarantine cleared, the engineer trusts this token again`;
+          }
+        } catch {
+          // Quarantine state must never break a credential test.
+        }
+      }
       res.json({ data: result });
     })
   );
@@ -452,7 +489,19 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
       }
       const tester = credentialTester ?? { testApifyToken, testGoogleApiKey };
       const results: CredentialTestResult[] = [];
-      for (const key of keys) results.push(await tester.testGoogleApiKey(key));
+      for (const key of keys) {
+        const result = await tester.testGoogleApiKey(key);
+        if (result.ok) {
+          try {
+            if (prisma && (await unquarantineCredential(prisma, key))) {
+              result.detail = `${result.detail} — quarantine cleared, the engineer trusts this key again`;
+            }
+          } catch {
+            // Quarantine state must never break a credential test.
+          }
+        }
+        results.push(result);
+      }
       res.json({
         data: {
           results,

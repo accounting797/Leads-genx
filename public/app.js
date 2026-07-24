@@ -499,6 +499,8 @@
   function startProgress(runId) {
     activeRunId = runId;
     progressStartedAt = Date.now();
+    lastAnalystFingerprint = '';
+    setAnalystLive(true);
     $('progressRunId').textContent = '#' + runId;
     $('progressLabel').textContent = 'Queued';
     $('progressSubhead').textContent = 'Tracking run #' + runId;
@@ -536,16 +538,44 @@
     return status === 'queued' ? 'Preparing Google and Docker' : status;
   }
 
+  let lastAnalystFingerprint = '';
+  let lastAnalystCheckedAt = null;
+  let analystActive = false;
+
+  function setAnalystLive(active) {
+    analystActive = active;
+    const chip = $('analystLive');
+    chip.dataset.active = active ? 'true' : 'false';
+    $('analystLiveText').textContent = active ? 'ENGINEER ONLINE' : 'STANDBY';
+  }
+
   function renderAnalyst(report) {
     const panel = $('analystPanel');
     if (!panel) return;
+    lastAnalystCheckedAt = report.checkedAt ? new Date(report.checkedAt) : new Date();
+
+    // Steady state: leave the DOM untouched so the panel breathes instead of
+    // flickering — the ticker keeps the sense of life between changes.
+    const fingerprint = JSON.stringify([report.verdict, report.headline, report.lines]);
+    if (fingerprint === lastAnalystFingerprint) return;
+    lastAnalystFingerprint = fingerprint;
+
     panel.dataset.verdict = report.verdict;
     const pill = $('analystVerdict');
     pill.dataset.verdict = report.verdict;
     pill.textContent = report.verdictLabel;
-    $('analystHeadline').textContent = report.headline;
+    const headline = $('analystHeadline');
+    headline.textContent = report.headline;
+    headline.classList.remove('analyst-headline-in');
+    void headline.offsetWidth;
+    headline.classList.add('analyst-headline-in');
     $('analystLines').innerHTML = report.lines
-      .map((line) => '<li data-tone="' + escapeHtml(line.tone) + '">' + escapeHtml(line.text) + '</li>')
+      .map(
+        (line, index) =>
+          '<li data-tone="' + escapeHtml(line.tone) + '" style="animation-delay:' + index * 90 + 'ms">' +
+          escapeHtml(line.text) +
+          '</li>'
+      )
       .join('');
   }
 
@@ -554,6 +584,9 @@
     try {
       const run = await api.getRun(activeRunId);
       const events = await api.getRunEvents(activeRunId);
+      setAnalystLive(
+        ['queued', 'running', 'cooling_down', 'waiting_for_scraper', 'waiting_for_credentials'].includes(run.status)
+      );
       try {
         renderAnalyst(await api.getRunAnalyst(activeRunId));
       } catch {
@@ -589,23 +622,27 @@
         $('progressFill').style.width = '100%';
         updateRadar(run, events, 1, elapsed);
         clearInterval(progressTimer);
+        setAnalystLive(false);
         await loadRuns(String(run.id));
         await loadLeads();
       } else if (run.status === 'failed') {
         $('progressFill').style.width = '100%';
         updateRadar(run, events, fraction, elapsed);
         clearInterval(progressTimer);
+        setAnalystLive(false);
         await loadRuns(String(run.id));
         await loadLogs();
       } else if (['partially_completed', 'cancelled', 'paused'].includes(run.status)) {
         $('progressFill').style.width = Math.min(94, Math.max(12, Math.round(fraction * 100))) + '%';
         updateRadar(run, events, fraction, elapsed);
         clearInterval(progressTimer);
+        setAnalystLive(false);
         await refreshLiveProgressTables(run.id);
       } else if (['waiting_for_scraper', 'waiting_for_credentials'].includes(run.status)) {
+        // Keep watching: the engineer may reconnect or the operator may resume,
+        // so the analyst must stay alive instead of freezing on a waiting run.
         $('progressFill').style.width = Math.min(92, Math.max(12, Math.round((resultCount / target) * 100))) + '%';
         updateRadar(run, events, fraction, elapsed);
-        clearInterval(progressTimer);
         await refreshLiveProgressTables(run.id);
       } else {
         const width = Math.min(94, Math.max(12, Math.round(fraction * 100)));
@@ -665,6 +702,22 @@
       })
     );
     setOutputMode('standard');
+
+    // The analyst's heartbeat: updates the telemetry ticker every second so
+    // the panel visibly stays alive between progress polls.
+    setInterval(() => {
+      const ticker = $('analystTicker');
+      if (!ticker) return;
+      if (!analystActive || !lastAnalystCheckedAt) {
+        ticker.textContent = analystActive ? 'Telemetry link warming up…' : 'Telemetry link idle.';
+        return;
+      }
+      const seconds = Math.max(0, Math.round((Date.now() - lastAnalystCheckedAt.getTime()) / 1000));
+      ticker.textContent =
+        'Live telemetry · last scan ' +
+        (seconds < 2 ? 'just now' : seconds + 's ago') +
+        ' · engineer watching this run';
+    }, 1000);
     $('runForm').addEventListener('submit', submitRun);
     $('refreshRuns').addEventListener('click', loadRuns);
     $('refreshLogs').addEventListener('click', loadLogs);
@@ -683,17 +736,30 @@
       const viewRunId = target.dataset ? target.dataset.viewRun : undefined;
       const copyRunEmailsId = target.dataset ? target.dataset.copyRunEmails : undefined;
       const deleteRunId = target.dataset ? target.dataset.deleteRun : undefined;
+      const stopRunId = target.dataset ? target.dataset.stopRun : undefined;
       if (viewRunId) {
         $('leadRunFilter').value = viewRunId;
         setTab('leads');
       }
       if (copyRunEmailsId) void copyRunEmails(copyRunEmailsId);
+      if (stopRunId) void stopRun(stopRunId);
       if (deleteRunId) void deleteRun(deleteRunId);
     });
 
     await loadRuns();
     await loadLeads();
     await loadLogs();
+  }
+
+  async function stopRun(runId) {
+    try {
+      await api.stopRun(runId);
+      window.LeadsGenXUi.toast('Run #' + runId + ' stopped — output kept');
+      await loadRuns();
+      await loadLeads();
+    } catch (error) {
+      window.LeadsGenXUi.toast(error.message);
+    }
   }
 
   async function deleteRun(runId) {

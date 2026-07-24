@@ -309,6 +309,35 @@ describe('static dashboard Google Maps providers', () => {
     expect(css).toContain(".analyst-verdict[data-verdict='perfect']");
     expect(css).toContain('.analyst-orb-sweep');
   });
+
+  it('keeps the analyst visibly alive with a live chip, ticker, and entrance motion', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const css = readPublicFile('styles.css');
+
+    expect(html).toContain('id="analystLive"');
+    expect(html).toContain('id="analystTicker"');
+    expect(appJs).toContain('ENGINEER ONLINE');
+    expect(appJs).toContain('setAnalystLive');
+    expect(appJs).toContain('lastAnalystFingerprint');
+    expect(appJs).toContain('Live telemetry · last scan');
+    expect(css).toContain('@keyframes analyst-live-pulse');
+    expect(css).toContain('@keyframes analyst-line-in');
+    expect(css).toContain('@keyframes analyst-ticker-scan');
+  });
+
+  it('lets the operator stop an active run from the run history', () => {
+    const uiJs = readPublicFile('ui.js');
+    const appJs = readPublicFile('app.js');
+    const apiJs = readPublicFile('api.js');
+    const css = readPublicFile('styles.css');
+
+    expect(uiJs).toContain('data-stop-run');
+    expect(apiJs).toContain("'/runs/' + id + '/stop'");
+    expect(appJs).toContain('async function stopRun');
+    expect(appJs).toContain('api.stopRun(runId)');
+    expect(css).toContain('.ghost-btn.danger');
+  });
 });
 
 describe('static dashboard source-aware progress', () => {

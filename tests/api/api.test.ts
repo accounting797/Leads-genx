@@ -569,3 +569,88 @@ describe('API', () => {
     expect(recoveries).toBe(1);
   });
 });
+
+describe('run stopping and engineer quarantine clearing', () => {
+  it('stops an active run', async () => {
+    let stoppedId: number | undefined;
+    const prismaStub = {
+      run: {
+        async findUnique() {
+          return { id: 5, status: 'running' };
+        },
+      },
+    };
+    const app = createApp({
+      prisma: prismaStub as never,
+      runService: {
+        async stopRun(id: number) {
+          stoppedId = id;
+        },
+      } as never,
+    });
+
+    const res = await request(app).post('/api/runs/5/stop').expect(200);
+    expect(res.body.data).toEqual({ id: 5, status: 'cancelled' });
+    expect(stoppedId).toBe(5);
+  });
+
+  it('refuses to stop a finished run', async () => {
+    const prismaStub = {
+      run: {
+        async findUnique() {
+          return { id: 5, status: 'completed' };
+        },
+      },
+    };
+    const app = createApp({
+      prisma: prismaStub as never,
+      runService: { async stopRun() {} } as never,
+    });
+    await request(app).post('/api/runs/5/stop').expect(409);
+  });
+
+  it('clears the engineer quarantine when a credential passes a live test', async () => {
+    const { credentialFingerprint } = await import('../../src/domain/operatorSettings');
+    const rows = new Map<string, { value: string; secret: boolean }>([
+      [
+        'quarantinedCredentials',
+        {
+          value: JSON.stringify([
+            { fingerprint: credentialFingerprint('dead-token'), provider: 'apify', reason: 'rejected', at: '' },
+          ]),
+          secret: false,
+        },
+      ],
+    ]);
+    const prismaStub = {
+      appSetting: {
+        async findMany({ where }: { where: { key: string } }) {
+          const row = rows.get(where.key);
+          return row ? [{ key: where.key, ...row }] : [];
+        },
+        async upsert({ where, create, update }: never) {
+          rows.set(where.key, { value: update.value ?? create.value, secret: create.secret ?? false });
+          return create;
+        },
+        async deleteMany({ where }: { where: { key: string } }) {
+          rows.delete(where.key);
+        },
+      },
+    };
+    const app = createApp({
+      prisma: prismaStub as never,
+      credentialTester: {
+        async testApifyToken() {
+          return { ok: true, detail: 'Apify token is live (operator)', latencyMs: 10 };
+        },
+        async testGoogleApiKey() {
+          return { ok: false, detail: 'unused', latencyMs: 1 };
+        },
+      } as never,
+    });
+
+    const res = await request(app).post('/api/settings/test/apify').send({ apifyToken: 'dead-token' }).expect(200);
+    expect(res.body.data.detail).toContain('quarantine cleared');
+    expect(rows.has('quarantinedCredentials')).toBe(false);
+  });
+});

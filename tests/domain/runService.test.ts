@@ -1197,4 +1197,48 @@ describe('createRunService', () => {
     expect(skipped).toBeTruthy();
     expect(skipped?.message).toContain('quarantined');
   });
+
+  it('stops a run cleanly between provider units and keeps persisted output', async () => {
+    const store = createStore();
+    const seenTokens: string[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const actorClient: ActorClient = {
+      async startRun(input) {
+        seenTokens.push(input.token);
+        if (seenTokens.length === 1) await firstGate;
+        return { runId: `run-${seenTokens.length}`, status: 'SUCCEEDED', datasetId: `ds-${seenTokens.length}` };
+      },
+      async getRun() { throw new Error('not used'); },
+      async getDatasetItems() {
+        return [{ title: 'Lead Co', email: 'lead@example.com' }];
+      },
+    };
+
+    const service = createRunService({ store, actorClient, engineerSleep: async () => {} });
+    await service.startRun(
+      {
+        apifyToken: 'token-one',
+        apifyTokens: ['token-one', 'token-two'],
+        leadSource: 'google_maps',
+        maxResults: 50,
+        googleMaps: { provider: 'apify', searchTerms: ['dentist'], locationQuery: 'Austin, TX' },
+      },
+      { background: true }
+    );
+
+    while (seenTokens.length < 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    await service.stopRun(store.runs[0].id);
+    releaseFirst();
+    while (!store.events.some((event) => event.type === 'run_cancelled_ack')) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(store.runs[0].status).toBe('cancelled');
+    expect(seenTokens).toEqual(['token-one']);
+    expect(store.events.some((event) => event.type === 'run_cancelled')).toBe(true);
+    expect(store.leads).toHaveLength(1);
+  });
 });

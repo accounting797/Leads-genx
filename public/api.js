@@ -27,6 +27,7 @@
     listRuns: () => requestJson('/runs'),
     getRun: (id) => requestJson('/runs/' + id),
     deleteRun: (id) => requestJson('/runs/' + id, { method: 'DELETE' }),
+    stopRun: (id) => requestJson('/runs/' + id + '/stop', { method: 'POST' }),
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
     getRunAnalyst: (id) => requestJson('/runs/' + id + '/analyst'),
     listLeads: (runId) => requestJson('/leads' + (runId ? '?runId=' + runId : '')),

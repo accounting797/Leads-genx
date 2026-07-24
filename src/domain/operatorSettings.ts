@@ -232,6 +232,27 @@ export function filterQuarantined(credentials: string[], quarantined: Quarantine
 }
 
 /**
+ * Proof of life clears the engineer's memory: when a credential passes a live
+ * test, its quarantine entry is removed so runs trust it again.
+ */
+export async function unquarantineCredential(prisma: SettingsPrisma, credential: string): Promise<boolean> {
+  const existing = await loadQuarantinedCredentials(prisma);
+  const fingerprint = credentialFingerprint(credential);
+  const next = existing.filter((entry) => entry.fingerprint !== fingerprint);
+  if (next.length === existing.length) return false;
+  if (!next.length) {
+    await prisma.appSetting.deleteMany({ where: { key: QUARANTINE_KEY } });
+    return true;
+  }
+  await prisma.appSetting.upsert({
+    where: { key: QUARANTINE_KEY },
+    create: { key: QUARANTINE_KEY, value: JSON.stringify(next), secret: false },
+    update: { value: JSON.stringify(next) },
+  });
+  return true;
+}
+
+/**
  * Drops quarantine entries for credentials that are no longer configured —
  * replacing or removing a credential in Settings resets the engineer's memory
  * for it, while entries for still-present dead credentials stay active.

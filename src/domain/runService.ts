@@ -12,6 +12,7 @@ import type { LocalFirstRunStore } from './prismaRunStore';
 import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
 import { GoogleMapsFilters, LeadSource, NormalizedLead, OutputMode, RouteMode, ValidatedRunInput } from './types';
 import { OperatorSettings, QuarantinedCredential, filterQuarantined, withSavedCredentials } from './operatorSettings';
+import { RunCancelledError, throwIfCancelled } from './runCancelled';
 import { RunEngineer } from './runEngineer';
 
 export interface RunRecord {
@@ -84,6 +85,7 @@ interface RunApifyShardsOptions {
   continueOnShardError?: boolean;
   ingestionCoordinator?: RunIngestionCoordinator;
   engineer?: RunEngineer;
+  isCancelled?: () => Promise<boolean>;
 }
 
 interface RunGooglePlacesOptions {
@@ -204,6 +206,7 @@ export function createRunService({
     };
 
     for (const [index, actorInput] of actorInputs.entries()) {
+      await throwIfCancelled(options.isCancelled);
       await store.addEvent(run.id, 'apify_shard_started', `Apify shard ${index + 1}/${actorInputs.length} started.`, {
         shard: index + 1,
         shardCount: actorInputs.length,
@@ -478,7 +481,14 @@ export function createRunService({
     });
   }
 
+  const cancelledRunIds = new Set<number>();
+
   async function executeRun(run: RunRecord, input: ValidatedRunInput) {
+    const statusReader = store as Partial<LocalFirstRunStore>;
+    const isCancelled = async (): Promise<boolean> =>
+      cancelledRunIds.has(run.id) ||
+      (typeof statusReader.getRun === 'function' &&
+        (await statusReader.getRun(run.id))?.status === 'cancelled');
     const engineer = new RunEngineer({
       runId: run.id,
       store,
@@ -506,6 +516,7 @@ export function createRunService({
             emailExtractor,
             emailConcurrency: emailExtractionConcurrency,
             engineer,
+            isCancelled,
           }, run, input);
           return;
         }
@@ -592,6 +603,7 @@ export function createRunService({
             emailExtractor,
             emailConcurrency: emailExtractionConcurrency,
             engineer,
+            isCancelled,
           }, run, input, { finalize: false, ingestionCoordinator: coordinator })
             .then((outcome) => ({ ok: true as const, outcome }))
             .catch((error: unknown) => ({ ok: false as const, error }));
@@ -599,12 +611,14 @@ export function createRunService({
             continueOnShardError: true,
             ingestionCoordinator: coordinator,
             engineer,
+            isCancelled,
           })
             .then((result) => ({ ok: true as const, result }))
             .catch((error: unknown) => ({ ok: false as const, error }));
 
           const [balancedSettled, apifySettled] = await Promise.all([balancedTask, apifyTask]);
           await coordinator.drain();
+          await throwIfCancelled(isCancelled);
           const snap = coordinator.snapshot();
           const sharedMetrics = {
             businessCount: snap.businessCount,
@@ -707,6 +721,7 @@ export function createRunService({
           const result = await runApifyShards(run, input, seenEmails, leadCount, {
             continueOnShardError: Boolean(input.googleApiKey),
             engineer,
+            isCancelled,
           });
           leadCount = result.leadCount;
         }
@@ -763,7 +778,7 @@ export function createRunService({
         actorId: actorInput.actorId,
       });
 
-      const { leadCount } = await runApifyShards(run, input, undefined, undefined, { engineer });
+      const { leadCount } = await runApifyShards(run, input, undefined, undefined, { engineer, isCancelled });
       if (leadCount === 0) {
         await store.addEvent(run.id, 'leads_saved', 'Saved 0 email leads.', { leadCount: 0 });
       }
@@ -775,6 +790,16 @@ export function createRunService({
         leadCount,
       });
     } catch (error) {
+      if (error instanceof RunCancelledError) {
+        // The run row already says 'cancelled' — confirm the engine stopped
+        // cleanly and leave the persisted output untouched.
+        await store.addEvent(
+          run.id,
+          'run_cancelled_ack',
+          'Engineer stopped the run cleanly — all output gathered so far is kept.'
+        );
+        return;
+      }
       const message = safeErrorMessage(error);
       await store.updateRun(run.id, {
         status: 'failed',
@@ -789,6 +814,12 @@ export function createRunService({
       });
       await store.addEvent(run.id, 'run_failed', message);
     }
+  }
+
+  async function stopRun(id: number) {
+    cancelledRunIds.add(id);
+    await store.updateRun(id, { status: 'cancelled', errorMessage: 'Stopped by operator.' });
+    await store.addEvent(id, 'run_cancelled', 'Operator stopped the run — output gathered so far is kept.');
   }
 
   function recoveredInput(run: RunRecord, credentials: ResumeCredentials = {}): ValidatedRunInput {
@@ -935,6 +966,7 @@ export function createRunService({
 
   return {
     startRun,
+    stopRun,
     executeRun,
     resumeRun,
     recoverInterruptedRuns,

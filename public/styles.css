@@ -1296,3 +1296,114 @@ tr:last-child td { border-bottom: 0; }
   display: block;
   margin-top: 4px;
 }
+
+/* ---- Analyst liveness ---- */
+
+.analyst-live {
+  align-items: center;
+  background: rgba(143, 157, 170, 0.1);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+  padding: 3px 9px;
+}
+
+.analyst-live span:last-child,
+.analyst-live #analystLiveText {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.analyst-live-dot {
+  background: #5a6a78;
+  border-radius: 50%;
+  height: 6px;
+  width: 6px;
+}
+
+.analyst-live[data-active='true'] {
+  background: rgba(38, 194, 129, 0.1);
+  border-color: rgba(38, 194, 129, 0.4);
+}
+
+.analyst-live[data-active='true'] .analyst-live-dot {
+  animation: analyst-live-pulse 1.6s ease-in-out infinite;
+  background: var(--green);
+}
+
+.analyst-live[data-active='true'] #analystLiveText {
+  color: #b9f7dc;
+}
+
+@keyframes analyst-live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(38, 194, 129, 0.55); }
+  50% { box-shadow: 0 0 0 5px rgba(38, 194, 129, 0); }
+}
+
+.analyst-lines li {
+  animation: analyst-line-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes analyst-line-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.analyst-headline-in {
+  animation: analyst-headline-in 0.45s ease both;
+}
+
+@keyframes analyst-headline-in {
+  from { opacity: 0.2; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.analyst-ticker {
+  align-items: center;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+  margin-top: 10px;
+  overflow: hidden;
+  padding-top: 8px;
+  position: relative;
+}
+
+.analyst-ticker::after {
+  animation: analyst-ticker-scan 2.6s linear infinite;
+  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.5), transparent);
+  bottom: -1px;
+  content: '';
+  height: 1px;
+  left: -30%;
+  position: absolute;
+  width: 30%;
+}
+
+@keyframes analyst-ticker-scan {
+  to { left: 110%; }
+}
+
+.ghost-btn.danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: var(--red);
+}
+
+.ghost-btn.danger:hover {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .analyst-live-dot,
+  .analyst-lines li,
+  .analyst-headline-in,
+  .analyst-ticker::after {
+    animation: none !important;
+  }
+}

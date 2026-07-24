@@ -23,6 +23,9 @@
       runs
         .map((run) => {
           const count = run._count ? run._count.leads : run.leadCount || 0;
+          const active = ['queued', 'running', 'cooling_down', 'waiting_for_scraper', 'waiting_for_credentials'].includes(
+            run.status
+          );
           return (
             '<tr><td>#' +
             run.id +
@@ -40,7 +43,9 @@
             run.id +
             '">View</button> <button class="ghost-btn" data-copy-run-emails="' +
             run.id +
-            '">Copy Emails</button> <button class="ghost-btn" data-delete-run="' +
+            '">Copy Emails</button> ' +
+            (active ? '<button class="ghost-btn danger" data-stop-run="' + run.id + '">Stop</button> ' : '') +
+            '<button class="ghost-btn" data-delete-run="' +
             run.id +
             '">Delete</button></td></tr>'
           );
