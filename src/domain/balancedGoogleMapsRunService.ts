@@ -254,8 +254,48 @@ export async function executeBalancedGoogleMapsRun(
     }
   }
 
+  // Set when the pre-flight probe found no Docker — used to give an honest,
+  // actionable failure when nothing else could produce either.
+  let dockerLaneUnavailable = false;
+
   async function runLocalProvider(): Promise<ProviderState> {
     const runnable = await store.listRunnableBatches(run.id, now());
+
+    // Pre-flight: probe the Docker lane before burning a single batch. Docker
+    // is a bonus booster, never a blocker — when it isn't reachable (not
+    // installed, Desktop not started, container down) we skip the lane
+    // cleanly and let Google carry the run instead of parking in
+    // "waiting for scraper" and looking stuck.
+    let dockerHealthy = true;
+    if (typeof localClient.health === 'function') {
+      try {
+        dockerHealthy = await localClient.health();
+      } catch {
+        dockerHealthy = false;
+      }
+    }
+    if (!dockerHealthy) {
+      dockerLaneUnavailable = true;
+      await heartbeat('docker', 'failed', 'Docker lane unavailable — skipped', 0, {
+        errorCode: 'docker_down',
+        errorMessage: 'The Docker scraper did not answer the pre-flight health check.',
+      });
+      await store.addEvent(
+        run.id,
+        'local_lane_skipped',
+        'Nova here — the Docker lane is not available on this machine, so this run is gliding on Google power alone. Docker is only a bonus booster; nothing is lost.',
+        { provider: 'local_maps_scraper', skippedBatchCount: runnable.length }
+      );
+      for (const checkpoint of runnable) {
+        await store.upsertBatch(run.id, {
+          ...checkpoint,
+          status: 'skipped_provider_failure',
+          errorCode: 'docker_down_preflight',
+        });
+      }
+      return 'failed';
+    }
+
     const reconnectTried = new Set<string>();
     let consecutiveEmptyBatches = 0;
     let successfulBatchCount = (await store.listBatches(run.id)).filter((batch) => batch.status === 'completed').length;
@@ -277,7 +317,21 @@ export async function executeBalancedGoogleMapsRun(
       await heartbeat('docker', 'running', `Discovery batch ${batchIndex + 1}/${runnable.length}`, dockerYield);
 
       try {
-        const result = await localClient.searchBatch({ batch, proxies: input.proxyUrls ?? [] });
+        // A scrape batch can run for minutes. Keep beating the docker
+        // heartbeat while it works so Nova never reports an honest batch as
+        // "gone quiet" — only true silence should ever look stuck.
+        const batchBeat = setInterval(() => {
+          void heartbeat('docker', 'running', `Discovery batch ${batchIndex + 1}/${runnable.length} — still working`, dockerYield).catch(
+            () => {}
+          );
+        }, 20_000);
+        batchBeat.unref?.();
+        let result;
+        try {
+          result = await localClient.searchBatch({ batch, proxies: input.proxyUrls ?? [] });
+        } finally {
+          clearInterval(batchBeat);
+        }
         successfulBatchCount += 1;
         dockerYield += result.rawBusinessCount;
         if (result.rawBusinessCount === 0) {
@@ -441,6 +495,12 @@ export async function executeBalancedGoogleMapsRun(
 
   if (googleState === 'failed' && localState === 'failed' && snap.businessCount === 0) {
     throw new Error('Google Places and Docker discovery both failed before producing businesses.');
+  }
+
+  if (dockerLaneUnavailable && snap.businessCount === 0) {
+    throw new Error(
+      'The Docker lane is unavailable and this run has no Google output to fall back on. Start Docker Desktop (or the scraper container) and resume — or add Google API budget and Nova will fly on Google power alone.'
+    );
   }
 
   if (options.finalize === false) {

@@ -129,6 +129,60 @@ describe('executeBalancedGoogleMapsRun', () => {
     expect(state.events.some((event) => event.type === 'local_maps_scraper_failed')).toBe(true);
   });
 
+  it('skips the Docker lane cleanly when the pre-flight probe finds no Docker', async () => {
+    const run: RunRecord = { id: 21, status: 'queued', leadSource: 'google_maps', actorId: 'local_first', maxResults: 20, leadCount: 0 };
+    const state = fakeStore(run);
+    let batchesAttempted = 0;
+
+    await executeBalancedGoogleMapsRun({
+      store: state.store,
+      localClient: {
+        async search() { return []; },
+        async health() { return false; },
+        async searchBatch() { batchesAttempted += 1; throw new Error('must not run'); },
+      },
+      googleClient: {
+        async search(input) {
+          const item = { id: 'google-ok', displayName: { text: 'Google Co' } };
+          await input.onPage?.({ shard: 1, shardCount: 1, query: 'dentist', items: [item], totalItemCount: 1 });
+          return [item];
+        },
+      },
+    }, run, {
+      leadSource: 'google_maps', maxResults: 20, googleApiKey: 'secret',
+      googleMaps: { provider: 'local_first', searchTerms: ['dentist'], locations: ['Austin, TX'], apiRequestBudget: 50 },
+    });
+
+    expect(run.status).toBe('completed');
+    expect(run.googleBusinessCount).toBe(1);
+    expect(batchesAttempted).toBe(0);
+    expect(state.batches.every((batch) => batch.status === 'skipped_provider_failure')).toBe(true);
+    expect(state.events.some((event) => event.type === 'local_lane_skipped')).toBe(true);
+    expect(state.events.some((event) => event.type === 'local_batch_started')).toBe(false);
+  });
+
+  it('fails honestly when Docker is down and nothing else can produce', async () => {
+    const run: RunRecord = { id: 22, status: 'queued', leadSource: 'google_maps', actorId: 'local_first', maxResults: 20, leadCount: 0 };
+    const state = fakeStore(run);
+
+    await expect(
+      executeBalancedGoogleMapsRun({
+        store: state.store,
+        localClient: {
+          async search() { return []; },
+          async health() { return false; },
+          async searchBatch() { throw new Error('must not run'); },
+        },
+        googleClient: {
+          async search() { return []; },
+        },
+      }, run, {
+        leadSource: 'google_maps', maxResults: 20, googleApiKey: 'secret',
+        googleMaps: { provider: 'local_first', searchTerms: ['dentist'], locations: ['Austin, TX'], apiRequestBudget: 0 },
+      })
+    ).rejects.toThrow(/Docker lane is unavailable/);
+  });
+
   it('deduplicates the same website and phone across Google and Docker before email scanning', async () => {
     const run: RunRecord = { id: 8, status: 'queued', leadSource: 'google_maps', actorId: 'local_first', maxResults: 20, leadCount: 0 };
     const state = fakeStore(run);

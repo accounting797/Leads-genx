@@ -540,6 +540,7 @@
     const googleActive = types.includes('google_places_started') &&
       !types.includes('google_places_completed') && !types.includes('google_places_failed');
     const dockerActive = types.includes('local_batch_started') && !types.includes('local_empty_circuit_opened');
+    if (types.includes('local_lane_skipped') && googleActive) return 'Google is discovering businesses — Nova skipped the unavailable Docker lane';
     if (googleActive && dockerActive) return 'Google API and Docker are discovering businesses';
     if (googleActive) {
       return types.includes('google_key_accepted')
