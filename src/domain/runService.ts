@@ -110,6 +110,7 @@ export function serializeSafeFilters(input: ValidatedRunInput): string {
 export interface ResumeCredentials {
   googleApiKey?: string;
   googleApiKeys?: string[];
+  apifyToken?: string;
   proxyUrls?: string[];
 }
 
@@ -496,6 +497,9 @@ export function createRunService({
       runId: run.id,
       store,
       sleep: engineerSleep,
+      setRunStatus: async (status) => {
+        await store.updateRun(run.id, { status });
+      },
       quarantineCredential: quarantineCredential
         ? (provider, credential, reason) => quarantineCredential(provider, credential ?? '', reason)
         : undefined,
@@ -846,6 +850,8 @@ export function createRunService({
       proxyUrls: credentials.proxyUrls,
       googleApiKey: googleApiKeys?.[0],
       googleApiKeys,
+      apifyToken: credentials.apifyToken,
+      apifyTokens: credentials.apifyToken ? [credentials.apifyToken] : undefined,
     };
   }
 
@@ -949,7 +955,7 @@ export function createRunService({
       await store.addEvent(
         run.id,
         'engineer_action',
-        `Engineer skipped ${skippedDeadCredentials} previously-quarantined credential${skippedDeadCredentials === 1 ? '' : 's'} — replace ${skippedDeadCredentials === 1 ? 'it' : 'them'} in Settings.`,
+        `Nova skipped ${skippedDeadCredentials} credential${skippedDeadCredentials === 1 ? '' : 's'} that failed before — replace ${skippedDeadCredentials === 1 ? 'it' : 'them'} in Settings when you have a moment.`,
         {
           provider: 'all',
           kind: 'credential_skipped',

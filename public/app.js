@@ -136,15 +136,15 @@
     }
     banner.hidden = false;
     banner.innerHTML =
-      '<strong>Engineer alert:</strong> ' +
+      '<div class="nova-request-head">Nova needs a fresh key</div>' +
       quarantined
         .map(
           (entry) =>
-            '<span class="quarantine-item">' +
+            '<span class="quarantine-item">The ' +
             escapeHtml(entry.provider === 'apify' ? 'Apify token' : entry.provider === 'google' ? 'Google API key' : entry.provider) +
-            ' was rejected by the provider and quarantined (' +
+            ' was rejected (' +
             escapeHtml(entry.reason) +
-            '). Save a fresh credential below to clear this.</span>'
+            '). Paste a fresh one below and save — I’ll accept it right away and pick any paused run back up automatically.</span>'
         )
         .join(' ');
   }
@@ -172,7 +172,10 @@
       $('setGoogleKeys').value = '';
       $('setProxyUrls').value = '';
       applySettingsStatus(settings);
-      $('settingsStatus').textContent = 'Settings saved.';
+      const resumed = (settings.resumedRuns || []).length;
+      $('settingsStatus').textContent = resumed
+        ? 'Settings saved — Nova accepted the fresh key and resumed ' + resumed + ' paused run' + (resumed === 1 ? '' : 's') + ". We're moving again."
+        : 'Settings saved.';
       window.LeadsGenXUi.toast('Settings saved');
     } catch (error) {
       $('settingsStatus').textContent = error.message;
@@ -529,10 +532,10 @@
     if (status === 'partially_completed') return 'Partially completed — preserved output is available below';
     if (status === 'cancelled') return 'Cancelled — preserved output is available below';
     if (status === 'paused') return 'Paused — resume to continue discovery';
-    if (status === 'cooling_down') return 'Cooling down before the next provider burst';
+    if (status === 'cooling_down') return 'Nova is cooling the engines before the next burst';
     if (status === 'failed') return 'Failed — review the error below';
     if (status === 'waiting_for_scraper') return 'Docker unavailable — Google progress is preserved';
-    if (status === 'waiting_for_credentials') return 'Google credentials required — Docker progress is preserved';
+    if (status === 'waiting_for_credentials') return 'Nova is waiting for a fresh key — all progress is preserved';
     if (types.includes('apify_shard_started')) return 'Apify is expanding Hybrid Max Output coverage';
     const googleActive = types.includes('google_places_started') &&
       !types.includes('google_places_completed') && !types.includes('google_places_failed');
@@ -557,7 +560,7 @@
     analystActive = active;
     const chip = $('analystLive');
     chip.dataset.active = active ? 'true' : 'false';
-    $('analystLiveText').textContent = active ? 'ENGINEER ONLINE' : 'STANDBY';
+    $('analystLiveText').textContent = active ? 'NOVA ONLINE' : 'NOVA STANDBY';
   }
 
   function renderAnalyst(report) {

@@ -1195,7 +1195,7 @@ describe('createRunService', () => {
       (event) => event.type === 'engineer_action' && event.metadata?.kind === 'credential_skipped'
     );
     expect(skipped).toBeTruthy();
-    expect(skipped?.message).toContain('quarantined');
+    expect(skipped?.message).toContain('Nova skipped');
   });
 
   it('stops a run cleanly between provider units and keeps persisted output', async () => {

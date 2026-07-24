@@ -28,6 +28,7 @@ export type EngineerActionKind =
   | 'credential_quarantined'
   | 'credential_skipped'
   | 'reconnect'
+  | 'cooldown'
   | 'guidance';
 
 export interface EngineerAction {
@@ -178,6 +179,10 @@ export interface RunEngineerDeps {
   quarantineCredential?: (provider: EngineerProvider, credential: string | undefined, reason: string) => Promise<void>;
   /** Health probe used before declaring a provider unrecoverable. */
   probe?: Partial<Record<EngineerProvider, () => Promise<boolean>>>;
+  /** How long a cooling cycle lasts. Injectable so tests run instantly. */
+  cooldownMs?: number;
+  /** Optional run-status hook so the UI can show "cooling down" live. */
+  setRunStatus?: (status: 'cooling_down' | 'running') => Promise<void>;
 }
 
 const PROVIDER_LABEL: Record<EngineerProvider, string> = {
@@ -194,19 +199,29 @@ const PROVIDER_LABEL: Record<EngineerProvider, string> = {
  * operator (and the analyst) can see its reasoning live.
  */
 export class RunEngineer {
+  private static readonly HEAT_LIMIT = 3;
+  private static readonly MAX_COOLDOWNS = 2;
+
   private readonly runId: number;
   private readonly store: EngineerEventSink;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly quarantine?: RunEngineerDeps['quarantineCredential'];
   private readonly probe: RunEngineerDeps['probe'];
+  private readonly cooldownMs: number;
+  private readonly setRunStatus?: RunEngineerDeps['setRunStatus'];
   private readonly actions: EngineerAction[] = [];
+  /** Consecutive provider failures — the engine's temperature gauge. */
+  private heat = 0;
+  private cooldownsUsed = 0;
 
-  constructor({ runId, store, sleep, quarantineCredential, probe }: RunEngineerDeps) {
+  constructor({ runId, store, sleep, quarantineCredential, probe, cooldownMs, setRunStatus }: RunEngineerDeps) {
     this.runId = runId;
     this.store = store;
     this.sleep = sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.quarantine = quarantineCredential;
     this.probe = probe;
+    this.cooldownMs = cooldownMs ?? 45_000;
+    this.setRunStatus = setRunStatus;
   }
 
   get journal(): readonly EngineerAction[] {
@@ -224,7 +239,7 @@ export class RunEngineer {
     await this.record(
       provider,
       'diagnosis',
-      `Engineer diagnosis (${PROVIDER_LABEL[provider]}): ${diagnosis.summary}`,
+      `Nova's diagnosis (${PROVIDER_LABEL[provider]}): ${diagnosis.summary}`,
       diagnosis.reasoning
     );
 
@@ -233,7 +248,7 @@ export class RunEngineer {
       await this.record(
         provider,
         'credential_quarantined',
-        `Engineer quarantined the dead ${PROVIDER_LABEL[provider]} credential — future runs will skip it. Update it in Settings.`,
+        `Nova here — that ${PROVIDER_LABEL[provider]} credential was rejected, so I've set it aside where it can't slow us down. Please drop a fresh one into Settings; the moment you save it, I'll pick everything back up.`,
         'A rejected credential never recovers on its own, so it is removed from rotation until replaced.'
       );
     }
@@ -241,11 +256,52 @@ export class RunEngineer {
       await this.record(
         provider,
         'guidance',
-        `Engineer guidance: the ${PROVIDER_LABEL[provider]} credential was rejected — replace it in Settings.`,
+        `Nova here — the ${PROVIDER_LABEL[provider]} credential was rejected. Pop a fresh one into Settings and I'll take it from there.`,
         diagnosis.reasoning
       );
     }
     return diagnosis;
+  }
+
+  /**
+   * The cooling system: when failures pile up the engine is running hot, and
+   * pushing harder only risks a burned credential or a blocked account. Nova
+   * pauses for one longer cooling cycle, then earns a fresh wave of attempts.
+   * Returns true when a cooling cycle ran and the wave may restart.
+   */
+  private async maybeCoolDown(provider: EngineerProvider, operation: string): Promise<boolean> {
+    if (this.heat < RunEngineer.HEAT_LIMIT || this.cooldownsUsed >= RunEngineer.MAX_COOLDOWNS) return false;
+    this.cooldownsUsed += 1;
+    this.heat = 0;
+    const seconds = Math.round(this.cooldownMs / 1000);
+    await this.record(
+      provider,
+      'cooldown',
+      `Nova here — ${PROVIDER_LABEL[provider]} is running hot after ${RunEngineer.HEAT_LIMIT} tough attempts, so I'm cooling the engines for ${seconds}s. This little breather keeps your accounts in good standing; we'll pick ${operation} back up right after.`,
+      'Repeated throttling means the provider is close to blocking us; a longer pause is far cheaper than a burned credential.'
+    );
+    if (this.setRunStatus) {
+      try {
+        await this.setRunStatus('cooling_down');
+      } catch {
+        // A status update must never break the cooling cycle.
+      }
+    }
+    await this.sleep(this.cooldownMs);
+    if (this.setRunStatus) {
+      try {
+        await this.setRunStatus('running');
+      } catch {
+        // A status update must never break the cooling cycle.
+      }
+    }
+    await this.record(
+      provider,
+      'cooldown',
+      `Nova again — all cooled down. Resuming ${operation} at a gentler pace.`,
+      'Back to work after the breather, calmer and safer.'
+    );
+    return true;
   }
 
   /**
@@ -263,17 +319,29 @@ export class RunEngineer {
 
     for (let attempt = 1; attempt <= plan.maxAttempts; attempt += 1) {
       try {
-        return await fn();
+        const result = await fn();
+        this.heat = 0;
+        return result;
       } catch (error) {
         lastError = error;
         const diagnosis = await this.diagnose(provider, error, attempt === 1 ? credential : undefined);
         plan = retryPlanFor(diagnosis);
-        if (!diagnosis.retryable || attempt >= plan.maxAttempts) break;
+        this.heat += 1;
+        if (!diagnosis.retryable) break;
+        if (attempt >= plan.maxAttempts) {
+          // Out of ordinary retries — when the engine is hot, cool down and
+          // earn a fresh wave instead of giving up on the operation.
+          if (await this.maybeCoolDown(provider, operation)) {
+            attempt = 0;
+            continue;
+          }
+          break;
+        }
         const waitMs = plan.backoffMs[attempt - 1] ?? 2_000;
         await this.record(
           provider,
           'retry',
-          `Engineer is retrying ${operation} (attempt ${attempt + 1}/${plan.maxAttempts}) after ${Math.round(waitMs / 1000)}s.`,
+          `Nova is retrying ${operation} (attempt ${attempt + 1}/${plan.maxAttempts}) in ${Math.round(waitMs / 1000)}s — nothing to worry about.`,
           diagnosis.reasoning
         );
         await this.sleep(waitMs);
@@ -287,7 +355,7 @@ export class RunEngineer {
     await this.record(
       provider,
       'retry_succeeded',
-      `Engineer recovered ${operation} — the run continues without data loss.`,
+      `Nova recovered ${operation} — the run continues without losing a single lead.`,
       'The retry policy cleared a transient failure.'
     );
   }
@@ -297,7 +365,7 @@ export class RunEngineer {
     await this.record(
       provider,
       'credential_skipped',
-      `Engineer skipped ${count} previously-quarantined ${PROVIDER_LABEL[provider]} credential${count === 1 ? '' : 's'}. Replace ${count === 1 ? 'it' : 'them'} in Settings.`,
+      `Nova skipped ${count} ${PROVIDER_LABEL[provider]} credential${count === 1 ? '' : 's'} that failed before. Replace ${count === 1 ? 'it' : 'them'} in Settings when you have a moment.`,
       'These credentials were rejected before; using them again would only waste a shard.'
     );
   }
@@ -309,7 +377,7 @@ export class RunEngineer {
     await this.record(
       provider,
       'reconnect',
-      `Engineer is checking whether the ${PROVIDER_LABEL[provider]} is back…`,
+      `Nova is checking whether the ${PROVIDER_LABEL[provider]} is back with us…`,
       'Before declaring the provider lost, verify it is truly unreachable.'
     );
     let healthy = false;
@@ -322,8 +390,8 @@ export class RunEngineer {
       provider,
       'reconnect',
       healthy
-        ? `Engineer re-established contact with the ${PROVIDER_LABEL[provider]}.`
-        : `Engineer confirms the ${PROVIDER_LABEL[provider]} is still unreachable — preserving output and checkpointing.`,
+        ? `Nova re-established contact with the ${PROVIDER_LABEL[provider]} — we're back in business.`
+        : `Nova confirms the ${PROVIDER_LABEL[provider]} is still unreachable — your output is safely preserved and checkpointed.`,
       healthy ? 'The health probe answered.' : 'The health probe did not answer.'
     );
     return healthy;

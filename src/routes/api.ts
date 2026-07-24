@@ -56,6 +56,7 @@ export interface ApiRunService {
   resumeRun?(runId: number, credentials: {
     googleApiKey?: string;
     googleApiKeys?: string[];
+    apifyToken?: string;
     proxyUrls?: string[];
   }): Promise<{ id: number; status: string }>;
   scraperHealth?(): Promise<{ ok: boolean; route: string; healthyProxyCount: number }>;
@@ -518,6 +519,34 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
         prisma,
         [settings.apifyToken, ...settings.googleApiKeys].filter((value): value is string => Boolean(value))
       );
+
+      // Nova's promise: the moment fresh credentials land, any run that was
+      // paused waiting for them picks itself back up — no manual resume.
+      const resumedRuns: number[] = [];
+      if (runService?.resumeRun && prisma?.run && (settings.apifyToken || settings.googleApiKeys.length)) {
+        const operator = currentUser(res);
+        const waiting = await prisma.run.findMany({
+          where: {
+            status: 'waiting_for_credentials',
+            OR: [{ userId: operator?.id ?? -1 }, { userId: null }],
+          },
+          select: { id: true },
+        });
+        for (const waitingRun of waiting) {
+          try {
+            await runService.resumeRun(waitingRun.id, {
+              googleApiKeys: settings.googleApiKeys,
+              apifyToken: settings.apifyToken,
+              proxyUrls: settings.proxyUrls,
+            });
+            resumedRuns.push(waitingRun.id);
+          } catch {
+            // A run that can't resume yet (e.g. proxy mode without proxies)
+            // simply keeps waiting for its moment.
+          }
+        }
+      }
+
       const quarantined = await loadQuarantinedCredentials(prisma);
       res.json({
         data: {
@@ -530,6 +559,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
             reason: entry.reason,
             at: entry.at,
           })),
+          resumedRuns,
         },
       });
     })

@@ -92,14 +92,19 @@ describe('RunEngineer', () => {
     expect(sink.events.some((event) => event.metadata?.kind === 'credential_quarantined')).toBe(true);
   });
 
-  it('exhausts retries with backoff and then throws', async () => {
+  it('exhausts retries, cools the engines between waves, and only then throws', async () => {
     const sink = fakeSink();
     const waits: number[] = [];
+    const statuses: string[] = [];
     const engineer = new RunEngineer({
       runId: 1,
       store: sink,
+      cooldownMs: 60_000,
       sleep: async (ms) => {
         waits.push(ms);
+      },
+      setRunStatus: async (status) => {
+        statuses.push(status);
       },
     });
     let calls = 0;
@@ -111,8 +116,40 @@ describe('RunEngineer', () => {
       })
     ).rejects.toThrow('Internal error');
 
-    expect(calls).toBe(3);
-    expect(waits).toEqual([1500, 4000]);
+    // Three waves of 3 attempts, separated by exactly two cooling cycles —
+    // after the second cooldown Nova stops pushing and lets it fail.
+    expect(calls).toBe(9);
+    expect(waits).toEqual([1500, 4000, 60_000, 1500, 4000, 60_000, 1500, 4000]);
+    expect(sink.events.filter((event) => event.metadata?.kind === 'cooldown')).toHaveLength(4);
+    expect(statuses).toEqual(['cooling_down', 'running', 'cooling_down', 'running']);
+  });
+
+  it('cools down when things get hot, then recovers the operation', async () => {
+    const sink = fakeSink();
+    const waits: number[] = [];
+    const engineer = new RunEngineer({
+      runId: 1,
+      store: sink,
+      cooldownMs: 30_000,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    let calls = 0;
+
+    const result = await engineer.attempt('apify', 'Apify shard 1/1', async () => {
+      calls += 1;
+      if (calls <= 3) throw apifyStatusError(429, 'Rate limit exceeded');
+      return 'ok';
+    });
+
+    expect(result).toBe('ok');
+    expect(calls).toBe(4);
+    expect(waits).toContain(30_000);
+    expect(sink.events.some((event) => event.metadata?.kind === 'cooldown')).toBe(true);
+    const coolingMessage = sink.events.find((event) => event.metadata?.kind === 'cooldown')?.message ?? '';
+    expect(coolingMessage).toMatch(/Nova/);
+    expect(coolingMessage).toMatch(/cooling the engines/i);
   });
 
   it('reconnects only when the health probe answers', async () => {
@@ -143,6 +180,6 @@ describe('RunEngineer', () => {
     const engineer = new RunEngineer({ runId: 1, store: sink, sleep: noSleep });
     await engineer.skippedDeadCredential('apify', 2);
     expect(sink.events[0].metadata?.kind).toBe('credential_skipped');
-    expect(sink.events[0].message).toContain('2 previously-quarantined');
+    expect(sink.events[0].message).toContain('Nova skipped 2');
   });
 });

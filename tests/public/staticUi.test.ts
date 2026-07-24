@@ -177,8 +177,18 @@ describe('static dashboard settings page', () => {
 
     expect(appJs).toContain('renderQuarantineBanner');
     expect(appJs).toContain('quarantinedCredentials');
-    expect(appJs).toContain('Engineer alert');
+    expect(appJs).toContain('Nova needs a fresh key');
     expect(css).toContain('.quarantine-banner');
+    expect(css).toContain('.nova-request-head');
+  });
+
+  it('announces auto-resumed runs and the cooling system in Nova’s voice', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('resumedRuns');
+    expect(appJs).toContain('Nova accepted the fresh key and resumed');
+    expect(appJs).toContain('Nova is cooling the engines before the next burst');
+    expect(appJs).toContain('Nova is waiting for a fresh key');
   });
 
   it('loads, saves, and clears settings without redisplaying secrets', () => {
@@ -300,6 +310,7 @@ describe('static dashboard Google Maps providers', () => {
     const css = readPublicFile('styles.css');
 
     expect(html).toContain('id="analystPanel"');
+    expect(html).toContain('Nova — AI Assistant');
     expect(html).toContain('id="analystVerdict"');
     expect(html).toContain('id="analystHeadline"');
     expect(html).toContain('id="analystLines"');
@@ -317,7 +328,7 @@ describe('static dashboard Google Maps providers', () => {
 
     expect(html).toContain('id="analystLive"');
     expect(html).toContain('id="analystTicker"');
-    expect(appJs).toContain('ENGINEER ONLINE');
+    expect(appJs).toContain('NOVA ONLINE');
     expect(appJs).toContain('setAnalystLive');
     expect(appJs).toContain('lastAnalystFingerprint');
     expect(appJs).toContain('Live telemetry · last scan');

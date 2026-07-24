@@ -548,6 +548,53 @@ describe('API', () => {
     expect(res.body).toEqual({ data: { ok: true, route: 'direct', healthyProxyCount: 0 } });
   });
 
+  it('auto-resumes runs waiting for credentials when fresh ones are saved', async () => {
+    const rows = new Map<string, string>();
+    const resumed: Array<{ runId: number; credentials: unknown }> = [];
+    const prismaStub = {
+      appSetting: {
+        async findMany() {
+          return Array.from(rows.entries()).map(([key, value]) => ({ key, value }));
+        },
+        async upsert(args: { where: { key: string }; create: { value: string } }) {
+          rows.set(args.where.key, args.create.value);
+        },
+        async deleteMany(args: { where: { key: string } }) {
+          rows.delete(args.where.key);
+        },
+      },
+      run: {
+        async findMany(args: { where: { status: string } }) {
+          return args.where.status === 'waiting_for_credentials' ? [{ id: 41 }] : [];
+        },
+      },
+    };
+    const app = createApp({
+      authDisabled: true,
+      prisma: prismaStub as never,
+      runService: {
+        async startRun() { throw new Error('not used'); },
+        async resumeRun(runId: number, credentials: unknown) {
+          resumed.push({ runId, credentials });
+          return { id: runId, status: 'queued' };
+        },
+      } as never,
+    });
+
+    const res = await request(app)
+      .post('/api/settings')
+      .send({ apifyToken: 'fresh-apify-token', googleApiKeys: 'fresh-google-key' })
+      .expect(200);
+
+    expect(res.body.data.resumedRuns).toEqual([41]);
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0]).toMatchObject({
+      runId: 41,
+      credentials: { googleApiKeys: ['fresh-google-key'], apifyToken: 'fresh-apify-token' },
+    });
+    expect(JSON.stringify(res.body)).not.toContain('fresh-apify-token');
+  });
+
   it('resumes a checkpointed run without echoing request-scoped credentials', async () => {
     let received: unknown;
     const app = createApp({

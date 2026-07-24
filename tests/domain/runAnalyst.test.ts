@@ -50,9 +50,9 @@ describe('analyzeRun', () => {
     );
 
     expect(report.verdict).toBe('good');
-    expect(report.verdictLabel).toBe('Good');
-    expect(report.headline).toMatch(/smoothly/i);
-    expect(report.lines.some((line) => line.text.includes('Docker scraper is working'))).toBe(true);
+    expect(report.verdictLabel).toBe('All good');
+    expect(report.headline).toMatch(/humming along/i);
+    expect(report.lines.some((line) => line.text.includes('Docker scraper is hard at work'))).toBe(true);
     expect(report.lines.some((line) => line.text.includes('budget 8/50'))).toBe(true);
     expect(report.lines.some((line) => line.text.includes('12 qualified emails'))).toBe(true);
   });
@@ -76,8 +76,8 @@ describe('analyzeRun', () => {
     );
 
     expect(report.verdict).toBe('bad');
-    expect(report.lines.some((line) => line.text.includes('stuck'))).toBe(true);
-    expect(report.lines.some((line) => line.text.includes('No activity'))).toBe(true);
+    expect(report.lines.some((line) => line.text.includes('has gone quiet'))).toBe(true);
+    expect(report.lines.some((line) => line.text.includes('been quiet'))).toBe(true);
   });
 
   it('marks a failed run as needing developer attention with the failure reason', () => {
@@ -97,8 +97,8 @@ describe('analyzeRun', () => {
     );
 
     expect(report.verdict).toBe('needs_attention');
-    expect(report.verdictLabel).toBe('Needs developer attention');
-    expect(report.headline).toMatch(/developer/i);
+    expect(report.verdictLabel).toBe('Needs your help');
+    expect(report.headline).toMatch(/run failed/i);
     expect(report.lines[0].text).toContain('Docker engine is not running');
   });
 
@@ -121,7 +121,7 @@ describe('analyzeRun', () => {
     );
 
     expect(report.verdict).toBe('perfect');
-    expect(report.verdictLabel).toBe('Perfect');
+    expect(report.verdictLabel).toBe('Excellent');
     expect(report.headline).toContain('140 qualified emails');
   });
 
@@ -151,8 +151,8 @@ describe('analyzeRun', () => {
     );
 
     expect(report.verdict).toBe('bad');
-    expect(report.headline).toMatch(/provider failures/i);
-    expect(report.lines.some((line) => line.text.includes('Apify failed'))).toBe(true);
+    expect(report.headline).toMatch(/few bumps/i);
+    expect(report.lines.some((line) => line.text.includes('Apify hit a problem'))).toBe(true);
   });
 
   it('narrates engineer actions and escalates when a credential is quarantined', () => {
@@ -200,7 +200,7 @@ describe('analyzeRun', () => {
     );
 
     expect(report.verdict).toBe('good');
-    expect(report.headline).toMatch(/engineer is actively guarding/i);
+    expect(report.headline).toMatch(/actively guarding/i);
   });
 
   it('explains waiting_for_scraper as a safe pause, not a crash', () => {
@@ -218,7 +218,7 @@ describe('analyzeRun', () => {
     );
 
     expect(report.verdict).toBe('bad');
-    expect(report.headline).toMatch(/Docker scraper is not responding/);
+    expect(report.headline).toMatch(/isn't answering/);
     expect(report.lines.some((line) => line.text.includes('resume'))).toBe(true);
   });
 });

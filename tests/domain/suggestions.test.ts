@@ -19,8 +19,8 @@ describe('curated suggestions', () => {
   it('offers top-30 Google Maps lists with no duplicates or empty entries', () => {
     const { businessCategories, searchTemplates, companyTypes, locations } = suggestions.googleMaps;
 
-    expect(searchTemplates).toHaveLength(30);
-    expect(businessCategories).toHaveLength(30);
+    expect(searchTemplates).toHaveLength(40);
+    expect(businessCategories).toHaveLength(40);
     expect(companyTypes).toHaveLength(30);
     expectCleanList(searchTemplates, 'searchTemplates');
     expectCleanList(businessCategories, 'businessCategories');

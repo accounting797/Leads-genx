@@ -1292,6 +1292,15 @@ tr:last-child td { border-bottom: 0; }
   color: var(--amber);
 }
 
+.nova-request-head {
+  color: var(--amber);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+
 .quarantine-item {
   display: block;
   margin-top: 4px;

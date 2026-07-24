@@ -15,6 +15,18 @@ export const suggestions = {
     // finance, health) and mapped business-function queries (real estate,
     // marketing, consulting, engineering, security).
     searchTemplates: [
+      // Heavy industries — the top dogs: aviation, oil & gas, mining,
+      // aerospace. High-ticket B2B with real budgets and reachable offices.
+      'aviation services company',
+      'aircraft maintenance company',
+      'air charter service',
+      'oil and gas company',
+      'oilfield services company',
+      'drilling contractor',
+      'pipeline services company',
+      'mining company',
+      'mining equipment supplier',
+      'aerospace manufacturer',
       // Construction & industrial (email-rich local businesses everywhere)
       'general contractor',
       'commercial construction company',
@@ -55,6 +67,17 @@ export const suggestions = {
     // Top-30 category nouns — clean Maps category phrasing, safe to combine
     // with any search term.
     businessCategories: [
+      // Heavy industries — the top dogs
+      'Aviation Services',
+      'Aircraft Maintenance',
+      'Air Charter',
+      'Oil & Gas',
+      'Oilfield Services',
+      'Drilling & Pipeline',
+      'Mining',
+      'Mining Equipment',
+      'Aerospace & Defense',
+      'Maritime & Shipping',
       // Construction & industrial
       'Construction',
       'Commercial Construction',

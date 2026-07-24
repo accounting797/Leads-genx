@@ -58,10 +58,10 @@ export interface AnalystInput {
 }
 
 const VERDICT_LABEL: Record<AnalystVerdict, string> = {
-  perfect: 'Perfect',
-  good: 'Good',
-  bad: 'Bad',
-  needs_attention: 'Needs developer attention',
+  perfect: 'Excellent',
+  good: 'All good',
+  bad: 'Needs a look',
+  needs_attention: 'Needs your help',
 };
 
 const STALE_HEARTBEAT_MS = 30_000;
@@ -115,7 +115,7 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
       escalate('bad');
       lines.push({
         tone: 'error',
-        text: `${providerLabel(state.provider)} failed${state.errorMessage ? `: ${state.errorMessage}` : '.'}`,
+        text: `${providerLabel(state.provider)} hit a problem${state.errorMessage ? `: ${state.errorMessage}` : '.'} I'm on it.`,
       });
     } else if (state.status === 'running') {
       const budget =
@@ -125,17 +125,17 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
       lines.push({
         tone: stale ? 'warn' : 'ok',
         text: stale
-          ? `${providerLabel(state.provider)} looks stuck — no heartbeat for ${seconds(heartbeatAge!)} while "${state.operation}".`
-          : `${providerLabel(state.provider)} is working — ${state.operation} (${state.yieldCount} results)${budget}.`,
+          ? `${providerLabel(state.provider)} has gone quiet — no heartbeat for ${seconds(heartbeatAge!)} while "${state.operation}". I'm watching it closely.`
+          : `${providerLabel(state.provider)} is hard at work — ${state.operation} (${state.yieldCount} results so far)${budget}.`,
       });
       if (stale && ['queued', 'running', 'cooling_down'].includes(run.status)) escalate('bad');
     } else if (state.status === 'completed') {
       lines.push({
         tone: 'ok',
-        text: `${providerLabel(state.provider)} finished with ${state.yieldCount} results.`,
+        text: `${providerLabel(state.provider)} finished beautifully — ${state.yieldCount} results.`,
       });
     } else if (state.status === 'standby') {
-      lines.push({ tone: 'info', text: `${providerLabel(state.provider)} is on standby — ${state.operation}.` });
+      lines.push({ tone: 'info', text: `${providerLabel(state.provider)} is standing by — ${state.operation}.` });
     }
   }
 
@@ -164,8 +164,8 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
   if (run.businessCount > 0 || run.leadCount > 0) {
     lines.push({
       tone: 'ok',
-      text: `${run.businessCount} businesses discovered, ${run.leadCount} qualified emails saved${
-        run.rawContactCount ? `, ${run.rawContactCount} raw contacts kept for review` : ''
+      text: `So far: ${run.businessCount} businesses discovered and ${run.leadCount} qualified emails saved${
+        run.rawContactCount ? `, plus ${run.rawContactCount} raw contacts kept for review` : ''
       }.`,
     });
   }
@@ -175,10 +175,10 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
   if (errorLogs.length > 0) {
     escalate(errorLogs.some((log) => log.severity === 'error') ? 'needs_attention' : 'bad');
     for (const log of recentErrors) {
-      lines.push({ tone: log.severity === 'error' ? 'error' : 'warn', text: `Error logged: ${log.message}` });
+      lines.push({ tone: log.severity === 'error' ? 'error' : 'warn', text: `I logged a problem: ${log.message}` });
     }
     if (errorLogs.length > recentErrors.length) {
-      lines.push({ tone: 'warn', text: `${errorLogs.length - recentErrors.length} more errors in the log.` });
+      lines.push({ tone: 'warn', text: `${errorLogs.length - recentErrors.length} more notes in the log when you have a moment.` });
     }
   }
 
@@ -189,7 +189,7 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
     escalate('bad');
     lines.push({
       tone: 'warn',
-      text: `No activity for ${seconds(eventAge)} — providers may be waiting on the network or Docker.`,
+      text: `It's been quiet for ${seconds(eventAge)} — providers may be waiting on the network or Docker. I'm keeping watch.`,
     });
   }
 
@@ -197,33 +197,35 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
   let headline: string;
   if (run.status === 'failed') {
     verdict = 'needs_attention';
-    headline = 'The run failed — a developer should inspect the error log.';
-    if (run.errorMessage) lines.unshift({ tone: 'error', text: `Failure reason: ${run.errorMessage}` });
+    headline = "I'm sorry — this run failed. Everything we gathered is safe; the error below explains what happened.";
+    if (run.errorMessage) lines.unshift({ tone: 'error', text: `What went wrong: ${run.errorMessage}` });
   } else if (run.status === 'waiting_for_scraper') {
     escalate('bad');
-    headline = 'Paused — the Docker scraper is not responding. Output so far is safely stored.';
-    lines.push({ tone: 'info', text: 'Start the Docker scraper and resume the run to continue where it stopped.' });
+    headline = "I've paused things gently — the Docker scraper isn't answering. All progress is safely stored.";
+    lines.push({ tone: 'info', text: 'Start the Docker scraper and resume the run, and I’ll pick up right where we stopped.' });
   } else if (run.status === 'waiting_for_credentials') {
     escalate('bad');
-    headline = 'Paused — credentials must be re-entered before the run can continue.';
+    headline = 'I need a fresh key from you — pop it into Settings and I’ll accept it and resume automatically. Promise.';
+  } else if (run.status === 'cooling_down') {
+    headline = 'Cooling the engines for a moment — a short breather keeps your accounts safe, then we surge again.';
   } else if (run.status === 'partially_completed') {
     escalate('bad');
-    headline = 'Finished with provider failures — all leads gathered before the failure are saved.';
+    headline = 'Finished with a few bumps — every lead gathered before the trouble is saved.';
   } else if (run.status === 'completed') {
     if (verdict === 'good') verdict = 'perfect';
     headline =
       verdict === 'perfect'
-        ? `Flawless session — ${run.leadCount} qualified emails from ${run.businessCount} businesses with zero errors.`
-        : `Completed — ${run.leadCount} qualified emails saved, but check the warnings below.`;
+        ? `What a session — ${run.leadCount} qualified emails from ${run.businessCount} businesses without a single error.`
+        : `All done — ${run.leadCount} qualified emails saved. Do glance at the notes below when you have a moment.`;
   } else if (run.status === 'cancelled' || run.status === 'paused') {
-    headline = 'The run was stopped by the operator.';
+    headline = 'Stopped as you asked — everything gathered so far is kept safe.';
   } else {
     headline =
       verdict === 'good'
         ? engineerActive
-          ? 'Everything is running smoothly — the engineer is actively guarding this run.'
-          : 'Everything is running smoothly — all systems healthy.'
-        : 'The run is active but needs attention — see the warnings below.';
+          ? "Everything's humming along nicely — I'm actively guarding this run."
+          : "Everything's humming along nicely — all systems healthy."
+        : 'The run is moving, but a few things deserve your eye — see below.';
   }
 
   if (lines.length === 0) {
