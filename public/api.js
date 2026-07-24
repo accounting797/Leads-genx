@@ -63,6 +63,14 @@
     adminListUpgradeRequests: () => requestJson('/admin/upgrade-requests'),
     adminApproveUpgrade: (id) => requestJson('/admin/upgrade-requests/' + id + '/approve', { method: 'POST' }),
     adminDenyUpgrade: (id) => requestJson('/admin/upgrade-requests/' + id + '/deny', { method: 'POST' }),
+    startDeploy: (body) =>
+      requestJson('/admin/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    getDeployStatus: () => requestJson('/admin/deploy'),
+    recheckDeployDns: () => requestJson('/admin/deploy/recheck', { method: 'POST' }),
     getSuggestions: () => requestJson('/suggestions'),
     createRun: (body) =>
       requestJson('/runs', {

@@ -74,6 +74,7 @@ export interface ApiDeps {
   credentialTester?: CredentialTester;
   /** Explicitly disable auth enforcement (tests only — production never sets this). */
   authDisabled?: boolean;
+  deployService?: import('../domain/deployService').DeployService;
 }
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
@@ -101,7 +102,7 @@ function proxyListError(proxies: string[]): string | undefined {
   return undefined;
 }
 
-export function createApiRouter({ prisma, runService, proxyTester, credentialTester, authDisabled }: ApiDeps = {}) {
+export function createApiRouter({ prisma, runService, proxyTester, credentialTester, authDisabled, deployService }: ApiDeps = {}) {
   const router = Router();
 
   // Auth is enforced whenever a real user/session store is present and not
@@ -131,7 +132,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
   router.use(guard);
 
   if (authEnabled && prisma) {
-    router.use('/admin', adminGuard, createAdminRouter({ prisma }));
+    router.use('/admin', adminGuard, createAdminRouter({ prisma, deployService }));
   }
 
   router.get('/suggestions', (_req, res) => {

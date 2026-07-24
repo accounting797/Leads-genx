@@ -506,3 +506,51 @@ describe('static dashboard accounts and access control', () => {
     expect(css).toContain('.auth-gate');
   });
 });
+
+describe('static dashboard server deployment wizard', () => {
+  it('ships a deploy card in the admin panel with all required fields', () => {
+    const html = readPublicFile('index.html');
+
+    expect(html).toContain('id="deployCard"');
+    expect(html).toContain('id="deployHost"');
+    expect(html).toContain('id="deployPassword"');
+    expect(html).toContain('id="deployDomain"');
+    expect(html).toContain('id="deployToken"');
+    expect(html).toContain('id="deployAdminPassword"');
+    expect(html).toContain('id="deployStartBtn"');
+    expect(html).toContain('id="deployPhase"');
+    expect(html).toContain('id="deployConsole"');
+  });
+
+  it('shows a DNS waiting panel with A-record instructions and a check-now action', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const css = readPublicFile('styles.css');
+
+    expect(html).toContain('id="deployDnsPanel"');
+    expect(html).toContain('id="deployDnsIp"');
+    expect(html).toContain('id="deployRecheckBtn"');
+    expect(html).toContain('dns-record');
+    expect(appJs).toContain('recheckDeployDns');
+    expect(appJs).toContain("state.phase !== 'awaiting_dns'");
+    expect(css).toContain('.dns-panel');
+  });
+
+  it('wires the deployment lifecycle: start, live console polling, done and error panels', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const apiJs = readPublicFile('api.js');
+    const css = readPublicFile('styles.css');
+
+    expect(html).toContain('id="deployDone"');
+    expect(html).toContain('id="deploySiteUrl"');
+    expect(html).toContain('id="deployError"');
+    expect(apiJs).toContain("'/admin/deploy'");
+    expect(appJs).toContain('startDeployment');
+    expect(appJs).toContain('renderDeployState');
+    expect(appJs).toContain('deployTimer');
+    expect(css).toContain('.deploy-console');
+    expect(css).toContain('.deploy-done');
+    expect(css).toContain('.deploy-error');
+  });
+});

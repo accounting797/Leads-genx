@@ -415,6 +415,69 @@
             </div>
             <button id="refreshAdmin" type="button" class="ghost-btn">Refresh</button>
           </div>
+
+          <section class="settings-card deploy-card" id="deployCard">
+            <div class="deploy-head">
+              <h3>Deploy to Server</h3>
+              <span class="deploy-phase" id="deployPhase" data-phase="idle">Idle</span>
+            </div>
+            <p class="settings-hint">Enter your VPS details once — Leads-GenX installs itself on the server, secures it, copies your saved credentials, waits for your domain, and finishes HTTPS on its own. Keep this window open until it finishes.</p>
+            <div class="deploy-form" id="deployForm">
+              <div class="form-grid two compact">
+                <label>
+                  <span>Server IP</span>
+                  <input id="deployHost" type="text" autocomplete="off" spellcheck="false" placeholder="203.0.113.10">
+                </label>
+                <label>
+                  <span>Root Password</span>
+                  <input id="deployPassword" type="password" autocomplete="off" placeholder="From your VPS provider">
+                </label>
+                <label>
+                  <span>Domain</span>
+                  <input id="deployDomain" type="text" autocomplete="off" spellcheck="false" placeholder="leadsgenx.com">
+                </label>
+                <label>
+                  <span>GitHub Token</span>
+                  <input id="deployToken" type="password" autocomplete="off" placeholder="ghp_… (from your update script)">
+                </label>
+                <label class="wide">
+                  <span>Admin Password for the New Server</span>
+                  <input id="deployAdminPassword" type="password" autocomplete="new-password" placeholder="Min 8 characters — use your local admin password to keep it simple">
+                </label>
+              </div>
+              <div class="inline-actions">
+                <button id="deployStartBtn" type="button" class="primary-btn">Start Deployment</button>
+                <span id="deployFormStatus" class="settings-hint"></span>
+              </div>
+            </div>
+
+            <div class="dns-panel" id="deployDnsPanel" hidden>
+              <h4>Waiting for your domain to point at the server…</h4>
+              <p>Go to your domain registrar's DNS settings and add this record:</p>
+              <div class="dns-record">
+                <span>Type <strong>A</strong></span>
+                <span>Name <strong>@</strong></span>
+                <span>Value <strong id="deployDnsIp">—</strong></span>
+              </div>
+              <p class="settings-hint">This page checks automatically every 30 seconds and continues by itself the moment your domain goes live.</p>
+              <button id="deployRecheckBtn" type="button" class="ghost-btn">Check Now</button>
+            </div>
+
+            <div class="deploy-done" id="deployDone" hidden>
+              <h4>Deployment complete — you're all set! 🎉</h4>
+              <p>Your Leads-GenX is live at:</p>
+              <a id="deploySiteUrl" class="deploy-site-url" href="#" target="_blank" rel="noopener">—</a>
+              <p class="settings-hint">Sign in there with your admin account (username <strong id="deployDoneUser">—</strong> and the password you chose above). Your saved credentials are already in place. You can close this local dashboard now — your work continues on the new domain.</p>
+            </div>
+
+            <div class="deploy-error" id="deployError" hidden>
+              <h4>Deployment hit a problem</h4>
+              <p id="deployErrorText">—</p>
+              <p class="settings-hint">Copy the log below and share it to get a fix. You can correct the details and start again.</p>
+            </div>
+
+            <pre class="deploy-console" id="deployConsole" hidden></pre>
+          </section>
           <div class="settings-grid">
             <section class="settings-card">
               <h3>Create User</h3>

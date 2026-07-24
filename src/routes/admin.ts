@@ -8,6 +8,8 @@ import {
   validateUsername,
 } from '../domain/auth';
 import { asyncHandler } from '../utils/asyncHandler';
+import { DeployConflictError, DeployService } from '../domain/deployService';
+import { loadOperatorSettings } from '../domain/operatorSettings';
 
 function userView(user: {
   id: number;
@@ -32,8 +34,94 @@ function userView(user: {
   };
 }
 
-export function createAdminRouter({ prisma }: { prisma: PrismaClient }) {
+export function createAdminRouter({ prisma, deployService }: { prisma: PrismaClient; deployService?: DeployService }) {
   const router = Router();
+
+  // ---------------- Server deployment wizard ----------------
+
+  router.post(
+    '/deploy',
+    asyncHandler(async (req, res) => {
+      if (!deployService) {
+        res.status(503).json({ error: 'Deployment service unavailable.' });
+        return;
+      }
+      const admin = currentUser(res)!;
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      const host = String(body.host ?? '').trim();
+      const rootPassword = String(body.rootPassword ?? '');
+      const githubToken = String(body.githubToken ?? '').trim();
+      const domain = String(body.domain ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+      const adminPassword = String(body.adminPassword ?? '');
+      const fieldErrors: Record<string, string> = {};
+      if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) fieldErrors.host = 'Enter the server IP (e.g. 203.0.113.10).';
+      if (!rootPassword) fieldErrors.rootPassword = 'Root password is required.';
+      if (!githubToken) fieldErrors.githubToken = 'GitHub token is required to download the code on the server.';
+      if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) fieldErrors.domain = 'Enter a domain like leadsgenx.com.';
+      if (adminPassword.length < 8) fieldErrors.adminPassword = 'Admin password must be at least 8 characters.';
+      if (Object.keys(fieldErrors).length) {
+        res.status(400).json({ error: 'Check the highlighted fields.', fields: fieldErrors });
+        return;
+      }
+
+      // Copy the operator's saved credentials so the new server is ready to work.
+      let settings: Record<string, unknown> | undefined;
+      try {
+        const saved = await loadOperatorSettings(prisma);
+        settings = {
+          apifyToken: saved.apifyToken,
+          googleApiKeys: saved.googleApiKeys,
+          proxyUrls: saved.proxyUrls,
+          defaultGoogleMapsActorId: saved.defaultGoogleMapsActorId,
+          defaultSalesNavigatorActorId: saved.defaultSalesNavigatorActorId,
+        };
+      } catch {
+        settings = undefined;
+      }
+
+      try {
+        const state = deployService.start({
+          host,
+          rootPassword,
+          githubToken,
+          domain,
+          adminUsername: admin.username,
+          adminPassword,
+          settings: settings as never,
+        });
+        res.status(202).json({ data: { phase: state.phase } });
+      } catch (error) {
+        if (error instanceof DeployConflictError) {
+          res.status(409).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
+    })
+  );
+
+  router.get(
+    '/deploy',
+    asyncHandler(async (_req, res) => {
+      if (!deployService) {
+        res.status(503).json({ error: 'Deployment service unavailable.' });
+        return;
+      }
+      res.json({ data: deployService.getState() });
+    })
+  );
+
+  router.post(
+    '/deploy/recheck',
+    asyncHandler(async (_req, res) => {
+      if (!deployService) {
+        res.status(503).json({ error: 'Deployment service unavailable.' });
+        return;
+      }
+      deployService.recheckNow();
+      res.json({ data: { ok: true } });
+    })
+  );
 
   router.get(
     '/users',

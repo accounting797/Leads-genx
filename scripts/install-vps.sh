@@ -133,7 +133,9 @@ say "Step 6/6 — Firewall"
 ufw allow OpenSSH >/dev/null
 ufw allow 80 >/dev/null
 ufw allow 443 >/dev/null
-ufw allow 4177 >/dev/null   # temporary — setup-https.sh removes it
+if [ "${SKIP_PUBLIC_APP_PORT:-0}" != "1" ]; then
+  ufw allow 4177 >/dev/null   # temporary — setup-https.sh removes it
+fi
 ufw --force enable >/dev/null
 ok "Firewall on"
 
@@ -142,16 +144,22 @@ IP="${SERVER_IP:-YOUR_SERVER_IP}"
 printf '\n\033[1;32m============================================================\033[0m\n'
 printf '\033[1;32m  Leads-GenX is installed and running!\033[0m\n'
 printf '\033[1;32m============================================================\033[0m\n\n'
-echo "  NEXT — do these two things:"
-echo
-echo "  1. Open this in your browser RIGHT NOW and create your"
-echo "     admin account (first person to do it owns the server):"
-echo
-echo "         http://${IP}:4177"
-echo
-echo "  2. After your domain points to ${IP} (A record), run:"
-echo
-echo "         bash ${APP_DIR}/scripts/setup-https.sh yourdomain.com"
-echo
+if [ "${SKIP_PUBLIC_APP_PORT:-0}" = "1" ]; then
+  echo "  Automated deployment mode: the app port is NOT exposed"
+  echo "  publicly — the deployment wizard is taking it from here."
+  echo
+else
+  echo "  NEXT — do these two things:"
+  echo
+  echo "  1. Open this in your browser RIGHT NOW and create your"
+  echo "     admin account (first person to do it owns the server):"
+  echo
+  echo "         http://${IP}:4177"
+  echo
+  echo "  2. After your domain points to ${IP} (A record), run:"
+  echo
+  echo "         bash ${APP_DIR}/scripts/setup-https.sh yourdomain.com"
+  echo
+fi
 echo "  Future updates:  ${APP_DIR}/update-server.sh"
 echo

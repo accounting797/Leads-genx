@@ -897,6 +897,15 @@
     $('acctPasswordBtn').addEventListener('click', changeOwnPassword);
     $('adminCreateBtn').addEventListener('click', adminCreateUser);
     $('refreshAdmin').addEventListener('click', loadAdminPanel);
+    $('deployStartBtn').addEventListener('click', startDeployment);
+    $('deployRecheckBtn').addEventListener('click', async () => {
+      try {
+        await api.recheckDeployDns();
+        await refreshDeployStatus();
+      } catch (error) {
+        window.LeadsGenXUi.toast(error.message);
+      }
+    });
     $('adminUsersTable').addEventListener('click', onAdminUserAction);
     $('upgradeRequests').addEventListener('click', onUpgradeAction);
     window.addEventListener('lgx:unauthorized', () => window.location.reload());
@@ -960,6 +969,95 @@
     const [users, requests] = await Promise.all([api.adminListUsers(), api.adminListUpgradeRequests()]);
     renderAdminUsers(users);
     renderUpgradeRequests(requests);
+    await refreshDeployStatus();
+  }
+
+  // ---------------- Server deployment wizard ----------------
+
+  let deployTimer = null;
+  const DEPLOY_PHASE_LABELS = {
+    idle: 'Idle',
+    connecting: 'Connecting…',
+    installing: 'Installing on server…',
+    securing: 'Securing server…',
+    awaiting_dns: 'Waiting for DNS…',
+    setting_up_https: 'Setting up HTTPS…',
+    verifying: 'Verifying site…',
+    done: 'Live',
+    error: 'Failed',
+  };
+
+  function deployActive(phase) {
+    return ['connecting', 'installing', 'securing', 'awaiting_dns', 'setting_up_https', 'verifying'].includes(phase);
+  }
+
+  function renderDeployState(state) {
+    const pill = $('deployPhase');
+    pill.dataset.phase = state.phase;
+    pill.textContent = DEPLOY_PHASE_LABELS[state.phase] || state.phase;
+
+    const active = deployActive(state.phase);
+    $('deployForm').style.opacity = active ? '0.55' : '';
+    $('deployStartBtn').disabled = active;
+
+    const consoleEl = $('deployConsole');
+    const hasLog = state.log && state.log.length > 0;
+    consoleEl.hidden = !hasLog && state.phase === 'idle';
+    if (hasLog) {
+      consoleEl.textContent = state.log.join('\n');
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    $('deployDnsPanel').hidden = state.phase !== 'awaiting_dns';
+    if (state.phase === 'awaiting_dns') $('deployDnsIp').textContent = state.serverIp || '—';
+
+    $('deployDone').hidden = state.phase !== 'done';
+    if (state.phase === 'done' && state.siteUrl) {
+      $('deploySiteUrl').textContent = state.siteUrl;
+      $('deploySiteUrl').href = state.siteUrl;
+      if (currentUser) $('deployDoneUser').textContent = currentUser.username;
+    }
+
+    $('deployError').hidden = state.phase !== 'error';
+    if (state.phase === 'error') $('deployErrorText').textContent = state.error || 'Unknown error.';
+
+    if (active) {
+      if (!deployTimer) {
+        deployTimer = setInterval(refreshDeployStatus, 2000);
+      }
+    } else if (deployTimer) {
+      clearInterval(deployTimer);
+      deployTimer = null;
+    }
+  }
+
+  async function refreshDeployStatus() {
+    try {
+      const state = await api.getDeployStatus();
+      renderDeployState(state);
+    } catch {
+      // Status polling should never break the admin panel.
+    }
+  }
+
+  async function startDeployment() {
+    $('deployFormStatus').textContent = '';
+    try {
+      await api.startDeploy({
+        host: $('deployHost').value.trim(),
+        rootPassword: $('deployPassword').value,
+        domain: $('deployDomain').value.trim(),
+        githubToken: $('deployToken').value,
+        adminPassword: $('deployAdminPassword').value,
+      });
+      $('deployPassword').value = '';
+      $('deployToken').value = '';
+      $('deployAdminPassword').value = '';
+      window.LeadsGenXUi.toast('Deployment started — keep this window open');
+      await refreshDeployStatus();
+    } catch (error) {
+      $('deployFormStatus').textContent = error.message;
+    }
   }
 
   function renderAdminUsers(users) {

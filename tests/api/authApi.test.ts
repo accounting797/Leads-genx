@@ -267,6 +267,77 @@ describe('upgrade flow', () => {
   });
 });
 
+describe('server deployment wizard (admin)', () => {
+  it('forbids non-admins from deploying or reading deploy status', async () => {
+    const johnCookie = await login('client.john', 'john-password-1');
+    await request(app())
+      .post('/api/admin/deploy')
+      .set('Cookie', johnCookie)
+      .send({ host: '1.2.3.4', rootPassword: 'x', githubToken: 'y', domain: 'x.com', adminPassword: 'z'.repeat(8) })
+      .expect(403);
+    await request(app()).get('/api/admin/deploy').set('Cookie', johnCookie).expect(403);
+  });
+
+  it('accepts a deployment from the admin and exposes status + recheck', async () => {
+    let captured: Record<string, unknown> | undefined;
+    let rechecked = false;
+    const fakeDeploy = {
+      start(params: Record<string, unknown>) {
+        captured = params;
+        return { phase: 'connecting', log: [] };
+      },
+      getState() {
+        return { phase: 'installing', log: ['line one'], serverIp: '1.2.3.4', domain: 'leads.example.com' };
+      },
+      recheckNow() {
+        rechecked = true;
+      },
+    };
+    const adminApp = createApp({ prisma, runService: fakeRunService as never, deployService: fakeDeploy as never });
+    const adminCookie = await login('owner', 'owner-password-1');
+
+    const res = await request(adminApp)
+      .post('/api/admin/deploy')
+      .set('Cookie', adminCookie)
+      .send({
+        host: '1.2.3.4',
+        rootPassword: 'root-pw',
+        githubToken: 'ghp_x',
+        domain: 'leads.example.com',
+        adminPassword: 'admin-pw-123',
+      })
+      .expect(202);
+    expect(res.body.data.phase).toBe('connecting');
+    expect(captured).toMatchObject({
+      host: '1.2.3.4',
+      domain: 'leads.example.com',
+      adminUsername: 'owner',
+    });
+
+    const status = await request(adminApp).get('/api/admin/deploy').set('Cookie', adminCookie).expect(200);
+    expect(status.body.data).toMatchObject({ phase: 'installing', serverIp: '1.2.3.4' });
+
+    await request(adminApp).post('/api/admin/deploy/recheck').set('Cookie', adminCookie).expect(200);
+    expect(rechecked).toBe(true);
+  });
+
+  it('validates the deployment fields', async () => {
+    const adminCookie = await login('owner', 'owner-password-1');
+    const res = await request(app())
+      .post('/api/admin/deploy')
+      .set('Cookie', adminCookie)
+      .send({ host: 'not-an-ip', rootPassword: '', githubToken: '', domain: 'nope', adminPassword: 'short' })
+      .expect(400);
+    expect(res.body.fields).toMatchObject({
+      host: expect.any(String),
+      rootPassword: expect.any(String),
+      githubToken: expect.any(String),
+      domain: expect.any(String),
+      adminPassword: expect.any(String),
+    });
+  });
+});
+
 describe('account security', () => {
   it('change-password rotates credentials', async () => {
     const johnCookie = await login('client.john', 'john-password-1');

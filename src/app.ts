@@ -10,6 +10,7 @@ import { LocalMapsScraperKitClient } from './integrations/localMapsScraperClient
 import { ApiDeps, createApiRouter } from './routes/api';
 import { safeErrorMessage } from './domain/errorLogger';
 import { loadOperatorSettings, loadQuarantinedCredentials, quarantineCredential } from './domain/operatorSettings';
+import { createDeployService } from './domain/deployService';
 
 export function createApp(deps: ApiDeps = {}) {
   const app = express();
@@ -46,6 +47,7 @@ export function createApp(deps: ApiDeps = {}) {
       proxyTester: deps.proxyTester,
       credentialTester: deps.credentialTester,
       authDisabled: deps.authDisabled,
+      deployService: deps.deployService ?? createDeployService(),
     })
   );
   app.use(express.static(path.join(__dirname, '..', 'public')));
