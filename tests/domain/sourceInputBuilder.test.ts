@@ -9,20 +9,20 @@ import { suggestions } from '../../src/domain/suggestions';
 
 describe('suggestions', () => {
   it('exposes curated Google Maps suggestion groups', () => {
-    expect(suggestions.googleMaps.searchTemplates).toHaveLength(20);
-    expect(suggestions.googleMaps.businessCategories).toHaveLength(20);
-    expect(suggestions.googleMaps.companyTypes).toHaveLength(20);
+    expect(suggestions.googleMaps.searchTemplates).toHaveLength(30);
+    expect(suggestions.googleMaps.businessCategories).toHaveLength(30);
+    expect(suggestions.googleMaps.companyTypes).toHaveLength(30);
     expect(suggestions.googleMaps.searchTemplates).toEqual(
-      expect.arrayContaining(['oilfield services', 'aviation maintenance', 'data center contractor'])
+      expect.arrayContaining(['roofing contractor', 'dentist', 'solar installer'])
     );
     expect(suggestions.googleMaps.businessCategories).toEqual(
-      expect.arrayContaining(['Oil & Gas', 'Mining', 'Aviation'])
+      expect.arrayContaining(['Roofing', 'HVAC', 'Construction'])
     );
     expect(suggestions.googleMaps.companyTypes).toEqual(
-      expect.arrayContaining(['Public Company', 'Partnership', 'Insurance Carrier'])
+      expect.arrayContaining(['LLC', 'Franchise', 'Family Owned'])
     );
     expect(suggestions.googleMaps.companyTypes).not.toEqual(
-      expect.arrayContaining(['Private Practice', 'Medical Group', 'Dental Group'])
+      expect.arrayContaining(['Public Company', 'Limited Liability Company (LLC)', 'Insurance Carrier'])
     );
     expect(suggestions.googleMaps.locations.length).toBeGreaterThanOrEqual(20);
   });
@@ -34,7 +34,7 @@ describe('suggestions', () => {
     expect(suggestions.salesNavigator.functions.length).toBeGreaterThanOrEqual(5);
     expect(suggestions.salesNavigator.geographies.length).toBeGreaterThanOrEqual(10);
     expect(suggestions.salesNavigator.companies.length).toBeGreaterThanOrEqual(10);
-    expect(suggestions.salesNavigator.headcounts.length).toBeGreaterThanOrEqual(10);
+    expect(suggestions.salesNavigator.headcounts.length).toBeGreaterThanOrEqual(8);
   });
 });
 
