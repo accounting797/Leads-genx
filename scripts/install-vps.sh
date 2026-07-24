@@ -48,6 +48,26 @@ APT="apt-get -o DPkg::Lock::Timeout=300 -y"
 $APT update
 $APT upgrade
 $APT install git curl ca-certificates gnupg build-essential ufw
+
+# Small-VPS safety net: without swap, one memory spike (a build running while
+# the app and the scraper's headless browser are up) can OOM-kill the app.
+# A 2G swapfile absorbs spikes and keeps everything alive.
+if ! swapon --show=NAME --noheadings 2>/dev/null | grep -q .; then
+  fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+  chmod 600 /swapfile
+  mkswap /swapfile >/dev/null
+  swapon /swapfile
+  grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  sysctl -w vm.swappiness=10 >/dev/null
+  echo 'vm.swappiness=10' > /etc/sysctl.d/99-leads-genx.conf
+  ok "2G swap safety net enabled"
+else
+  ok "Swap already present"
+fi
+
+# Keep system logs across reboots so a crash can be diagnosed after the fact.
+mkdir -p /var/log/journal
+systemctl restart systemd-journald 2>/dev/null || true
 ok "System ready"
 
 # ----------------------------------------------------------
@@ -75,7 +95,9 @@ fi
 cd "$APP_DIR"
 npm install --no-fund --no-audit
 npx prisma generate
-npm run build
+# Cap the compiler's memory so building while the app + scraper are live
+# can't trigger an OOM kill of the running service on small servers.
+NODE_OPTIONS="--max-old-space-size=1024" npm run build
 DATABASE_URL="file:${DATA_DIR}/prod.db" npx prisma db push --skip-generate
 ok "App built"
 
@@ -99,6 +121,9 @@ cat > /etc/systemd/system/leads-genx.service << EOF
 Description=Leads-GenX
 After=network-online.target docker.service
 Wants=network-online.target
+# Never give up restarting — without this, systemd stops trying after a few
+# quick crashes (e.g. memory pressure during an update) and the site stays down.
+StartLimitIntervalSec=0
 
 [Service]
 WorkingDirectory=${APP_DIR}
@@ -108,6 +133,9 @@ Environment=ENABLE_LOCAL_MAPS_SCRAPER=true
 ExecStart=/usr/bin/node dist/server.js
 Restart=always
 RestartSec=5
+# If the server runs out of memory, the OOM killer should pick the scraper's
+# headless browser first — never the app itself.
+OOMScoreAdjust=-500
 
 [Install]
 WantedBy=multi-user.target
@@ -128,7 +156,10 @@ EOF
 chmod +x "$APP_DIR/update-server.sh"
 
 systemctl daemon-reload
-systemctl enable --now leads-genx
+systemctl enable leads-genx
+# restart (not just start) so re-running the installer after an update
+# actually puts the freshly built code live.
+systemctl restart leads-genx
 sleep 4
 systemctl is-active --quiet leads-genx || fail "Service failed to start — run: journalctl -u leads-genx -n 50 --no-pager"
 curl -fsS --max-time 5 http://127.0.0.1:4177/api/health >/dev/null || fail "App not answering on port 4177 — run: journalctl -u leads-genx -n 50 --no-pager"

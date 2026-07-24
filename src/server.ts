@@ -3,8 +3,40 @@ import path from 'path';
 import { createApp } from './app';
 import { prisma } from './db/client';
 import { backupSqliteDatabase } from './db/backup';
+import { appendErrorLogToFile, safeErrorMessage } from './domain/errorLogger';
 
 const port = Number(process.env.PORT || 4177);
+
+// A stray background promise must never take the whole server down. Log it
+// and keep serving — a dashboard that stays up beats one that dies silently.
+process.on('unhandledRejection', (reason) => {
+  const message = safeErrorMessage(reason);
+  console.error(`Unhandled promise rejection: ${message}`);
+  try {
+    appendErrorLogToFile({ source: 'process', severity: 'error', message: `unhandledRejection: ${message}` });
+  } catch {
+    // Logging must never crash the process.
+  }
+});
+
+// A truly unexpected exception leaves the process in an unknown state: log it
+// for diagnosis, then exit so the supervisor (systemd / start script) can
+// restart the app clean instead of limping along corrupted.
+process.on('uncaughtException', (error) => {
+  const message = safeErrorMessage(error);
+  console.error(`Uncaught exception: ${message}`);
+  try {
+    appendErrorLogToFile({
+      source: 'process',
+      severity: 'error',
+      message: `uncaughtException: ${message}`,
+      details: error.stack,
+    });
+  } catch {
+    // Logging must never crash the process.
+  }
+  process.exit(1);
+});
 
 // Self-migrate on boot so updates that add tables/columns (e.g. accounts)
 // apply cleanly even when the update script forgets to run prisma db push.
