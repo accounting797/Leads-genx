@@ -111,14 +111,23 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
         return;
       }
 
+      // Saved Settings credentials count as provided: merge them into the raw
+      // body before validation so Standard/Hybrid modes work without re-entry.
+      const body: Record<string, unknown> = { ...(req.body as Record<string, unknown>) };
       let hasSavedToken = false;
       try {
         const savedSettings = await loadOperatorSettings(prisma);
         hasSavedToken = Boolean(savedSettings.apifyToken);
+        const bodyHasToken = typeof body.apifyToken === 'string' && Boolean(body.apifyToken.trim());
+        const bodyHasGoogleKey = typeof body.googleApiKey === 'string' && Boolean(body.googleApiKey.trim());
+        if (!bodyHasToken && savedSettings.apifyToken) body.apifyToken = savedSettings.apifyToken;
+        if (!bodyHasGoogleKey && savedSettings.googleApiKeys.length) {
+          body.googleApiKey = savedSettings.googleApiKeys.join('\n');
+        }
       } catch {
         hasSavedToken = false;
       }
-      const input = validateCreateRunInput(req.body, hasSavedToken);
+      const input = validateCreateRunInput(body, hasSavedToken);
       const run = await runService.startRun(input);
 
       res.status(202).json({

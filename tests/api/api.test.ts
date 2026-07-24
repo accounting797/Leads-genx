@@ -65,6 +65,80 @@ describe('API', () => {
     expect(JSON.stringify(res.body)).not.toContain('apify-secret-token');
   });
 
+  it('validates Hybrid Max Output runs with credentials saved in Settings alone', async () => {
+    let receivedInput: unknown;
+    const prismaStub = {
+      appSetting: {
+        async findMany() {
+          return [
+            { key: 'apifyToken', value: 'saved-apify-token' },
+            { key: 'googleApiKeys', value: JSON.stringify(['saved-google-key-one', 'saved-google-key-two']) },
+          ];
+        },
+      },
+    };
+    const app = createApp({
+      prisma: prismaStub as never,
+      runService: {
+        async startRun(input) {
+          receivedInput = input;
+          return { id: 9, status: 'queued', leadSource: 'google_maps' };
+        },
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/runs')
+      .send({
+        leadSource: 'google_maps',
+        outputMode: 'hybrid_max',
+        maxResults: 500,
+        googleMaps: {
+          searchTerms: ['dentist'],
+          locations: ['Austin, TX'],
+        },
+      })
+      .expect(202);
+
+    expect(res.body.data).toMatchObject({ id: 9, status: 'queued' });
+    expect(receivedInput).toMatchObject({
+      apifyToken: 'saved-apify-token',
+      googleApiKey: 'saved-google-key-one',
+      googleApiKeys: ['saved-google-key-one', 'saved-google-key-two'],
+      outputMode: 'hybrid_max',
+      googleMaps: { provider: 'hybrid', apiRequestBudget: 50 },
+    });
+    expect(JSON.stringify(res.body)).not.toContain('saved-apify-token');
+    expect(JSON.stringify(res.body)).not.toContain('saved-google-key');
+  });
+
+  it('validates Standard runs with only a saved Google key and no request credentials', async () => {
+    const prismaStub = {
+      appSetting: {
+        async findMany() {
+          return [{ key: 'googleApiKeys', value: JSON.stringify(['saved-google-key']) }];
+        },
+      },
+    };
+    const app = createApp({
+      prisma: prismaStub as never,
+      runService: {
+        async startRun() {
+          return { id: 10, status: 'queued', leadSource: 'google_maps' };
+        },
+      },
+    });
+
+    await request(app)
+      .post('/api/runs')
+      .send({
+        leadSource: 'google_maps',
+        maxResults: 100,
+        googleMaps: { searchTerms: ['roofer'], locations: ['Dallas, TX'] },
+      })
+      .expect(202);
+  });
+
   it('starts a Google Places run without echoing the Google API key', async () => {
     let receivedInput: unknown;
     const app = createApp({
