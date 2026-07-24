@@ -10,17 +10,21 @@ import {
 import { asyncHandler } from '../utils/asyncHandler';
 import { DeployConflictError, DeployService } from '../domain/deployService';
 import { loadOperatorSettings } from '../domain/operatorSettings';
+import { listByodUserIds } from '../domain/userCredentials';
 
-function userView(user: {
-  id: number;
-  username: string;
-  role: string;
-  tier: string;
-  status: string;
-  createdAt: Date;
-  _count?: { runs: number };
-  upgradeRequests?: { id: number; status: string; createdAt: Date }[];
-}) {
+function userView(
+  user: {
+    id: number;
+    username: string;
+    role: string;
+    tier: string;
+    status: string;
+    createdAt: Date;
+    _count?: { runs: number };
+    upgradeRequests?: { id: number; status: string; createdAt: Date }[];
+  },
+  byodIds?: Set<number>
+) {
   const pending = user.upgradeRequests?.find((request) => request.status === 'PENDING');
   return {
     id: user.id,
@@ -31,6 +35,7 @@ function userView(user: {
     createdAt: user.createdAt,
     runCount: user._count?.runs ?? 0,
     pendingUpgradeRequestId: pending?.id ?? null,
+    hasOwnCredentials: byodIds?.has(user.id) ?? false,
   };
 }
 
@@ -133,7 +138,8 @@ export function createAdminRouter({ prisma, deployService }: { prisma: PrismaCli
           upgradeRequests: { where: { status: 'PENDING' }, select: { id: true, status: true, createdAt: true } },
         },
       });
-      res.json({ data: users.map(userView) });
+      const byodIds = await listByodUserIds(prisma);
+      res.json({ data: users.map((user) => userView(user, byodIds)) });
     })
   );
 

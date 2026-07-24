@@ -32,6 +32,7 @@ import {
   requireAuth,
 } from '../domain/auth';
 import { limitsForUser, outputModeAllowed, startOfToday } from '../domain/tierLimits';
+import { hasUserCredentials, loadUserCredentials } from '../domain/userCredentials';
 import { createAuthRouter } from './auth';
 import { createAdminRouter } from './admin';
 
@@ -125,7 +126,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
   });
 
   if (authEnabled && prisma) {
-    router.use('/auth', createAuthRouter({ prisma }));
+    router.use('/auth', createAuthRouter({ prisma, credentialTester }));
   }
 
   // Everything below this line requires a signed-in user when auth is enabled.
@@ -160,16 +161,28 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
 
       // Saved Settings credentials count as provided: merge them into the raw
       // body before validation so Standard/Hybrid modes work without re-entry.
+      // BYOD users run on their own saved credentials — per field, their value
+      // wins over the admin's shared pool.
       const body: Record<string, unknown> = { ...(req.body as Record<string, unknown>) };
+      const runUser = currentUser(res);
       let hasSavedToken = false;
       try {
         const savedSettings = await loadOperatorSettings(prisma);
-        hasSavedToken = Boolean(savedSettings.apifyToken);
+        let effectiveApify = savedSettings.apifyToken;
+        let effectiveGoogle = savedSettings.googleApiKeys;
+        if (runUser && runUser.role !== 'ADMIN') {
+          const byod = await loadUserCredentials(prisma, runUser.id);
+          if (hasUserCredentials(byod)) {
+            effectiveApify = byod.apifyToken ?? savedSettings.apifyToken;
+            effectiveGoogle = byod.googleApiKeys.length ? byod.googleApiKeys : savedSettings.googleApiKeys;
+          }
+        }
+        hasSavedToken = Boolean(effectiveApify);
         const bodyHasToken = typeof body.apifyToken === 'string' && Boolean(body.apifyToken.trim());
         const bodyHasGoogleKey = typeof body.googleApiKey === 'string' && Boolean(body.googleApiKey.trim());
-        if (!bodyHasToken && savedSettings.apifyToken) body.apifyToken = savedSettings.apifyToken;
-        if (!bodyHasGoogleKey && savedSettings.googleApiKeys.length) {
-          body.googleApiKey = savedSettings.googleApiKeys.join('\n');
+        if (!bodyHasToken && effectiveApify) body.apifyToken = effectiveApify;
+        if (!bodyHasGoogleKey && effectiveGoogle.length) {
+          body.googleApiKey = effectiveGoogle.join('\n');
         }
       } catch {
         hasSavedToken = false;

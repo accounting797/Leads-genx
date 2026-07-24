@@ -895,6 +895,10 @@
     $('hybridLockUpgrade').addEventListener('click', () => setTab('account'));
     $('upgradeBtn').addEventListener('click', requestUpgrade);
     $('acctPasswordBtn').addEventListener('click', changeOwnPassword);
+    $('byodSaveBtn').addEventListener('click', saveByod);
+    $('byodClearBtn').addEventListener('click', clearByod);
+    $('byodTestApify').addEventListener('click', () => testByod('apify'));
+    $('byodTestGoogle').addEventListener('click', () => testByod('google'));
     $('adminCreateBtn').addEventListener('click', adminCreateUser);
     $('refreshAdmin').addEventListener('click', loadAdminPanel);
     $('deployStartBtn').addEventListener('click', startDeployment);
@@ -931,6 +935,83 @@
       : 'Standard plan: Docker + Google output, up to 500 results per run, 5 runs per day.';
     $('upgradeSection').style.display = hybrid ? 'none' : '';
     $('accountSummary').textContent = 'Signed in as ' + currentUser.username + '.';
+    void loadByodStatus();
+  }
+
+  // ---------------- BYOD (Bring Your Own Details) ----------------
+
+  async function loadByodStatus() {
+    try {
+      const status = await api.getMyCredentials();
+      renderByodStatus(status);
+    } catch {
+      // Non-fatal — BYOD card just shows no status.
+    }
+  }
+
+  function renderByodStatus(status) {
+    $('byodStatus').textContent = status.hasCredentials
+      ? 'Using your own details: ' +
+        [
+          status.apifyTokenSet ? 'Apify token ' + (status.apifyTokenPreview || 'saved') : null,
+          status.googleApiKeyCount ? status.googleApiKeyCount + ' Google key' + (status.googleApiKeyCount > 1 ? 's' : '') : null,
+          status.proxyCount ? status.proxyCount + ' prox' + (status.proxyCount > 1 ? 'ies' : 'y') : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : 'No personal details saved — your runs use the shared pool.';
+  }
+
+  async function saveByod() {
+    $('byodFormStatus').textContent = '';
+    const body = {};
+    if ($('byodApifyToken').value.trim()) body.apifyToken = $('byodApifyToken').value.trim();
+    if ($('byodGoogleKeys').value.trim()) body.googleApiKeys = $('byodGoogleKeys').value;
+    if ($('byodProxyUrls').value.trim()) body.proxyUrls = $('byodProxyUrls').value;
+    if (!Object.keys(body).length) {
+      $('byodFormStatus').textContent = 'Nothing to save — type a value first, or use Clear All.';
+      return;
+    }
+    try {
+      const status = await api.saveMyCredentials(body);
+      $('byodApifyToken').value = '';
+      $('byodGoogleKeys').value = '';
+      $('byodProxyUrls').value = '';
+      renderByodStatus(status);
+      $('byodFormStatus').textContent = 'Saved. Your next runs will use your own details.';
+      window.LeadsGenXUi.toast('Your details are saved');
+    } catch (error) {
+      $('byodFormStatus').textContent = error.message;
+    }
+  }
+
+  async function clearByod() {
+    if (!window.confirm('Remove all your saved details? Your runs will return to the shared pool.')) return;
+    try {
+      const status = await api.saveMyCredentials({ apifyToken: '', googleApiKeys: '', proxyUrls: '' });
+      renderByodStatus(status);
+      window.LeadsGenXUi.toast('Personal details cleared');
+    } catch (error) {
+      $('byodFormStatus').textContent = error.message;
+    }
+  }
+
+  async function testByod(which) {
+    $('byodFormStatus').textContent = 'Testing…';
+    try {
+      const body =
+        which === 'apify'
+          ? $('byodApifyToken').value.trim()
+            ? { token: $('byodApifyToken').value.trim() }
+            : {}
+          : $('byodGoogleKeys').value.trim()
+            ? { key: $('byodGoogleKeys').value.split('\n')[0].trim() }
+            : {};
+      const result = which === 'apify' ? await api.testMyApify(body) : await api.testMyGoogle(body);
+      $('byodFormStatus').textContent = (result.ok ? '✓ ' : '✗ ') + result.detail;
+    } catch (error) {
+      $('byodFormStatus').textContent = error.message;
+    }
   }
 
   async function requestUpgrade() {
@@ -1073,7 +1154,9 @@
         .map(
           (user) =>
             '<tr>' +
-            '<td><strong>' + escapeHtml(user.username) + '</strong></td>' +
+            '<td><strong>' + escapeHtml(user.username) + '</strong>' +
+            (user.hasOwnCredentials ? ' <span class="byod-badge">BYOD</span>' : '') +
+            '</td>' +
             '<td>' + (user.role === 'ADMIN' ? 'Admin' : 'User') + '</td>' +
             '<td><span class="plan-badge" data-tier="' + user.tier + '">' +
             (user.tier === 'HYBRID' ? 'Hybrid' : 'Standard') + '</span></td>' +

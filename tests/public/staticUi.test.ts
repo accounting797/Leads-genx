@@ -554,3 +554,33 @@ describe('static dashboard server deployment wizard', () => {
     expect(css).toContain('.deploy-error');
   });
 });
+
+describe('static dashboard BYOD (bring your own details)', () => {
+  it('ships a BYOD card in the account tab with save, test, and clear actions', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const apiJs = readPublicFile('api.js');
+
+    expect(html).toContain('Bring Your Own Details');
+    expect(html).toContain('id="byodApifyToken"');
+    expect(html).toContain('id="byodGoogleKeys"');
+    expect(html).toContain('id="byodProxyUrls"');
+    expect(html).toContain('id="byodSaveBtn"');
+    expect(html).toContain('id="byodClearBtn"');
+    expect(html).toContain('id="byodTestApify"');
+    expect(html).toContain('id="byodStatus"');
+    expect(appJs).toContain('saveByod');
+    expect(appJs).toContain('loadByodStatus');
+    expect(apiJs).toContain("'/auth/credentials'");
+    expect(apiJs).toContain("'/auth/credentials/test/apify'");
+  });
+
+  it('shows a BYOD badge next to users with their own credentials in the admin table', () => {
+    const appJs = readPublicFile('app.js');
+    const css = readPublicFile('styles.css');
+
+    expect(appJs).toContain('hasOwnCredentials');
+    expect(appJs).toContain('byod-badge');
+    expect(css).toContain('.byod-badge');
+  });
+});

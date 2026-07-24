@@ -46,6 +46,25 @@
         body: JSON.stringify(body),
       }),
     requestUpgrade: () => requestJson('/auth/request-upgrade', { method: 'POST' }),
+    getMyCredentials: () => requestJson('/auth/credentials'),
+    saveMyCredentials: (body) =>
+      requestJson('/auth/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    testMyApify: (body) =>
+      requestJson('/auth/credentials/test/apify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }),
+    testMyGoogle: (body) =>
+      requestJson('/auth/credentials/test/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }),
     adminListUsers: () => requestJson('/admin/users'),
     adminCreateUser: (body) =>
       requestJson('/admin/users', {

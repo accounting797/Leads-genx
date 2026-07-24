@@ -13,10 +13,10 @@ describe('suggestions', () => {
     expect(suggestions.googleMaps.businessCategories).toHaveLength(30);
     expect(suggestions.googleMaps.companyTypes).toHaveLength(30);
     expect(suggestions.googleMaps.searchTemplates).toEqual(
-      expect.arrayContaining(['roofing contractor', 'dentist', 'solar installer'])
+      expect.arrayContaining(['general contractor', 'trucking company', 'solar energy company', 'accounting firm'])
     );
     expect(suggestions.googleMaps.businessCategories).toEqual(
-      expect.arrayContaining(['Roofing', 'HVAC', 'Construction'])
+      expect.arrayContaining(['Construction', 'Mining', 'Financial Services'])
     );
     expect(suggestions.googleMaps.companyTypes).toEqual(
       expect.arrayContaining(['LLC', 'Franchise', 'Family Owned'])
@@ -35,6 +35,15 @@ describe('suggestions', () => {
     expect(suggestions.salesNavigator.geographies.length).toBeGreaterThanOrEqual(10);
     expect(suggestions.salesNavigator.companies.length).toBeGreaterThanOrEqual(10);
     expect(suggestions.salesNavigator.headcounts.length).toBeGreaterThanOrEqual(8);
+    expect(suggestions.salesNavigator.titles).toEqual(
+      expect.arrayContaining(['CEO', 'CFO', 'COO', 'President', 'VP Sales', 'Procurement Director'])
+    );
+    expect(suggestions.salesNavigator.functions).toEqual(
+      expect.arrayContaining(['Sales', 'Military and Protective Services', 'Media and Communication', 'Purchasing'])
+    );
+    expect(suggestions.salesNavigator.industries).toEqual(
+      expect.arrayContaining(['Defense and Space Manufacturing', 'Renewable Energy Power Generation', 'Mining'])
+    );
   });
 });
 

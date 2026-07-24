@@ -13,8 +13,10 @@ const databaseUrl = `file:${join(tempDir, 'test.db').replace(/\\/g, '/')}`;
 let prisma: PrismaClient;
 
 let lastStartOptions: { userId?: number } | undefined;
+let lastStartInput: Record<string, unknown> | undefined;
 const fakeRunService = {
-  async startRun(_input: unknown, options?: { userId?: number }) {
+  async startRun(input: Record<string, unknown>, options?: { userId?: number }) {
+    lastStartInput = input;
     lastStartOptions = options;
     return { id: 99, status: 'queued', leadSource: 'google_maps' };
   },
@@ -264,6 +266,94 @@ describe('upgrade flow', () => {
       .set('Cookie', upgradedCookie)
       .send({ leadSource: 'google_maps', outputMode: 'hybrid_max', maxResults: 100, apifyToken: 'test-token', googleApiKey: 'test-google-key', googleMaps: { searchTerms: ['dentist'] } })
       .expect(202);
+  });
+});
+
+describe('BYOD — bring your own details', () => {
+  it('lets a user save, view masked, and clear personal credentials', async () => {
+    const johnCookie = await login('client.john', 'john-password-1');
+
+    await request(app())
+      .post('/api/auth/credentials')
+      .set('Cookie', johnCookie)
+      .send({ apifyToken: 'john-own-token', googleApiKeys: 'john-google-key' })
+      .expect(200);
+
+    const view = await request(app()).get('/api/auth/credentials').set('Cookie', johnCookie).expect(200);
+    expect(view.body.data).toMatchObject({
+      hasCredentials: true,
+      apifyTokenSet: true,
+      googleApiKeyCount: 1,
+    });
+    expect(JSON.stringify(view.body)).not.toContain('john-own-token');
+  });
+
+  it('routes the user\'s runs through their own credentials instead of the admin pool', async () => {
+    // Admin saves shared-pool credentials.
+    const adminCookie = await login('owner', 'owner-password-1');
+    await request(app())
+      .post('/api/settings')
+      .set('Cookie', adminCookie)
+      .send({ apifyToken: 'admin-pool-token', googleApiKeys: 'admin-pool-key' })
+      .expect(200);
+
+    // Jane has no BYOD — her runs consume the admin pool. Reset her daily
+    // quota usage from earlier tests so the run goes through.
+    const janeRecord = await prisma.user.findUnique({ where: { username: 'client.jane' } });
+    await prisma.run.deleteMany({ where: { userId: janeRecord!.id } });
+    const janeCookie = await login('client.jane', 'jane-password-1');
+    await request(app())
+      .post('/api/runs')
+      .set('Cookie', janeCookie)
+      .send({ leadSource: 'google_maps', maxResults: 100, googleMaps: { searchTerms: ['dentist'] } })
+      .expect(202);
+    expect(lastStartInput?.apifyToken).toBe('admin-pool-token');
+
+    // John has BYOD — his runs consume HIS token, not the admin pool.
+    const johnCookie = await login('client.john', 'john-password-1');
+    await request(app())
+      .post('/api/runs')
+      .set('Cookie', johnCookie)
+      .send({ leadSource: 'google_maps', maxResults: 100, googleMaps: { searchTerms: ['dentist'] } })
+      .expect(202);
+    expect(lastStartInput?.apifyToken).toBe('john-own-token');
+    expect(lastStartInput?.googleApiKey).toBe('john-google-key');
+  });
+
+  it('flags BYOD users in the admin user list', async () => {
+    const adminCookie = await login('owner', 'owner-password-1');
+    const users = await request(app()).get('/api/admin/users').set('Cookie', adminCookie).expect(200);
+    const john = users.body.data.find((u: { username: string }) => u.username === 'client.john');
+    const jane = users.body.data.find((u: { username: string }) => u.username === 'client.jane');
+    expect(john.hasOwnCredentials).toBe(true);
+    expect(jane.hasOwnCredentials).toBe(false);
+  });
+
+  it('tests a personal Apify token through the credential tester', async () => {
+    const testedTokens: string[] = [];
+    const testerApp = createApp({
+      prisma,
+      runService: fakeRunService as never,
+      credentialTester: {
+        testApifyToken: async (token: string) => {
+          testedTokens.push(token);
+          return { ok: true, detail: 'Token is valid' };
+        },
+      } as never,
+    });
+    const johnCookie = await login('client.john', 'john-password-1');
+    const res = await request(testerApp)
+      .post('/api/auth/credentials/test/apify')
+      .set('Cookie', johnCookie)
+      .send({})
+      .expect(200);
+    expect(res.body.data.ok).toBe(true);
+    expect(testedTokens).toEqual(['john-own-token']);
+  });
+
+  it('rejects the credential test when nothing is saved or provided', async () => {
+    const janeCookie = await login('client.jane', 'jane-password-1');
+    await request(app()).post('/api/auth/credentials/test/apify').set('Cookie', janeCookie).send({}).expect(400);
   });
 });
 

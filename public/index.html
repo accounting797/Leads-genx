@@ -390,6 +390,30 @@
               </div>
             </section>
             <section class="settings-card">
+              <h3>Bring Your Own Details (BYOD)</h3>
+              <p class="settings-hint">Have your own Apify token, Google API keys, or proxies? Save them here and your runs consume <strong>your</strong> quota instead of the shared pool. Leave everything blank to use the shared pool.</p>
+              <p id="byodStatus" class="settings-hint"></p>
+              <label>
+                <span>Apify Token</span>
+                <input id="byodApifyToken" type="password" autocomplete="off" placeholder="Leave blank to keep saved value">
+              </label>
+              <label>
+                <span>Google API Keys (one per line)</span>
+                <textarea id="byodGoogleKeys" rows="2" spellcheck="false" placeholder="Leave blank to keep saved keys"></textarea>
+              </label>
+              <label>
+                <span>Proxies (one per line)</span>
+                <textarea id="byodProxyUrls" rows="2" spellcheck="false" placeholder="http://user:pass@host:port"></textarea>
+              </label>
+              <div class="inline-actions">
+                <button id="byodSaveBtn" type="button" class="primary-btn">Save My Details</button>
+                <button id="byodTestApify" type="button" class="ghost-btn">Test Apify</button>
+                <button id="byodTestGoogle" type="button" class="ghost-btn">Test Google</button>
+                <button id="byodClearBtn" type="button" class="ghost-btn danger">Clear All</button>
+              </div>
+              <p id="byodFormStatus" class="settings-hint"></p>
+            </section>
+            <section class="settings-card">
               <h3>Change Password</h3>
               <label>
                 <span>Current Password</span>

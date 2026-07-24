@@ -39,16 +39,22 @@ SERVER_IP=$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null || hostnam
 
 # ----------------------------------------------------------
 say "Step 1/6 — System update & base packages"
-apt-get update -y
-apt-get upgrade -y
-apt-get install -y git curl ca-certificates gnupg build-essential ufw
+# Fresh VPS images often run unattended upgrades in the background and hold
+# the apt lock — wait for cloud-init and use lock timeouts so we never fail.
+if command -v cloud-init >/dev/null 2>&1; then
+  cloud-init status --wait >/dev/null 2>&1 || true
+fi
+APT="apt-get -o DPkg::Lock::Timeout=300 -y"
+$APT update
+$APT upgrade
+$APT install git curl ca-certificates gnupg build-essential ufw
 ok "System ready"
 
 # ----------------------------------------------------------
 say "Step 2/6 — Node.js 20 & Docker"
 if ! command -v node >/dev/null 2>&1 || ! node -v | grep -q '^v2'; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  apt-get install -y nodejs
+  $APT install nodejs
 fi
 node -v
 if ! command -v docker >/dev/null 2>&1; then

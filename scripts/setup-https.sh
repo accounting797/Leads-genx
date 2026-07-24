@@ -36,12 +36,13 @@ ok "DNS is correct"
 
 say "Installing Caddy"
 if ! command -v caddy >/dev/null 2>&1; then
-  apt-get update -y
-  apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+  APT="apt-get -o DPkg::Lock::Timeout=300 -y"
+  $APT update
+  $APT install debian-keyring debian-archive-keyring apt-transport-https curl
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update -y
-  apt-get install -y caddy
+  $APT update
+  $APT install caddy
 fi
 
 cat > /etc/caddy/Caddyfile << EOF

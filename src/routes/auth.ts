@@ -17,6 +17,24 @@ import {
   verifyPassword,
 } from '../domain/auth';
 import { asyncHandler } from '../utils/asyncHandler';
+import {
+  loadUserCredentials,
+  saveUserCredentials,
+  toSafeUserCredentials,
+} from '../domain/userCredentials';
+import { unquarantineCredential } from '../domain/operatorSettings';
+
+type CredentialTester = {
+  testApifyToken?: (token: string) => Promise<{ ok: boolean; detail: string }>;
+  testGoogleKey?: (key: string) => Promise<{ ok: boolean; detail: string }>;
+};
+
+function splitLines(value: unknown): string[] {
+  return String(value ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
 
 function publicUser(user: { id: number; username: string; role: string; tier: string; status: string; createdAt?: Date }) {
   const auth = toAuthUser(user);
@@ -29,7 +47,7 @@ function publicUser(user: { id: number; username: string; role: string; tier: st
   };
 }
 
-export function createAuthRouter({ prisma }: { prisma: PrismaClient }) {
+export function createAuthRouter({ prisma, credentialTester }: { prisma: PrismaClient; credentialTester?: CredentialTester }) {
   const router = Router();
 
   // Who am I? Also tells a fresh install that first-run setup is needed.
@@ -144,6 +162,84 @@ export function createAuthRouter({ prisma }: { prisma: PrismaClient }) {
       }
       const request = await prisma.upgradeRequest.create({ data: { userId: user.id } });
       res.status(201).json({ data: { id: request.id, status: request.status } });
+    })
+  );
+
+  // ---------------- BYOD: per-user credentials ----------------
+
+  router.get(
+    '/credentials',
+    requireAuth,
+    asyncHandler(async (_req, res) => {
+      const user = currentUser(res)!;
+      const creds = await loadUserCredentials(prisma, user.id);
+      res.json({ data: toSafeUserCredentials(creds) });
+    })
+  );
+
+  router.post(
+    '/credentials',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const user = currentUser(res)!;
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      await saveUserCredentials(prisma, user.id, {
+        apifyToken: body.apifyToken !== undefined ? String(body.apifyToken) : undefined,
+        googleApiKeys: body.googleApiKeys !== undefined ? splitLines(body.googleApiKeys) : undefined,
+        proxyUrls: body.proxyUrls !== undefined ? splitLines(body.proxyUrls) : undefined,
+      });
+      const creds = await loadUserCredentials(prisma, user.id);
+      res.json({ data: toSafeUserCredentials(creds) });
+    })
+  );
+
+  router.post(
+    '/credentials/test/apify',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const user = currentUser(res)!;
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      const provided = String(body.token ?? '').trim();
+      const creds = await loadUserCredentials(prisma, user.id);
+      const token = provided || creds.apifyToken || '';
+      if (!token) {
+        res.status(400).json({ error: 'Save or paste an Apify token first.' });
+        return;
+      }
+      if (!credentialTester?.testApifyToken) {
+        res.status(503).json({ error: 'Credential testing unavailable.' });
+        return;
+      }
+      const result = await credentialTester.testApifyToken(token);
+      if (result.ok && (await unquarantineCredential(prisma, token))) {
+        result.detail += ' — quarantine cleared, the engineer trusts this token again';
+      }
+      res.json({ data: result });
+    })
+  );
+
+  router.post(
+    '/credentials/test/google',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const user = currentUser(res)!;
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      const provided = String(body.key ?? '').trim();
+      const creds = await loadUserCredentials(prisma, user.id);
+      const key = provided || creds.googleApiKeys[0] || '';
+      if (!key) {
+        res.status(400).json({ error: 'Save or paste a Google API key first.' });
+        return;
+      }
+      if (!credentialTester?.testGoogleKey) {
+        res.status(503).json({ error: 'Credential testing unavailable.' });
+        return;
+      }
+      const result = await credentialTester.testGoogleKey(key);
+      if (result.ok && (await unquarantineCredential(prisma, key))) {
+        result.detail += ' — quarantine cleared, the engineer trusts this key again';
+      }
+      res.json({ data: result });
     })
   );
 
