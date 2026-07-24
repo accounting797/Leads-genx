@@ -7,6 +7,7 @@ import { safeErrorMessage } from './errorLogger';
 import { normalizeLead } from './leadNormalizer';
 import { applyLeadQualityFilters } from './leadQuality';
 import { executeBalancedGoogleMapsRun } from './balancedGoogleMapsRunService';
+import { RunIngestionCoordinator } from './runIngestionCoordinator';
 import type { LocalFirstRunStore } from './prismaRunStore';
 import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
 import { GoogleMapsFilters, LeadSource, NormalizedLead, OutputMode, RouteMode, ValidatedRunInput } from './types';
@@ -75,6 +76,7 @@ export interface StartRunOptions {
 
 interface RunApifyShardsOptions {
   continueOnShardError?: boolean;
+  ingestionCoordinator?: RunIngestionCoordinator;
 }
 
 interface RunGooglePlacesOptions {
@@ -89,6 +91,7 @@ export function serializeSafeFilters(input: ValidatedRunInput): string {
     googleMaps: input.googleMaps,
     salesNavigator: input.salesNavigator ? safeSalesNavigator : undefined,
     routeMode: input.routeMode ?? 'direct',
+    outputMode: input.outputMode ?? (input.googleMaps?.provider === 'hybrid' ? 'hybrid_max' : 'standard'),
   });
 }
 
@@ -177,12 +180,26 @@ export function createRunService({
     let leadCount = startingTotal;
     let failedShardCount = 0;
 
+    const providerStore = store as Partial<LocalFirstRunStore>;
+    const heartbeat = async (status: 'running' | 'completed' | 'failed', operation: string, yieldCount: number, errorCode?: string) => {
+      if (typeof providerStore.upsertProviderState !== 'function') return;
+      await providerStore.upsertProviderState(run.id, {
+        provider: 'apify',
+        status,
+        operation,
+        yieldCount,
+        errorCode,
+        heartbeatAt: new Date(),
+      });
+    };
+
     for (const [index, actorInput] of actorInputs.entries()) {
       await store.addEvent(run.id, 'apify_shard_started', `Apify shard ${index + 1}/${actorInputs.length} started.`, {
         shard: index + 1,
         shardCount: actorInputs.length,
         actorId: actorInput.actorId,
       });
+      await heartbeat('running', `Apify shard ${index + 1}/${actorInputs.length}`, leadCount);
 
       try {
         const actorRun = await actorClient.startRun(actorInput);
@@ -206,31 +223,38 @@ export function createRunService({
         const items = actorRun.datasetId
           ? await actorClient.getDatasetItems(actorRun.datasetId, actorInput.token)
           : [];
-        const sourceLeads = items.map((item) => normalizeLead(item, input.leadSource));
-        const normalizedLeads = input.leadSource === 'google_maps'
-          ? applyLeadQualityFilters(sourceLeads, input.googleMaps)
-          : sourceLeads;
-        await store.addEvent(
-          run.id,
-          'source_results',
-          `Apify shard ${index + 1} returned ${normalizedLeads.length} records; ${websiteCount(
-            normalizedLeads
-          )} had websites to scan.`,
-          {
-            provider: 'apify',
-            shard: index + 1,
-            itemCount: normalizedLeads.length,
-            websiteCount: websiteCount(normalizedLeads),
-          }
-        );
-        leadCount = await saveEmailLeadsInBatches(run.id, normalizedLeads, seenEmails, leadCount);
+
+        if (options.ingestionCoordinator && input.leadSource === 'google_maps') {
+          await options.ingestionCoordinator.ingest(items, 'apify', input.googleMaps ?? {});
+          leadCount = options.ingestionCoordinator.snapshot().qualifiedContactCount;
+        } else {
+          const sourceLeads = items.map((item) => normalizeLead(item, input.leadSource));
+          const normalizedLeads = input.leadSource === 'google_maps'
+            ? applyLeadQualityFilters(sourceLeads, input.googleMaps)
+            : sourceLeads;
+          await store.addEvent(
+            run.id,
+            'source_results',
+            `Apify shard ${index + 1} returned ${normalizedLeads.length} records; ${websiteCount(
+              normalizedLeads
+            )} had websites to scan.`,
+            {
+              provider: 'apify',
+              shard: index + 1,
+              itemCount: normalizedLeads.length,
+              websiteCount: websiteCount(normalizedLeads),
+            }
+          );
+          leadCount = await saveEmailLeadsInBatches(run.id, normalizedLeads, seenEmails, leadCount);
+        }
         await store.addEvent(run.id, 'apify_shard_completed', `Apify shard ${index + 1}/${actorInputs.length} completed.`, {
           provider: 'apify',
           shard: index + 1,
           shardCount: actorInputs.length,
-          itemCount: normalizedLeads.length,
+          itemCount: items.length,
           leadCount,
         });
+        await heartbeat(index + 1 === actorInputs.length ? 'completed' : 'running', `Apify shard ${index + 1}/${actorInputs.length}`, leadCount);
       } catch (error) {
         if (!options.continueOnShardError) throw error;
 
@@ -252,6 +276,7 @@ export function createRunService({
           shard: index + 1,
           shardCount: actorInputs.length,
         });
+        await heartbeat('failed', `Apify shard ${index + 1} failed`, leadCount, 'shard_failed');
       }
     }
 
@@ -513,31 +538,119 @@ export function createRunService({
           typeof checkpointStore.listBatches === 'function' &&
           typeof resumableClient?.searchBatch === 'function'
         ) {
-          const localOutcome = await executeBalancedGoogleMapsRun({
-            store: store as LocalFirstRunStore,
+          const localStore = store as LocalFirstRunStore;
+          const coordinator = new RunIngestionCoordinator({
+            runId: run.id,
+            target: input.maxResults,
+            store: localStore,
+            emailExtractor,
+            websiteConcurrency: emailExtractionConcurrency,
+            seed: {
+              qualifiedContactCount: run.leadCount ?? 0,
+              rawContactCount: run.rawContactCount ?? 0,
+              companiesWithQualifiedEmailCount: run.companiesWithQualifiedEmailCount ?? 0,
+              duplicateCount: run.duplicateCount ?? 0,
+            },
+          });
+
+          // Docker + Google and Apify run concurrently, sharing one coordinator.
+          const balancedTask = executeBalancedGoogleMapsRun({
+            store: localStore,
             localClient: localMapsScraperClient as ResumableLocalMapsScraperClient,
             googleClient: googlePlacesClient,
             emailExtractor,
             emailConcurrency: emailExtractionConcurrency,
-          }, run, input, { finalize: false });
-          if (localOutcome.status !== 'running') return;
-
-          await store.addEvent(run.id, 'hybrid_apify_started', 'Docker and Google stages complete; Apify expansion started.', {
-            businessCount: localOutcome.businessCount,
-            leadCount: localOutcome.leadCount,
-          });
-          const result = await runApifyShards(run, input, localOutcome.seenEmails, localOutcome.leadCount, {
+          }, run, input, { finalize: false, ingestionCoordinator: coordinator })
+            .then((outcome) => ({ ok: true as const, outcome }))
+            .catch((error: unknown) => ({ ok: false as const, error }));
+          const apifyTask = runApifyShards(run, input, undefined, undefined, {
             continueOnShardError: true,
+            ingestionCoordinator: coordinator,
+          })
+            .then((result) => ({ ok: true as const, result }))
+            .catch((error: unknown) => ({ ok: false as const, error }));
+
+          const [balancedSettled, apifySettled] = await Promise.all([balancedTask, apifyTask]);
+          await coordinator.drain();
+          const snap = coordinator.snapshot();
+          const sharedMetrics = {
+            businessCount: snap.businessCount,
+            localBusinessCount: snap.localBusinessCount,
+            googleBusinessCount: snap.googleBusinessCount,
+            websiteCount: snap.websiteCount,
+            duplicateCount: snap.duplicateCount,
+            leadCount: snap.qualifiedContactCount,
+            rawContactCount: snap.rawContactCount,
+            companiesWithQualifiedEmailCount: snap.companiesWithQualifiedEmailCount,
+          };
+
+          await store.addEvent(run.id, 'email_scan_completed', `Saved ${snap.qualifiedContactCount} unique email leads.`, {
+            provider: 'all',
+            leadCount: snap.qualifiedContactCount,
+            scannedBusinessCount: snap.scanCount,
+            concurrency: coordinator.websiteConcurrency,
           });
-          if (result.leadCount === 0) {
+
+          if (balancedSettled.ok && balancedSettled.outcome.status === 'waiting_for_credentials') {
+            await store.updateRun(run.id, { status: 'waiting_for_credentials', ...sharedMetrics });
+            return;
+          }
+          if (balancedSettled.ok && balancedSettled.outcome.status === 'waiting_for_scraper') {
+            await store.updateRun(run.id, { status: 'waiting_for_scraper', ...sharedMetrics });
+            return;
+          }
+
+          const failedProviders: string[] = [];
+          if (!balancedSettled.ok) {
+            failedProviders.push('docker_google');
+            await store.addErrorLog({
+              runId: run.id,
+              source: 'runService',
+              severity: 'warn',
+              message: safeErrorMessage(balancedSettled.error),
+              details: { provider: 'balanced' },
+            });
+          }
+          if (!apifySettled.ok) {
+            failedProviders.push('apify');
+            await store.addErrorLog({
+              runId: run.id,
+              source: 'runService',
+              severity: 'warn',
+              message: safeErrorMessage(apifySettled.error),
+              details: { provider: 'apify' },
+            });
+          } else if (apifySettled.result.failedShardCount > 0 && apifySettled.result.apifyRunIds.length === 0) {
+            failedProviders.push('apify');
+          }
+
+          const hasOutput = snap.businessCount > 0 || snap.qualifiedContactCount > 0;
+          if (failedProviders.length === 2 && !hasOutput) {
+            throw new Error('Docker, Google, and Apify providers all failed before producing output.');
+          }
+
+          const partial = failedProviders.length > 0;
+          if (snap.qualifiedContactCount === 0 && !hasOutput) {
             await store.addEvent(run.id, 'leads_saved', 'Saved 0 email leads.', { leadCount: 0 });
           }
-          await store.updateRun(run.id, { status: 'completed', actorId: 'hybrid', leadCount: result.leadCount });
-          await store.addEvent(run.id, 'run_completed', 'Hybrid Max Output run completed.', {
-            leadCount: result.leadCount,
-            businessCount: localOutcome.businessCount,
-            providers: ['docker', 'google_places', 'apify'],
+          await store.updateRun(run.id, {
+            status: partial ? 'partially_completed' : 'completed',
+            actorId: 'hybrid',
+            ...sharedMetrics,
           });
+          await store.addEvent(
+            run.id,
+            partial ? 'run_partially_completed' : 'run_completed',
+            partial
+              ? 'Hybrid Max Output run completed with provider failures; persisted output was kept.'
+              : 'Hybrid Max Output run completed.',
+            {
+              leadCount: snap.qualifiedContactCount,
+              businessCount: snap.businessCount,
+              providers: ['docker', 'google', 'apify', 'email'],
+              failedProviders: failedProviders.length ? failedProviders : undefined,
+            }
+          );
           return;
         }
 
@@ -643,7 +756,7 @@ export function createRunService({
   }
 
   function recoveredInput(run: RunRecord, credentials: ResumeCredentials = {}): ValidatedRunInput {
-    let persisted: { googleMaps?: GoogleMapsFilters; routeMode?: RouteMode } = {};
+    let persisted: { googleMaps?: GoogleMapsFilters; routeMode?: RouteMode; outputMode?: OutputMode } = {};
     try {
       persisted = JSON.parse(run.filterJson ?? '{}') as typeof persisted;
     } catch {
@@ -658,6 +771,7 @@ export function createRunService({
       leadSource: run.leadSource,
       maxResults: run.maxResults,
       googleMaps: persisted.googleMaps,
+      outputMode: persisted.outputMode,
       routeMode: credentials.proxyUrls?.length ? 'proxy' : persisted.routeMode ?? 'direct',
       proxyUrls: credentials.proxyUrls,
       googleApiKey: googleApiKeys?.[0],
@@ -730,6 +844,7 @@ export function createRunService({
       apiRequestBudget: input.googleMaps?.apiRequestBudget ?? 0,
       currentRoute: input.routeMode ?? 'direct',
       localConcurrency: 1,
+      outputMode: input.outputMode ?? (input.googleMaps?.provider === 'hybrid' ? 'hybrid_max' : 'standard'),
     });
     const queuedRun = { ...run };
 

@@ -61,6 +61,7 @@ export interface ValidatedRunInput {
   googleApiKeys?: string[];
   proxyUrls?: string[];
   routeMode?: RouteMode;
+  outputMode?: OutputMode;
   leadSource: LeadSource;
   actorId?: string;
   searchUrl?: string;

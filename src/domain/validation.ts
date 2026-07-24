@@ -2,6 +2,7 @@ import {
   GoogleMapsFilters,
   GoogleMapsProvider,
   LeadSource,
+  OutputMode,
   SalesNavigatorFilters,
   ValidatedRunInput,
 } from './types';
@@ -102,6 +103,11 @@ function parseLeadSource(value: unknown): LeadSource | undefined {
 
 function parseGoogleMapsProvider(value: unknown): GoogleMapsProvider | undefined {
   return value === 'apify' || value === 'google_places' || value === 'local_first' || value === 'hybrid' ? value : undefined;
+}
+
+function parseOutputMode(value: unknown): OutputMode | 'invalid' | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  return value === 'standard' || value === 'hybrid_max' ? value : 'invalid';
 }
 
 function parseGoogleMaps(value: unknown): GoogleMapsFilters | undefined {
@@ -207,7 +213,15 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
   const rawGoogleMaps = obj.googleMaps && typeof obj.googleMaps === 'object'
     ? (obj.googleMaps as Record<string, unknown>)
     : {};
-  const requestedGoogleMapsProvider = parseGoogleMapsProvider(rawGoogleMaps.provider) ?? 'apify';
+
+  const parsedOutputMode = parseOutputMode(obj.outputMode);
+  if (parsedOutputMode === 'invalid') {
+    fields.outputMode = 'outputMode must be standard or hybrid_max.';
+  }
+  const requestedGoogleMapsProvider =
+    parsedOutputMode === 'hybrid_max'
+      ? 'hybrid'
+      : parseGoogleMapsProvider(rawGoogleMaps.provider) ?? 'local_first';
   const requiresApifyToken =
     parseLeadSource(obj.leadSource) === 'sales_navigator' ||
     (parseLeadSource(obj.leadSource) === 'google_maps' && requestedGoogleMapsProvider === 'apify') ||
@@ -239,7 +253,18 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
   const googleMaps = parseGoogleMaps(obj.googleMaps);
   const salesNavigator = parseSalesNavigator(obj.salesNavigator ?? obj.filters);
 
-  const googleMapsProvider = googleMaps?.provider ?? 'apify';
+  const googleMapsProvider = requestedGoogleMapsProvider;
+  if (googleMaps) googleMaps.provider = googleMapsProvider;
+  const outputMode: OutputMode =
+    parsedOutputMode === 'standard' || parsedOutputMode === 'hybrid_max'
+      ? parsedOutputMode
+      : googleMapsProvider === 'hybrid'
+        ? 'hybrid_max'
+        : 'standard';
+  if (leadSource === 'google_maps' && googleMapsProvider === 'local_first' && !hasGooglePlacesCriteria(googleMaps)) {
+    fields.googleMaps = 'Local-first runs need at least one search term, category, or company type.';
+  }
+
   if (googleMapsProvider === 'local_first' && googleMaps) {
     googleMaps.apiRequestBudget = googleMaps.apiRequestBudget ?? 50;
     if (!hasGooglePlacesCriteria(googleMaps)) fields.googleMaps = 'Local-first runs need at least one search term, category, or company type.';
@@ -306,6 +331,7 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
     googleApiKeys: googleApiKeys.length ? googleApiKeys : undefined,
     proxyUrls: proxyUrls.length ? proxyUrls : undefined,
     routeMode: proxyUrls.length || obj.routeMode === 'proxy' ? 'proxy' : 'direct',
+    outputMode,
     leadSource: leadSource ?? 'google_maps',
     actorId: asString(obj.actorId),
     searchUrl,

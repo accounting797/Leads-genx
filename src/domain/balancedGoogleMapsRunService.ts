@@ -352,15 +352,20 @@ export async function executeBalancedGoogleMapsRun(
   const googleTask = runGoogleProvider();
   const localTask = runLocalProvider();
   const [googleResult, localResult] = await Promise.allSettled([googleTask, localTask]);
-  if (!options.ingestionCoordinator) await coordinator.drain();
+  if (!options.ingestionCoordinator) {
+    // Internally owned coordinator: drain and report. A shared coordinator is
+    // drained once by the caller after every provider settles.
+    await coordinator.drain();
+    const drained = coordinator.snapshot();
+    await store.addEvent(run.id, 'email_scan_completed', `Saved ${drained.qualifiedContactCount} unique email leads.`, {
+      provider: 'all',
+      leadCount: drained.qualifiedContactCount,
+      scannedBusinessCount: drained.scanCount,
+      concurrency: coordinator.websiteConcurrency,
+    });
+    await heartbeat('email', 'completed', 'Website contact scan completed', drained.qualifiedContactCount);
+  }
   const snap = coordinator.snapshot();
-  await store.addEvent(run.id, 'email_scan_completed', `Saved ${snap.qualifiedContactCount} unique email leads.`, {
-    provider: 'all',
-    leadCount: snap.qualifiedContactCount,
-    scannedBusinessCount: snap.scanCount,
-    concurrency: coordinator.websiteConcurrency,
-  });
-  await heartbeat('email', 'completed', 'Website contact scan completed', snap.qualifiedContactCount);
 
   const googleState: ProviderState = googleResult.status === 'fulfilled' ? googleResult.value : 'failed';
   const localState: ProviderState = localResult.status === 'fulfilled' ? localResult.value : 'failed';

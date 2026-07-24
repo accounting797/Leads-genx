@@ -983,4 +983,137 @@ describe('createRunService', () => {
     expect(store.runs[0].filterJson).not.toContain('saved-google-key');
     expect(store.runs[0].filterJson).not.toContain('savedpass');
   });
+
+  it('runs Hybrid Docker, Google, and Apify providers concurrently through one coordinator', async () => {
+    const base = createStore();
+    const batches: Array<Record<string, any>> = [];
+    const businesses: Array<Record<string, any>> = [];
+    const providerStates: Array<Record<string, any>> = [];
+    const store = {
+      ...base,
+      batches,
+      businesses,
+      providerStates,
+      async upsertProviderState(_runId: number, state: Record<string, any>) {
+        const existing = providerStates.find((item) => item.provider === state.provider);
+        if (existing) Object.assign(existing, state);
+        else providerStates.push(state);
+      },
+      async upsertContact(_runId: number, contact: NormalizedLead) {
+        if (base.leads.some((lead) => lead.normalizedEmail && lead.normalizedEmail === contact.normalizedEmail)) {
+          return 'duplicate' as const;
+        }
+        base.leads.push(contact);
+        return 'inserted' as const;
+      },
+      async upsertBatch(runId: number, batch: Record<string, any>) {
+        const existing = batches.find((item) => item.batchKey === batch.batchKey);
+        if (existing) {
+          Object.assign(existing, batch);
+          return existing;
+        }
+        const record = { id: batches.length + 1, runId, attemptCount: 0, resultCount: 0, ...batch };
+        batches.push(record);
+        return record;
+      },
+      async listBatches() { return batches; },
+      async listRunnableBatches() { return batches.filter((batch) => ['pending', 'retry'].includes(batch.status)); },
+      async upsertBusiness(runId: number, business: Record<string, any>) {
+        const existing = businesses.find((item) => item.identityKey === business.identityKey);
+        if (existing) {
+          const provenance = [...new Set([...(existing.provenance ?? []), ...(business.provenance ?? [])])];
+          Object.assign(existing, business, { provenance });
+          return 'merged' as const;
+        }
+        businesses.push({ id: businesses.length + 1, runId, ...business });
+        return 'inserted' as const;
+      },
+      async listBusinesses() { return businesses; },
+      async listRecoverableRuns() { return []; },
+      async getRun() { return base.runs[0]; },
+    };
+
+    let dockerStarted = false;
+    let googleStarted = false;
+    let apifyStarted = false;
+    let releaseDocker!: () => void;
+    let releaseGoogle!: () => void;
+    let releaseApify!: () => void;
+    const dockerGate = new Promise<void>((resolve) => { releaseDocker = resolve; });
+    const googleGate = new Promise<void>((resolve) => { releaseGoogle = resolve; });
+    const apifyGate = new Promise<void>((resolve) => { releaseApify = resolve; });
+
+    const localMapsScraperClient = {
+      async search() { return []; },
+      async health() { return true; },
+      async searchBatch({ batch }: { batch: { key: string } }) {
+        dockerStarted = true;
+        await dockerGate;
+        return {
+          batchKey: batch.key,
+          jobId: 'job-1',
+          rawBusinessCount: 1,
+          items: [{ title: 'Docker Co', email: 'docker@example.com' }],
+        };
+      },
+    };
+    const googlePlacesClient: GooglePlacesClient = {
+      async search() {
+        googleStarted = true;
+        await googleGate;
+        return [{ displayName: { text: 'Google Co' }, email: 'google@example.com' }];
+      },
+    };
+    const actorClient: ActorClient = {
+      async startRun() {
+        apifyStarted = true;
+        await apifyGate;
+        return { runId: 'apify-run-1', status: 'SUCCEEDED', datasetId: 'dataset-1' };
+      },
+      async getRun() { throw new Error('not used'); },
+      async getDatasetItems() {
+        return [{ title: 'Apify Co', email: 'apify@example.com' }];
+      },
+    };
+
+    const service = createRunService({
+      store,
+      actorClient,
+      googlePlacesClient,
+      localMapsScraperClient: localMapsScraperClient as unknown as LocalMapsScraperClient,
+      emailExtractionConcurrency: 50,
+    });
+    await service.startRun(
+      {
+        apifyToken: 'apify-secret',
+        googleApiKey: 'google-secret',
+        leadSource: 'google_maps',
+        maxResults: 100,
+        googleMaps: { provider: 'hybrid', searchTerms: ['dentist'], locations: ['Austin, TX'], apiRequestBudget: 10 },
+      },
+      { background: true }
+    );
+
+    // All three discovery providers must be in flight before any of them finishes.
+    while (!(dockerStarted && googleStarted && apifyStarted)) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(apifyStarted).toBe(true);
+    expect(dockerStarted).toBe(true);
+    expect(googleStarted).toBe(true);
+
+    releaseDocker();
+    releaseGoogle();
+    releaseApify();
+    while (!['completed', 'partially_completed', 'failed'].includes(store.runs[0].status)) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(store.runs[0]).toMatchObject({ status: 'completed', leadCount: 3, businessCount: 3 });
+    const terminal = store.events.find((event) => event.type === 'run_completed');
+    expect(terminal?.metadata?.providers).toEqual(['docker', 'google', 'apify', 'email']);
+    expect(providerStates.some((state) => state.provider === 'apify' && state.status === 'completed')).toBe(true);
+    expect(providerStates.some((state) => state.provider === 'docker')).toBe(true);
+    expect(providerStates.some((state) => state.provider === 'google')).toBe(true);
+  });
 });

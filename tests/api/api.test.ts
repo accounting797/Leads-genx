@@ -45,6 +45,7 @@ describe('API', () => {
       .post('/api/runs')
       .send({
         apifyToken: 'apify-secret-token',
+        googleApiKey: 'google-secret-key',
         leadSource: 'google_maps',
         maxResults: 100,
         googleMaps: {

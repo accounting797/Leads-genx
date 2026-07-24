@@ -52,6 +52,7 @@ describe('validateCreateRunInput', () => {
     const input = validateCreateRunInput(
       {
         apifyToken: 'secret-token',
+        googleApiKey: 'google-secret',
         leadSource: 'google_maps',
         maxResults: 250,
         googleMaps: {
@@ -73,6 +74,66 @@ describe('validateCreateRunInput', () => {
         minimumStars: 4,
       },
     });
+  });
+
+  it('defaults an omitted output mode to Standard local-first with a 50 request budget', () => {
+    const input = validateCreateRunInput(
+      {
+        googleApiKey: 'google-secret',
+        leadSource: 'google_maps',
+        maxResults: 100,
+        googleMaps: { searchTerms: ['dentist'], locations: ['Austin, TX'] },
+      },
+      false
+    );
+
+    expect(input).toMatchObject({
+      outputMode: 'standard',
+      googleMaps: { provider: 'local_first', apiRequestBudget: 50 },
+    });
+  });
+
+  it('maps hybrid_max output mode to the hybrid provider and requires an Apify token', () => {
+    expect(() =>
+      validateCreateRunInput(
+        {
+          googleApiKey: 'google-secret',
+          leadSource: 'google_maps',
+          outputMode: 'hybrid_max',
+          googleMaps: { searchTerms: ['dentist'], locations: ['Austin, TX'] },
+        },
+        false
+      )
+    ).toThrow(/Apify token/i);
+
+    const input = validateCreateRunInput(
+      {
+        apifyToken: 'apify-secret',
+        googleApiKey: 'google-secret',
+        leadSource: 'google_maps',
+        outputMode: 'hybrid_max',
+        googleMaps: { searchTerms: ['dentist'], locations: ['Austin, TX'] },
+      },
+      false
+    );
+    expect(input).toMatchObject({
+      outputMode: 'hybrid_max',
+      googleMaps: { provider: 'hybrid', apiRequestBudget: 50 },
+    });
+  });
+
+  it('rejects unknown output modes with a field error', () => {
+    expect(() =>
+      validateCreateRunInput(
+        {
+          googleApiKey: 'google-secret',
+          leadSource: 'google_maps',
+          outputMode: 'turbo',
+          googleMaps: { searchTerms: ['dentist'] },
+        },
+        false
+      )
+    ).toThrow('outputMode must be standard or hybrid_max.');
   });
 
   it('accepts expanded Sales Navigator filters as run criteria', () => {
@@ -257,6 +318,7 @@ describe('validateCreateRunInput', () => {
     const input = validateCreateRunInput(
       {
         apifyToken: 'secret-token',
+        googleApiKey: 'google-secret',
         leadSource: 'google_maps',
         maxResults: 5000,
         googleMaps: {
@@ -280,6 +342,7 @@ describe('validateCreateRunInput', () => {
     const input = validateCreateRunInput(
       {
         apifyToken: 'secret-token',
+        googleApiKey: 'google-secret',
         leadSource: 'google_maps',
         googleMaps: {
           companyTypes: ['Public Company'],
