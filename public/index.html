@@ -344,6 +344,7 @@
           <button class="tab" data-tab="leads" type="button">Leads</button>
           <button class="tab" data-tab="account" type="button" id="accountTabBtn">Account</button>
           <button class="tab" data-tab="logs" type="button" data-admin-only>Logs</button>
+          <button class="tab" data-tab="linkedin" type="button">LinkedIn</button>
           <button class="tab" data-tab="settings" type="button" data-admin-only>Settings</button>
           <button class="tab" data-tab="admin" type="button" data-admin-only id="adminTabBtn">Admin</button>
         </nav>
@@ -565,6 +566,41 @@
             <button id="refreshLogs" type="button" class="ghost-btn">Refresh</button>
           </div>
           <div id="logsTable"></div>
+        </div>
+
+        <div id="linkedinTab" class="tab-page">
+          <div class="table-actions">
+            <div>
+              <h2>LinkedIn Extension</h2>
+              <p>Nova's little helper for Sales Navigator — scrape lead searches straight from your browser and watch them land here.</p>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <section class="settings-card">
+              <h3>Getting Set Up</h3>
+              <ol class="setup-steps">
+                <li>Download the extension below, unzip it, then open <code>chrome://extensions</code> in Chrome, switch on <strong>Developer mode</strong>, and pick <strong>Load unpacked</strong> to select the unzipped folder.</li>
+                <li>Paste your server URL and your extension key (right next door) into the extension popup.</li>
+                <li>Open a Sales Navigator lead search and press <strong>Start</strong> in the popup — your leads stream in here automatically.</li>
+              </ol>
+              <a class="ghost-btn download-link" href="/downloads/leadsgenx-sn-extension.zip" download>Download the Extension</a>
+            </section>
+            <section class="settings-card">
+              <h3>Your Extension Key</h3>
+              <code id="extensionTokenDisplay" class="token-display">Loading…</code>
+              <div class="inline-actions">
+                <button id="copyExtensionToken" type="button" class="ghost-btn">Copy</button>
+                <button id="toggleExtensionToken" type="button" class="ghost-btn">Reveal</button>
+                <button id="regenerateExtensionToken" type="button" class="ghost-btn">Regenerate</button>
+              </div>
+              <p class="settings-hint" id="extensionTokenStatus">This key links the extension to your account — keep it to yourself.</p>
+            </section>
+          </div>
+          <div class="table-actions extension-runs-head">
+            <h2>Extension Runs</h2>
+            <button id="refreshExtensionRuns" type="button" class="ghost-btn">Refresh</button>
+          </div>
+          <div id="extensionRunsTable"></div>
         </div>
 
         <div id="settingsTab" class="tab-page">

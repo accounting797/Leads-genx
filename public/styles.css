@@ -784,6 +784,48 @@ tr:last-child td { border-bottom: 0; }
   margin-top: 14px;
 }
 
+.setup-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.setup-steps code {
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #0d1116;
+  color: var(--cyan);
+  font-size: 11px;
+}
+
+.download-link {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.token-display {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1116;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.extension-runs-head {
+  margin-top: 16px;
+}
+
 .proxy-list {
   display: grid;
   gap: 6px;
