@@ -6,6 +6,7 @@ import {
   createSession,
   currentUser,
   destroySession,
+  findUserByUsername,
   hashPassword,
   parseSessionToken,
   requireAuth,
@@ -96,7 +97,7 @@ export function createAuthRouter({ prisma, credentialTester }: { prisma: PrismaC
       const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
       const username = String(body.username ?? '').trim();
       const password = String(body.password ?? '');
-      const user = await prisma.user.findUnique({ where: { username } });
+      const user = await findUserByUsername(prisma, username);
       if (!user || !(await verifyPassword(password, user.passwordHash))) {
         res.status(401).json({ error: 'Invalid username or password.' });
         return;

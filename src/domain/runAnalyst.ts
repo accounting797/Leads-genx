@@ -157,8 +157,12 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
     lines.push({ tone: engineerTone(event.metadata?.kind), text: event.message });
   }
   const engineerQuarantined = engineerEvents.some((event) => event.metadata?.kind === 'credential_quarantined');
+  // A guidance event means Nova's self-healing is exhausted and she is
+  // explicitly asking the operator for help — raise the flag high.
+  const novaNeedsHelp = engineerEvents.some((event) => event.metadata?.kind === 'guidance');
   const engineerActive = engineerEvents.length > 0;
   if (engineerQuarantined) escalate('bad');
+  if (novaNeedsHelp) escalate('needs_attention');
 
   // --- Output so far -----------------------------------------------------
   if (run.businessCount > 0 || run.leadCount > 0) {
@@ -225,6 +229,10 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
         ? engineerActive
           ? "Everything's humming along nicely — I'm actively guarding this run."
           : "Everything's humming along nicely — all systems healthy."
+        : novaNeedsHelp
+        ? "I've retried, cooled down, and rerouted everything I can — now I need your help with what's below."
+        : engineerActive
+        ? "I'm actively fighting for this run — retries and cooling are underway — but a few things deserve your eye."
         : 'The run is moving, but a few things deserve your eye — see below.';
   }
 

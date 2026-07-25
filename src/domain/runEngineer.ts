@@ -335,6 +335,7 @@ export class RunEngineer {
             attempt = 0;
             continue;
           }
+          await this.escalate(provider, operation, diagnosis);
           break;
         }
         const waitMs = plan.backoffMs[attempt - 1] ?? 2_000;
@@ -348,6 +349,29 @@ export class RunEngineer {
       }
     }
     throw lastError;
+  }
+
+  /**
+   * Every self-healing card has been played — retries, cooling cycles,
+   * quarantine, reconnects — and the operation still won't revive. Nova says
+   * so plainly, with the most useful next action, so the operator can step
+   * in. Silence is the only true failure mode.
+   */
+  private async escalate(provider: EngineerProvider, operation: string, diagnosis: FailureDiagnosis): Promise<void> {
+    const advice =
+      diagnosis.category === 'auth'
+        ? 'the credential is dead — a fresh one in Settings will bring us straight back.'
+        : diagnosis.category === 'rate_limit'
+        ? 'it is throttling us hard even after cooling — more keys or proxies, or a lighter load, would fix this for good.'
+        : diagnosis.category === 'quota'
+        ? 'its quota or budget looks exhausted — a top-up or a replacement key is the cure.'
+        : 'it is unstable right now — resuming the run a little later usually clears this.';
+    await this.record(
+      provider,
+      'guidance',
+      `Nova needs your help — I've retried, cooled the engines, and rerouted everything I can, but ${operation} won't revive: ${advice} Everything gathered so far is safe.`,
+      'Self-healing exhausted: retry waves and cooling cycles are spent, so this is handed to the operator with a concrete next action.'
+    );
   }
 
   /** Reports that a retry wave recovered the operation. */

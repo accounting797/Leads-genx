@@ -115,6 +115,24 @@ export async function userCount(prisma: Pick<PrismaClient, 'user'>): Promise<num
   return prisma.user.count();
 }
 
+/**
+ * Finds a user by username, case-insensitively. SQLite string comparison is
+ * case-sensitive, and real humans type "john" when the account is "John" —
+ * a case difference must never read as "invalid username or password".
+ * User tables are small, so the fallback scan is cheap.
+ */
+export async function findUserByUsername(
+  prisma: Pick<PrismaClient, 'user'>,
+  username: string
+): Promise<{ id: number; username: string; passwordHash: string; role: string; tier: string; status: string } | null> {
+  const exact = await prisma.user.findUnique({ where: { username } });
+  if (exact) return exact;
+  const folded = username.trim().toLowerCase();
+  if (!folded) return null;
+  const all = await prisma.user.findMany();
+  return all.find((user) => user.username.toLowerCase() === folded) ?? null;
+}
+
 export function parseSessionToken(cookieHeader: string | undefined): string | undefined {
   if (!cookieHeader) return undefined;
   for (const part of cookieHeader.split(';')) {

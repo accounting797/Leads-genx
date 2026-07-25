@@ -69,6 +69,28 @@ describe('bootstrap and login', () => {
       .expect(403);
   });
 
+  it('signs users in regardless of username casing and rejects case-only duplicates', async () => {
+    const adminCookie = await login('owner', 'owner-password-1');
+    await request(app())
+      .post('/api/admin/users')
+      .set('Cookie', adminCookie)
+      .send({ username: 'MixedCase', password: 'user-password-1', tier: 'STANDARD' })
+      .expect(201);
+
+    // "john" vs "John" must never read as invalid credentials.
+    const res = await request(app())
+      .post('/api/auth/login')
+      .send({ username: 'mixedcase', password: 'user-password-1' })
+      .expect(200);
+    expect(res.body.data.user.username).toBe('MixedCase');
+
+    await request(app())
+      .post('/api/admin/users')
+      .set('Cookie', adminCookie)
+      .send({ username: 'MIXEDCASE', password: 'other-password-1', tier: 'STANDARD' })
+      .expect(409);
+  });
+
   it('rejects bad credentials and accepts good ones', async () => {
     await request(app()).post('/api/auth/login').send({ username: 'owner', password: 'wrong-password' }).expect(401);
     const cookie = await login('owner', 'owner-password-1');

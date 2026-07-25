@@ -3,6 +3,7 @@ import { Router } from 'express';
 import {
   AuthValidationError,
   currentUser,
+  findUserByUsername,
   hashPassword,
   validatePassword,
   validateUsername,
@@ -227,7 +228,7 @@ export function createAdminRouter({ prisma, deployService }: { prisma: PrismaCli
       const password = validatePassword(body.password);
       const tier = body.tier === 'HYBRID' ? 'HYBRID' : 'STANDARD';
       const role = body.role === 'ADMIN' ? 'ADMIN' : 'USER';
-      const existing = await prisma.user.findUnique({ where: { username } });
+      const existing = await findUserByUsername(prisma, username);
       if (existing) {
         res.status(409).json({ error: 'That username is already taken.', fields: { username: 'Already taken.' } });
         return;

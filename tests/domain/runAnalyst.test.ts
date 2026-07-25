@@ -203,6 +203,26 @@ describe('analyzeRun', () => {
     expect(report.headline).toMatch(/actively guarding/i);
   });
 
+  it('raises Needs your help when Nova’s self-healing is exhausted', () => {
+    const report = analyzeRun(
+      baseInput({
+        events: [
+          {
+            type: 'engineer_action',
+            message: "Nova needs your help — I've retried, cooled the engines, and rerouted everything I can, but Apify shard 1/2 won't revive.",
+            createdAt: new Date(NOW.getTime() - 2000),
+            metadata: { kind: 'guidance' },
+          },
+        ],
+      })
+    );
+
+    expect(report.verdict).toBe('needs_attention');
+    expect(report.verdictLabel).toBe('Needs your help');
+    expect(report.headline).toMatch(/need your help/i);
+    expect(report.lines.some((line) => line.text.includes('Nova needs your help'))).toBe(true);
+  });
+
   it('explains waiting_for_scraper as a safe pause, not a crash', () => {
     const report = analyzeRun(
       baseInput({

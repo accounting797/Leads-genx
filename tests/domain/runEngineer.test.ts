@@ -122,6 +122,10 @@ describe('RunEngineer', () => {
     expect(waits).toEqual([1500, 4000, 60_000, 1500, 4000, 60_000, 1500, 4000]);
     expect(sink.events.filter((event) => event.metadata?.kind === 'cooldown')).toHaveLength(4);
     expect(statuses).toEqual(['cooling_down', 'running', 'cooling_down', 'running']);
+    // Self-healing spent: Nova says so plainly and asks the operator for help.
+    const guidance = sink.events.filter((event) => event.metadata?.kind === 'guidance');
+    expect(guidance).toHaveLength(1);
+    expect(guidance[0].message).toContain('Nova needs your help');
   });
 
   it('cools down when things get hot, then recovers the operation', async () => {
