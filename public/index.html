@@ -399,6 +399,10 @@
                 <input id="byodApifyToken" type="password" autocomplete="off" placeholder="Leave blank to keep saved value">
               </label>
               <label>
+                <span>Bright Data API Key (LinkedIn enrichment)</span>
+                <input id="byodBrightDataKey" type="password" autocomplete="off" placeholder="Leave blank to keep saved value">
+              </label>
+              <label>
                 <span>Google API Keys (one per line)</span>
                 <textarea id="byodGoogleKeys" rows="2" spellcheck="false" placeholder="Leave blank to keep saved keys"></textarea>
               </label>
@@ -409,6 +413,7 @@
               <div class="inline-actions">
                 <button id="byodSaveBtn" type="button" class="primary-btn">Save My Details</button>
                 <button id="byodTestApify" type="button" class="ghost-btn">Test Apify</button>
+                <button id="byodTestBrightData" type="button" class="ghost-btn">Test Bright Data</button>
                 <button id="byodTestGoogle" type="button" class="ghost-btn">Test Google</button>
                 <button id="byodClearBtn" type="button" class="ghost-btn danger">Clear All</button>
               </div>
@@ -633,6 +638,16 @@
                 <button id="testApifyBtn" type="button" class="ghost-btn">Test Token</button>
                 <button id="clearApifyBtn" type="button" class="ghost-btn">Clear Token</button>
                 <span id="apifyTestStatus" class="settings-hint"></span>
+              </div>
+              <label>
+                <span>Bright Data API Key <small id="setBrightDataStatus" class="settings-hint"></small></span>
+                <textarea id="setBrightDataKey" rows="2" autocomplete="off" spellcheck="false" placeholder="Leave blank to keep the saved key"></textarea>
+              </label>
+              <p class="settings-hint">Powers LinkedIn contact enrichment — emails and phones for the profiles your extension captures.</p>
+              <div class="inline-actions">
+                <button id="testBrightDataBtn" type="button" class="ghost-btn">Test Key</button>
+                <button id="clearBrightDataBtn" type="button" class="ghost-btn">Clear Key</button>
+                <span id="brightDataTestStatus" class="settings-hint"></span>
               </div>
               <label>
                 <span>Google API Keys <small id="setGoogleStatus" class="settings-hint"></small></span>

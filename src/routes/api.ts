@@ -17,6 +17,8 @@ import {
   SECRET_MASK,
 } from '../domain/operatorSettings';
 import { testProxies, ProxyTestResult } from '../integrations/proxyTester';
+import { testBrightDataKey } from '../integrations/brightDataClient';
+import { enrichRunLinkedInLeads } from '../domain/linkedinEnrichment';
 import {
   testApifyToken,
   testGoogleApiKey,
@@ -306,6 +308,51 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
     })
   );
 
+  // Bright Data enrichment: fill in emails/phones for a run's LinkedIn
+  // leads (extension-captured or otherwise) using the contact-enriched
+  // people dataset. BYOD key wins; falls back to the operator's key.
+  router.post(
+    '/runs/:id/enrich-linkedin',
+    asyncHandler(async (req, res) => {
+      const id = Number(req.params.id);
+      if (!prisma) {
+        res.status(503).json({ error: 'Database unavailable' });
+        return;
+      }
+      const run = await prisma.run.findUnique({ where: { id } });
+      if (!run || !canAccessRun(currentUser(res), run)) {
+        res.status(404).json({ error: 'Run not found' });
+        return;
+      }
+      const user = currentUser(res);
+      const byod = user ? await loadUserCredentials(prisma, user.id) : undefined;
+      const apiKey = byod?.brightDataApiKey || (await loadOperatorSettings(prisma)).brightDataApiKey;
+      if (!apiKey) {
+        res.status(400).json({
+          error: 'No Bright Data key yet — add one in Settings and Nova will handle the rest.',
+        });
+        return;
+      }
+      const pending = await prisma.lead.count({
+        where: { runId: id, profileUrl: { not: null }, OR: [{ email: null }, { email: '' }] },
+      });
+      if (pending === 0) {
+        res.json({ data: { started: false, pending: 0, message: 'Every LinkedIn lead already has contact data.' } });
+        return;
+      }
+      // Fire and forget — progress lands in the run's event feed as
+      // brightdata_enrichment_* events (Nova narrates every batch).
+      void enrichRunLinkedInLeads(prisma, id, { apiKey }).catch(() => {});
+      res.status(202).json({
+        data: {
+          started: true,
+          pending,
+          message: `Nova is enriching ${pending} LinkedIn profiles with Bright Data — watch the run feed.`,
+        },
+      });
+    })
+  );
+
   router.post(
     '/runs/:id/stop',
     asyncHandler(async (req, res) => {
@@ -517,6 +564,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
         defaultGoogleMapsActorId: body.defaultGoogleMapsActorId as string | undefined,
         defaultSalesNavigatorActorId: body.defaultSalesNavigatorActorId as string | undefined,
         apifyToken: body.apifyToken as string | undefined,
+        brightDataApiKey: body.brightDataApiKey as string | undefined,
         googleApiKeys: asListInput(body.googleApiKeys),
         proxyUrls,
       });
@@ -525,7 +573,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
       // Replacing or removing a credential resets the engineer's memory for it.
       await pruneQuarantinedCredentials(
         prisma,
-        [settings.apifyToken, ...settings.googleApiKeys].filter((value): value is string => Boolean(value))
+        [settings.apifyToken, settings.brightDataApiKey, ...settings.googleApiKeys].filter((value): value is string => Boolean(value))
       );
 
       // Nova's promise: the moment fresh credentials land, any run that was
@@ -659,6 +707,31 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
           totalCount: results.length,
         },
       });
+    })
+  );
+
+  router.post(
+    '/settings/test/brightdata',
+    adminGuard,
+    asyncHandler(async (req, res) => {
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      const provided = typeof body.brightDataApiKey === 'string' ? body.brightDataApiKey.trim() : '';
+      const key = provided || (await loadOperatorSettings(prisma)).brightDataApiKey;
+      if (!key) {
+        res.status(400).json({ error: 'No Bright Data key to test. Save or paste one first.' });
+        return;
+      }
+      const result = await testBrightDataKey(key);
+      if (result.ok) {
+        try {
+          if (prisma && (await unquarantineCredential(prisma, key))) {
+            result.detail = `${result.detail} — quarantine cleared, the engineer trusts this key again`;
+          }
+        } catch {
+          // Quarantine state must never break a credential test.
+        }
+      }
+      res.json({ data: result });
     })
   );
 

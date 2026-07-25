@@ -65,6 +65,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}),
       }),
+    testMyBrightData: (body) =>
+      requestJson('/auth/credentials/test/brightdata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }),
     adminListUsers: () => requestJson('/admin/users'),
     adminCreateUser: (body) =>
       requestJson('/admin/users', {
@@ -140,6 +146,13 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}),
       }),
+    testBrightDataCredential: (body) =>
+      requestJson('/settings/test/brightdata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }),
+    enrichLinkedIn: (runId) => requestJson('/runs/' + runId + '/enrich-linkedin', { method: 'POST' }),
     downloadLeads: (runId, format) => {
       const params = new URLSearchParams();
       if (runId) params.set('runId', runId);

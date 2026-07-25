@@ -120,6 +120,9 @@
     $('setGoogleActor').value = settings.defaultGoogleMapsActorId;
     $('setSalesNavActor').value = settings.defaultSalesNavigatorActorId;
     $('setApifyStatus').textContent = settings.hasSavedApifyToken ? '· saved' : '· not saved';
+    $('setBrightDataStatus').textContent = settings.hasSavedBrightDataKey
+      ? '· saved ' + (settings.brightDataKeyPreview || '')
+      : '· not saved';
     $('setGoogleStatus').textContent = settings.hasSavedGoogleApiKeys
       ? '· ' + settings.googleApiKeyCount + ' key(s) saved'
       : '· not saved';
@@ -165,11 +168,13 @@
         defaultGoogleMapsActorId: $('setGoogleActor').value,
         defaultSalesNavigatorActorId: $('setSalesNavActor').value,
         apifyToken: $('setApifyToken').value.trim() || undefined,
+        brightDataApiKey: $('setBrightDataKey').value.trim() || undefined,
         googleApiKeys: $('setGoogleKeys').value.trim() || undefined,
         proxyUrls: $('setProxyUrls').value.trim() || undefined,
       };
       const settings = await api.saveSettings(body);
       $('setApifyToken').value = '';
+      $('setBrightDataKey').value = '';
       $('setGoogleKeys').value = '';
       $('setProxyUrls').value = '';
       applySettingsStatus(settings);
@@ -469,7 +474,7 @@
     }
     $('extensionRunsTable').innerHTML =
       '<div class="table-wrap"><table><thead><tr>' +
-      '<th>Run #</th><th>Label</th><th>Leads</th><th>Status</th><th>Started</th>' +
+      '<th>Run #</th><th>Label</th><th>Leads</th><th>Status</th><th>Started</th><th></th>' +
       '</tr></thead><tbody>' +
       runs
         .map((run) => {
@@ -487,7 +492,9 @@
             escapeHtml(extensionRunStatusLabel(run.status)) +
             '</span></td><td>' +
             escapeHtml(new Date(run.createdAt).toLocaleString()) +
-            '</td></tr>'
+            '</td><td><button type="button" class="ghost-btn small" data-enrich-run="' +
+            run.id +
+            '">Enrich</button></td></tr>'
           );
         })
         .join('') +
@@ -500,6 +507,19 @@
       renderExtensionRuns(runs.filter((run) => run.actorId === 'sn_extension'));
     } catch (error) {
       $('extensionRunsTable').innerHTML = window.LeadsGenXUi.empty(error.message);
+    }
+  }
+
+  // Bright Data enrichment: one click fills emails/phones for the run's
+  // LinkedIn leads. Progress is narrated by Nova in the run's event feed.
+  async function enrichLinkedInRun(runId, button) {
+    if (button) button.disabled = true;
+    try {
+      const result = await api.enrichLinkedIn(runId);
+      window.LeadsGenXUi.toast(result.message || 'Enrichment started');
+    } catch (error) {
+      window.LeadsGenXUi.toast(error.message);
+      if (button) button.disabled = false;
     }
   }
 
@@ -907,12 +927,30 @@
     $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
     $('saveSettingsBtn').addEventListener('click', () => saveSettings());
     $('clearApifyBtn').addEventListener('click', () => saveSettings({ apifyToken: '' }));
+    $('clearBrightDataBtn').addEventListener('click', () => saveSettings({ brightDataApiKey: '' }));
+    $('testBrightDataBtn').addEventListener('click', async () => {
+      $('testBrightDataBtn').disabled = true;
+      $('brightDataTestStatus').textContent = 'Testing…';
+      try {
+        const pasted = $('setBrightDataKey').value.trim();
+        const result = await api.testBrightDataCredential(pasted ? { brightDataApiKey: pasted } : {});
+        $('brightDataTestStatus').textContent = (result.ok ? '✓ ' : '✗ ') + result.detail;
+      } catch (error) {
+        $('brightDataTestStatus').textContent = error.message;
+      } finally {
+        $('testBrightDataBtn').disabled = false;
+      }
+    });
     $('clearGoogleBtn').addEventListener('click', () => saveSettings({ googleApiKeys: '' }));
     $('clearProxiesBtn').addEventListener('click', () => saveSettings({ proxyUrls: '' }));
     $('testProxiesBtn').addEventListener('click', testSavedProxies);
     $('testApifyBtn').addEventListener('click', testApifyCredential);
     $('testGoogleBtn').addEventListener('click', testGoogleCredentials);
     $('refreshExtensionRuns').addEventListener('click', loadExtensionRuns);
+    $('extensionRunsTable').addEventListener('click', (event) => {
+      const target = event.target.closest('[data-enrich-run]');
+      if (target) void enrichLinkedInRun(target.dataset.enrichRun, target);
+    });
     $('copyExtensionToken').addEventListener('click', () => void copyExtensionToken());
     $('toggleExtensionToken').addEventListener('click', () => {
       extensionTokenRevealed = !extensionTokenRevealed;
@@ -1073,6 +1111,7 @@
     $('byodSaveBtn').addEventListener('click', saveByod);
     $('byodClearBtn').addEventListener('click', clearByod);
     $('byodTestApify').addEventListener('click', () => testByod('apify'));
+    $('byodTestBrightData').addEventListener('click', () => testByod('brightdata'));
     $('byodTestGoogle').addEventListener('click', () => testByod('google'));
     $('adminCreateBtn').addEventListener('click', adminCreateUser);
     $('refreshAdmin').addEventListener('click', loadAdminPanel);
@@ -1130,6 +1169,7 @@
       ? 'Using your own details: ' +
         [
           status.apifyTokenSet ? 'Apify token ' + (status.apifyTokenPreview || 'saved') : null,
+          status.brightDataKeySet ? 'Bright Data key ' + (status.brightDataKeyPreview || 'saved') : null,
           status.googleApiKeyCount ? status.googleApiKeyCount + ' Google key' + (status.googleApiKeyCount > 1 ? 's' : '') : null,
           status.proxyCount ? status.proxyCount + ' prox' + (status.proxyCount > 1 ? 'ies' : 'y') : null,
         ]
@@ -1142,6 +1182,7 @@
     $('byodFormStatus').textContent = '';
     const body = {};
     if ($('byodApifyToken').value.trim()) body.apifyToken = $('byodApifyToken').value.trim();
+    if ($('byodBrightDataKey').value.trim()) body.brightDataApiKey = $('byodBrightDataKey').value.trim();
     if ($('byodGoogleKeys').value.trim()) body.googleApiKeys = $('byodGoogleKeys').value;
     if ($('byodProxyUrls').value.trim()) body.proxyUrls = $('byodProxyUrls').value;
     if (!Object.keys(body).length) {
@@ -1151,6 +1192,7 @@
     try {
       const status = await api.saveMyCredentials(body);
       $('byodApifyToken').value = '';
+      $('byodBrightDataKey').value = '';
       $('byodGoogleKeys').value = '';
       $('byodProxyUrls').value = '';
       renderByodStatus(status);
@@ -1180,10 +1222,19 @@
           ? $('byodApifyToken').value.trim()
             ? { token: $('byodApifyToken').value.trim() }
             : {}
-          : $('byodGoogleKeys').value.trim()
-            ? { key: $('byodGoogleKeys').value.split('\n')[0].trim() }
-            : {};
-      const result = which === 'apify' ? await api.testMyApify(body) : await api.testMyGoogle(body);
+          : which === 'brightdata'
+            ? $('byodBrightDataKey').value.trim()
+              ? { key: $('byodBrightDataKey').value.trim() }
+              : {}
+            : $('byodGoogleKeys').value.trim()
+              ? { key: $('byodGoogleKeys').value.split('\n')[0].trim() }
+              : {};
+      const result =
+        which === 'apify'
+          ? await api.testMyApify(body)
+          : which === 'brightdata'
+            ? await api.testMyBrightData(body)
+            : await api.testMyGoogle(body);
       $('byodFormStatus').textContent = (result.ok ? '✓ ' : '✗ ') + result.detail;
     } catch (error) {
       $('byodFormStatus').textContent = error.message;

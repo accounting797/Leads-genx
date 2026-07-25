@@ -136,6 +136,8 @@ describe('toSafeOperatorSettings', () => {
       defaultGoogleMapsActorId: 'default/maps',
       defaultSalesNavigatorActorId: 'default/sn',
       hasSavedApifyToken: true,
+      hasSavedBrightDataKey: false,
+      brightDataKeyPreview: undefined,
       hasSavedGoogleApiKeys: true,
       googleApiKeyCount: 1,
       proxyCount: 1,

@@ -1,3 +1,4 @@
+import { testBrightDataKey } from '../integrations/brightDataClient';
 import { PrismaClient } from '@prisma/client';
 import { Router } from 'express';
 import {
@@ -186,6 +187,7 @@ export function createAuthRouter({ prisma, credentialTester }: { prisma: PrismaC
       const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
       await saveUserCredentials(prisma, user.id, {
         apifyToken: body.apifyToken !== undefined ? String(body.apifyToken) : undefined,
+        brightDataApiKey: body.brightDataApiKey !== undefined ? String(body.brightDataApiKey) : undefined,
         googleApiKeys: body.googleApiKeys !== undefined ? splitLines(body.googleApiKeys) : undefined,
         proxyUrls: body.proxyUrls !== undefined ? splitLines(body.proxyUrls) : undefined,
       });
@@ -237,6 +239,27 @@ export function createAuthRouter({ prisma, credentialTester }: { prisma: PrismaC
         return;
       }
       const result = await credentialTester.testGoogleKey(key);
+      if (result.ok && (await unquarantineCredential(prisma, key))) {
+        result.detail += ' — quarantine cleared, the engineer trusts this key again';
+      }
+      res.json({ data: result });
+    })
+  );
+
+  router.post(
+    '/credentials/test/brightdata',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const user = currentUser(res)!;
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      const provided = String(body.key ?? '').trim();
+      const creds = await loadUserCredentials(prisma, user.id);
+      const key = provided || creds.brightDataApiKey || '';
+      if (!key) {
+        res.status(400).json({ error: 'Save or paste a Bright Data key first.' });
+        return;
+      }
+      const result = await testBrightDataKey(key);
       if (result.ok && (await unquarantineCredential(prisma, key))) {
         result.detail += ' — quarantine cleared, the engineer trusts this key again';
       }
