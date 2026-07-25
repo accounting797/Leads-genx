@@ -35,6 +35,7 @@ import { limitsForUser, outputModeAllowed, startOfToday } from '../domain/tierLi
 import { hasUserCredentials, loadUserCredentials } from '../domain/userCredentials';
 import { createAuthRouter } from './auth';
 import { createAdminRouter } from './admin';
+import { createExtensionRouter } from './extension';
 
 function parseEventMetadata(metadataJson: string | null): { kind?: string } | undefined {
   if (!metadataJson) return undefined;
@@ -128,6 +129,13 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
 
   if (authEnabled && prisma) {
     router.use('/auth', createAuthRouter({ prisma, credentialTester }));
+  }
+
+  // Extension endpoints mix Bearer-token auth (ping/leads/finish, resolved
+  // inside the router) with session auth (token routes via the guard), so the
+  // router mounts before the blanket session guard.
+  if (prisma?.user) {
+    router.use('/extension', createExtensionRouter({ prisma, guard }));
   }
 
   // Everything below this line requires a signed-in user when auth is enabled.
