@@ -65,6 +65,17 @@ export async function executeBalancedGoogleMapsRun(
     if (existingKeys.has(batch.key)) continue;
     await store.upsertBatch(run.id, { batchKey: batch.key, query: batch.query, status: 'pending' });
   }
+  if (plannedBatches.length === 0 && existingBatches.length === 0) {
+    // The operator picked role/function searches only — those are the Google
+    // lane's specialty, so the Docker lane bows out with an explanation
+    // instead of crawling junk keywords for hours.
+    await store.addEvent(
+      run.id,
+      'local_lane_skipped',
+      'Nova here — the Docker lane is sitting this one out: role-based searches (CEO, Sales, Payroll…) are the Google lane’s specialty. Pick industry categories too and the bonus lane joins in.',
+      { provider: 'local_maps_scraper', skippedBatchCount: 0 }
+    );
+  }
 
   const coordinator =
     options.ingestionCoordinator ??
@@ -260,6 +271,12 @@ export async function executeBalancedGoogleMapsRun(
 
   async function runLocalProvider(): Promise<ProviderState> {
     const runnable = await store.listRunnableBatches(run.id, now());
+
+    // Nothing clean to crawl (e.g. role-based searches only): the lane is
+    // done before it started — no probe, no batches, no noise.
+    if (runnable.length === 0 && (await store.listBatches(run.id)).length === 0) {
+      return 'completed';
+    }
 
     // Pre-flight: probe the Docker lane before burning a single batch. Docker
     // is a bonus booster, never a blocker — when it isn't reachable (not

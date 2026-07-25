@@ -1,6 +1,24 @@
 import { createHash } from 'node:crypto';
-import { buildGoogleMapsSearchQueries } from './googleMapsQueryBuilder';
+import { suggestions } from './suggestions';
 import { GoogleMapsFilters } from './types';
+
+/**
+ * The Docker lane is a Maps crawler — its keywords must be business types
+ * ("dentist", "Construction"). Role/function terms from the suggestion lists
+ * ("Sales", "CEO", "Payroll") are Google-lane specialties: as crawl keywords
+ * they return junk and make batches grind for hours with zero output.
+ * Business-typed terms the operator typed themselves always stay.
+ */
+const ROLE_QUERY_TERMS = new Set(suggestions.googleMaps.searchTemplates.map((term) => term.toLowerCase()));
+
+function cleanValues(values?: string[]): string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+function localLaneBaseQueries(filters: GoogleMapsFilters): string[] {
+  const businessTerms = cleanValues(filters.searchTerms).filter((term) => !ROLE_QUERY_TERMS.has(term.toLowerCase()));
+  return [...new Set([...businessTerms, ...cleanValues(filters.categoryFilters)])];
+}
 
 export interface LocalDiscoveryBatch {
   key: string;
@@ -61,14 +79,10 @@ export function buildLocalDiscoveryBatches(filters: GoogleMapsFilters, maxResult
   const batches = new Map<string, LocalDiscoveryBatch>();
 
   for (const location of plans) {
-    const scopedFilters: GoogleMapsFilters = {
-      ...filters,
-      locations: location ? [location] : undefined,
-      locationQuery: undefined,
-    };
     const coords = location ? LOCAL_DISCOVERY_COORDINATES[location.toLowerCase()] : undefined;
-    for (const query of buildGoogleMapsSearchQueries(scopedFilters)) {
-      const normalized = query.replace(/\s+/g, ' ').trim();
+    const suffix = location ? ` ${location}` : '';
+    for (const base of localLaneBaseQueries(filters)) {
+      const normalized = `${base}${suffix}`.replace(/\s+/g, ' ').trim();
       const identity = { query: normalized.toLowerCase(), location: location?.toLowerCase() ?? '', depth: 10 };
       const key = stableKey(identity);
       if (!batches.has(key)) {

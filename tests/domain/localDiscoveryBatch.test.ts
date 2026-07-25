@@ -29,4 +29,27 @@ describe('buildLocalDiscoveryBatches', () => {
     expect(batch.lat).toBeUndefined();
     expect(batch.lon).toBeUndefined();
   });
+
+  it('keeps business-type terms and industries but benches role terms for the Google lane', () => {
+    const batches = buildLocalDiscoveryBatches(
+      {
+        searchTerms: ['dentist', 'CEO', 'Sales', 'Payroll'],
+        categoryFilters: ['Construction'],
+        locations: ['Austin, TX'],
+      },
+      100
+    );
+
+    const queries = batches.map((batch) => batch.query);
+    expect(queries).toEqual(['dentist Austin, TX', 'Construction Austin, TX']);
+    expect(queries.some((query) => /CEO|Sales|Payroll/.test(query))).toBe(false);
+  });
+
+  it('plans zero batches when only role terms are picked', () => {
+    const batches = buildLocalDiscoveryBatches(
+      { searchTerms: ['CEO', 'Sales', 'Human Resources'], locations: ['Austin, TX'] },
+      100
+    );
+    expect(batches).toEqual([]);
+  });
 });
