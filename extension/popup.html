@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Leads-GenX</title>
+  <style>
+    /* Low-saturation palette to match the app's quiet look */
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --border: #d9dce1;
+      --text: #33383f;
+      --muted: #7a828c;
+      --accent: #4a6fa5;
+      --accent-dark: #3b5c8a;
+      --ok: #2e7d4f;
+      --err: #b3402e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 14px;
+      font: 13px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    h1 {
+      font-size: 15px;
+      margin: 0 0 10px;
+      color: var(--accent-dark);
+    }
+    label {
+      display: block;
+      margin: 8px 0 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    input {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 13px;
+      background: var(--panel);
+      color: var(--text);
+    }
+    input:focus { outline: 2px solid rgba(74, 111, 165, 0.35); }
+    .row { display: flex; gap: 8px; margin-top: 10px; }
+    button {
+      flex: 1;
+      padding: 7px 0;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 13px;
+    }
+    button:hover:not(:disabled) { background: #eef1f5; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.primary:hover:not(:disabled) { background: var(--accent-dark); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    #conn-status { margin-top: 8px; min-height: 17px; font-size: 12px; }
+    #conn-status.ok { color: var(--ok); }
+    #conn-status.err { color: var(--err); }
+    hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+    #counters {
+      margin-top: 8px;
+      padding: 8px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    #counters b { color: var(--text); }
+    #scrape-hint { margin-top: 6px; font-size: 11px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>Leads-GenX</h1>
+
+  <label for="server-url">Server URL</label>
+  <input id="server-url" type="url" placeholder="https://leadsgenx.top" autocomplete="off">
+
+  <label for="token">Extension key (token)</label>
+  <input id="token" type="password" placeholder="Paste your extension key" autocomplete="off">
+
+  <div class="row">
+    <button id="save-btn">Save</button>
+    <button id="test-btn">Test connection</button>
+  </div>
+  <div id="conn-status"></div>
+
+  <hr>
+
+  <div class="row">
+    <button id="start-btn" class="primary" disabled>Start scraping</button>
+    <button id="stop-btn" disabled>Stop</button>
+  </div>
+  <div id="scrape-hint"></div>
+
+  <div id="counters">
+    Captured: <b id="captured">0</b> &nbsp;·&nbsp;
+    Sent: <b id="sent">0</b><br>
+    Status: <span id="last-status">idle</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

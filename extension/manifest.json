@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Leads-GenX — Sales Navigator Scout",
+  "version": "1.0.0",
+  "description": "Scrapes LinkedIn Sales Navigator lead-search results and sends them to your Leads-GenX server.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Leads-GenX"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/sales/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
