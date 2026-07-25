@@ -189,6 +189,27 @@ describe('deployService one-click update', () => {
     expect(service.getState().siteUrl).toBeUndefined();
   });
 
+  it('re-arms the server remote when a fresh GitHub token is supplied, and masks it', async () => {
+    const commands: string[] = [];
+    const service = createDeployService(
+      fastDeps({
+        runRemote: async (_opts: unknown, command: string, onLog: (line: string) => void) => {
+          commands.push(command);
+          onLog('remote url updated to ghp_NEWSECRETTOKEN123');
+          return 0;
+        },
+        httpsOk: async () => true,
+      })
+    );
+
+    service.startUpdate({ host: '1.2.3.4', rootPassword: 'pw', domain: 'leads.example.com', githubToken: 'ghp_NEWSECRETTOKEN123' });
+    await waitFor(() => service.getState().phase === 'done');
+
+    expect(commands[0]).toContain('remote set-url');
+    expect(commands[0]).toContain('update-server.sh');
+    expect(service.getState().log.join('\n')).not.toContain('ghp_NEWSECRETTOKEN123');
+  });
+
   it('lands on error when the update script fails', async () => {
     const service = createDeployService(
       fastDeps({

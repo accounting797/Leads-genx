@@ -200,6 +200,8 @@ describe('static dashboard settings page', () => {
     expect(html).toContain('id="updateHost"');
     expect(html).toContain('id="updatePassword"');
     expect(html).toContain('id="updateStartBtn"');
+    expect(html).toContain('id="updateToken"');
+    expect(appJs).toContain('githubToken');
     expect(apiJs).toContain("'/admin/deploy/update'");
     expect(appJs).toContain('startServerUpdate');
     expect(appJs).toContain('savedTarget');

@@ -30,6 +30,11 @@ export interface UpdateParams {
   rootPassword: string;
   /** Optional — when known, the update is verified publicly over HTTPS. */
   domain?: string;
+  /**
+   * Optional — pass after rotating the GitHub token: the server's git remote
+   * is re-armed with the fresh token before pulling, so updates keep working.
+   */
+  githubToken?: string;
 }
 
 export interface DeployParams {
@@ -321,8 +326,14 @@ export function createDeployService(deps: DeployDeps = {}) {
       log(`Connecting to root@${params.host} over SSH…`);
 
       setPhase('updating');
+      if (params.githubToken) {
+        log('Refreshing the server’s GitHub token before pulling…');
+      }
       log('Pulling the latest Leads-GenX on the server, rebuilding, and restarting (a few minutes)…');
-      const updateCode = await runRemote(remote, 'bash /opt/Leads-genx/update-server.sh', log);
+      const updateCommand = params.githubToken
+        ? `git -C /opt/Leads-genx remote set-url origin https://x-access-token:${params.githubToken}@${REPO_HTTPS} && bash /opt/Leads-genx/update-server.sh`
+        : 'bash /opt/Leads-genx/update-server.sh';
+      const updateCode = await runRemote(remote, updateCommand, log);
       if (updateCode !== 0) throw new Error(`The server update script exited with code ${updateCode}.`);
       log('Update installed and the app restarted.');
 
@@ -377,7 +388,7 @@ export function createDeployService(deps: DeployDeps = {}) {
     startUpdate(params: UpdateParams): DeployState {
       const active = !['idle', 'done', 'error'].includes(state.phase);
       if (active) throw new DeployConflictError('A deployment or update is already in progress.');
-      secrets = [params.rootPassword].filter((value) => Boolean(value));
+      secrets = [params.rootPassword, params.githubToken].filter((value) => Boolean(value));
       state = {
         phase: 'idle',
         mode: 'update',

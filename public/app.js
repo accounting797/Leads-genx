@@ -1169,11 +1169,15 @@
   async function startServerUpdate() {
     $('updateFormStatus').textContent = '';
     try {
-      await api.updateDeployServer({
+      const body = {
         host: $('updateHost').value.trim(),
         rootPassword: $('updatePassword').value,
-      });
+      };
+      const token = $('updateToken').value.trim();
+      if (token) body.githubToken = token;
+      await api.updateDeployServer(body);
       $('updatePassword').value = '';
+      $('updateToken').value = '';
       window.LeadsGenXUi.toast('Server update started — watch the console');
       await refreshDeployStatus();
     } catch (error) {

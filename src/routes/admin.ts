@@ -151,16 +151,23 @@ export function createAdminRouter({ prisma, deployService }: { prisma: PrismaCli
           .toLowerCase()
           .replace(/^https?:\/\//, '')
           .replace(/\/.*$/, '') || saved?.domain;
+      const githubToken = String(body.githubToken ?? '').trim() || undefined;
       const fieldErrors: Record<string, string> = {};
       if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) fieldErrors.host = 'Enter the server IP (e.g. 203.0.113.10).';
       if (!rootPassword) fieldErrors.rootPassword = 'Root password is required.';
+      if (githubToken && githubToken.length < 20) fieldErrors.githubToken = 'That token looks too short — paste the full GitHub token.';
       if (Object.keys(fieldErrors).length) {
         res.status(400).json({ error: 'Check the highlighted fields.', fields: fieldErrors });
         return;
       }
 
       try {
-        const state = deployService.startUpdate({ host, rootPassword, domain });
+        const state = deployService.startUpdate({
+          host,
+          rootPassword,
+          ...(domain ? { domain } : {}),
+          ...(githubToken ? { githubToken } : {}),
+        });
         void saveDeployTarget(host, domain);
         res.status(202).json({ data: { phase: state.phase } });
       } catch (error) {
