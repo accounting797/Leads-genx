@@ -105,6 +105,73 @@ describe('createRunService', () => {
     });
   });
 
+  it('streams Apify results into leads live and runs shards in parallel', async () => {
+    const store = createStore();
+    const started: string[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const actorClient = {
+      async runAndStream(
+        input: { token: string },
+        callbacks: { onItems?: (items: unknown[]) => Promise<void>; onProgress?: (p: { status: string; totalItems: number }) => Promise<void> }
+      ) {
+        started.push(input.token);
+        if (input.token === 'token-1') await firstGate; // hold shard 1 open
+        await callbacks.onItems?.([
+          {
+            title: `${input.token} Dental Co`,
+            categoryName: 'Dental clinic',
+            website: `https://${input.token}.example.com`,
+          },
+        ]);
+        await callbacks.onProgress?.({ status: 'SUCCEEDED', totalItems: 1 });
+        return { runId: `run-${input.token}`, status: 'SUCCEEDED', datasetId: `ds-${input.token}` };
+      },
+      async startRun() {
+        throw new Error('legacy wait-for-finish path must not be used');
+      },
+      async getRun() {
+        throw new Error('unused');
+      },
+      async getDatasetItems() {
+        throw new Error('legacy whole-dataset path must not be used');
+      },
+    };
+    const emailExtractor: EmailExtractor = {
+      async extract(url) {
+        return url.includes('token-1') ? ['sales@token-1.example.com'] : ['sales@token-2.example.com'];
+      },
+    };
+
+    const service = createRunService({ store, actorClient: actorClient as never, emailExtractor });
+    const runPromise = service.startRun(
+      {
+        apifyToken: 'token-1',
+        apifyTokens: ['token-1', 'token-2'],
+        leadSource: 'google_maps',
+        maxResults: 100,
+        googleMaps: { searchTerms: ['dentist', 'orthodontist'], locationQuery: 'Austin, TX' },
+      },
+      { background: false }
+    );
+
+    // Both shards must be underway before either finishes — parallel, not serial.
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(started.slice().sort()).toEqual(['token-1', 'token-2']);
+
+    releaseFirst();
+    await runPromise;
+
+    const streamEvents = store.events.filter((event) => event.type === 'apify_stream_started');
+    expect(streamEvents).toHaveLength(2);
+    expect(store.leads.map((lead) => lead.email).sort()).toEqual(['sales@token-1.example.com', 'sales@token-2.example.com']);
+    const completions = store.events.filter((event) => event.type === 'apify_shard_completed');
+    expect(completions).toHaveLength(2);
+    expect(store.runs[0].status).toBe('completed');
+  });
+
   it('records a completed Google Maps run with email-only enriched leads', async () => {
     const store = createStore();
     let datasetToken: string | undefined;
@@ -1237,7 +1304,7 @@ describe('createRunService', () => {
     }
 
     expect(store.runs[0].status).toBe('cancelled');
-    expect(seenTokens).toEqual(['token-one']);
+    expect(seenTokens).toContain('token-one');
     expect(store.events.some((event) => event.type === 'run_cancelled')).toBe(true);
     expect(store.leads).toHaveLength(1);
   });

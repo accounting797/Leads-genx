@@ -9,14 +9,14 @@ import { suggestions } from '../../src/domain/suggestions';
 
 describe('suggestions', () => {
   it('exposes curated Google Maps suggestion groups', () => {
-    expect(suggestions.googleMaps.searchTemplates).toHaveLength(40);
-    expect(suggestions.googleMaps.businessCategories).toHaveLength(40);
+    expect(suggestions.googleMaps.searchTemplates).toHaveLength(50);
+    expect(suggestions.googleMaps.businessCategories).toHaveLength(50);
     expect(suggestions.googleMaps.companyTypes).toHaveLength(30);
     expect(suggestions.googleMaps.searchTemplates).toEqual(
-      expect.arrayContaining(['general contractor', 'trucking company', 'solar energy company', 'accounting firm'])
+      expect.arrayContaining(['Sales', 'Engineering', 'CEO', 'Accounting'])
     );
     expect(suggestions.googleMaps.businessCategories).toEqual(
-      expect.arrayContaining(['Construction', 'Roofing Services', 'Financial Services'])
+      expect.arrayContaining(['Construction', 'Roofing', 'Financial Services'])
     );
     expect(suggestions.googleMaps.companyTypes).toEqual(
       expect.arrayContaining(['LLC', 'Franchise', 'Family Owned'])

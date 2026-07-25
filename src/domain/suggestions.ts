@@ -14,107 +14,131 @@ export const suggestions = {
     // operator's industry picks (construction, energy, defense, logistics,
     // finance, health) and mapped business-function queries (real estate,
     // marketing, consulting, engineering, security).
+    // Search terms = the roles & functions inside a company (Sales Navigator
+    // style). Each one is a clean standalone Maps query ("Sales Dallas TX",
+    // "Engineering Houston TX") that surfaces businesses built around that
+    // function — every result is a company worth pitching.
     searchTemplates: [
-      // Heavy industries — the top dogs: aviation, oil & gas, mining,
-      // aerospace. High-ticket B2B with real budgets and reachable offices.
-      'aviation services company',
-      'aircraft maintenance company',
-      'air charter service',
-      'oil and gas company',
-      'oilfield services company',
-      'drilling contractor',
-      'pipeline services company',
-      'mining company',
-      'mining equipment supplier',
-      'aerospace manufacturer',
-      // Construction & industrial (email-rich local businesses everywhere)
-      'general contractor',
-      'commercial construction company',
-      'commercial roofing contractor',
-      'electrical contractor',
-      'excavation contractor',
-      'steel fabrication company',
-      'machinery manufacturer',
-      'industrial supply company',
-      'equipment rental company',
-      'heavy equipment dealer',
-      // Health & care
-      'medical clinic',
-      'urgent care clinic',
-      'home health care agency',
-      // Energy & renewables
-      'solar energy company',
-      // Transportation & logistics
-      'trucking company',
-      'freight brokerage',
-      'logistics company',
-      'warehousing company',
-      // Financial & professional services
-      'financial services firm',
-      'investment advisory firm',
-      'insurance agency',
-      'accounting firm',
-      'law firm',
-      // Business services (function-mapped, email-rich)
-      'real estate developer',
-      'property management company',
-      'marketing agency',
-      'staffing agency',
-      'IT services company',
-      'engineering firm',
-      'security services company',
+      // Revenue & growth
+      'Sales',
+      'Business Development',
+      'Marketing',
+      'Advertising',
+      'Public Relations',
+      'Media & Communication',
+      'Customer Service',
+      // Money & admin
+      'Accounting',
+      'Finance',
+      'Bookkeeping',
+      'Payroll',
+      'Controller',
+      'Insurance',
+      'Legal',
+      'Administrative',
+      'Human Resources',
+      'Recruiting',
+      'Training',
+      // Build & deliver
+      'Engineering',
+      'Operations',
+      'Product Management',
+      'Project Management',
+      'Purchasing',
+      'Procurement',
+      'Supply Chain',
+      'Logistics',
+      'Transportation',
+      'Distribution',
+      'Manufacturing',
+      'Quality Control',
+      'Maintenance',
+      'Safety',
+      'Military & Protective',
+      'Construction Management',
+      'Estimator',
+      'Superintendent',
+      'Foreman',
+      // Design & tech
+      'Information Technology',
+      'Design',
+      'Architecture',
+      'Research',
+      'Development',
+      'Consulting',
+      // The top floor
+      'Executive',
+      'Management',
+      'Owner',
+      'CEO',
+      'President',
+      'General Manager',
+      'Real Estate',
     ],
     // Top-30 category nouns — clean Maps category phrasing, safe to combine
     // with any search term.
+    // Business categories = the top thriving US industries. Each stands alone
+    // as a Maps query ("Oil & Gas Houston TX", "Construction Dallas TX").
     businessCategories: [
-      // Heavy industries — the top dogs
-      'Aviation Services',
-      'Aircraft Maintenance',
-      'Air Charter',
+      // Energy & heavy industry
       'Oil & Gas',
-      'Oilfield Services',
-      'Drilling & Pipeline',
       'Mining',
-      'Mining Equipment',
+      'Renewable Energy',
+      'Solar Energy',
+      'Utilities',
+      // Aviation, aerospace & maritime
+      'Aviation',
       'Aerospace & Defense',
       'Maritime & Shipping',
-      // Construction & industrial
+      // Construction & trades
       'Construction',
       'Commercial Construction',
-      'Roofing Services',
+      'Roofing',
       'Electrical Services',
+      'Plumbing',
+      'HVAC',
       'Excavation',
-      'Steel Fabrication',
+      'Landscaping',
+      'Home Services',
+      // Manufacturing & industrial
+      'Manufacturing',
       'Machinery Manufacturing',
-      'Industrial Supplies',
-      'Equipment Rental',
-      'Heavy Equipment Sales',
-      // Health & care
-      'Medical Clinics',
-      'Urgent Care',
-      'Home Health Care',
-      // Energy & renewables
-      'Solar Energy',
-      // Local business services
-      'Staffing Services',
-      'IT Services',
+      'Industrial Equipment',
+      'Steel Fabrication',
+      'Automotive',
       // Transportation & logistics
       'Trucking',
       'Freight & Logistics',
       'Warehousing',
       'Moving Services',
-      // Financial & professional
+      // Health & life sciences
+      'Healthcare',
+      'Hospitals',
+      'Home Health Care',
+      'Dental',
+      'Veterinary',
+      'Pharmaceutical',
+      'Biotechnology',
+      'Medical Devices',
+      // Technology
+      'Technology',
+      'Software',
+      'Cybersecurity',
+      'IT Services',
+      'Telecommunications',
+      // Finance & professional
       'Financial Services',
-      'Investment Services',
       'Insurance',
       'Accounting',
       'Legal Services',
-      'Real Estate Development',
+      'Real Estate',
       'Property Management',
-      // Business services
-      'Marketing Services',
-      'Engineering Services',
-      'Security Services',
+      // Consumer & hospitality
+      'Retail',
+      'Restaurants',
+      'Food & Beverage',
+      'Hospitality',
+      'Agriculture',
     ],
     // Top-30 Maps-safe company-type qualifiers. Short keywords that read
     // naturally when appended to a search term (e.g. "law firm Partners").

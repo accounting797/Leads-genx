@@ -536,6 +536,7 @@
     if (status === 'failed') return 'Failed — review the error below';
     if (status === 'waiting_for_scraper') return 'Docker unavailable — Google progress is preserved';
     if (status === 'waiting_for_credentials') return 'Nova is waiting for a fresh key — all progress is preserved';
+    if (types.includes('apify_stream_started')) return 'Apify is streaming businesses in live — leads land as they arrive';
     if (types.includes('apify_shard_started')) return 'Apify is expanding Hybrid Max Output coverage';
     const googleActive = types.includes('google_places_started') &&
       !types.includes('google_places_completed') && !types.includes('google_places_failed');

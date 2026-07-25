@@ -1,4 +1,4 @@
-import { ActorClient } from '../integrations/actorClient';
+import { ActorClient, StreamingActorClient } from '../integrations/actorClient';
 import { GooglePlacesClient } from '../integrations/googlePlacesClient';
 import { LocalMapsScraperClient } from '../integrations/localMapsScraperClient';
 import { EmailExtractor, keepEmailLeadsOnly } from './emailExtractor';
@@ -193,8 +193,17 @@ export function createRunService({
     const actorInputs = buildActorInputsForApifyTokens(input);
     const datasetIds: string[] = [];
     const apifyRunIds: string[] = [];
-    let leadCount = startingTotal;
+    // Shared, race-safe lead counter: parallel shards add their own deltas
+    // synchronously, so concurrent ingestion can never lose an increment.
+    const counter = { count: startingTotal };
     let failedShardCount = 0;
+    let fatal: unknown;
+
+    const saveCounted = async (normalizedLeads: NormalizedLead[]): Promise<void> => {
+      const before = counter.count;
+      const after = await saveEmailLeadsInBatches(run.id, normalizedLeads, seenEmails, before);
+      counter.count += after - before;
+    };
 
     const providerStore = store as Partial<LocalFirstRunStore>;
     const heartbeat = async (status: 'running' | 'completed' | 'failed', operation: string, yieldCount: number, errorCode?: string) => {
@@ -209,18 +218,89 @@ export function createRunService({
       });
     };
 
-    for (const [index, actorInput] of actorInputs.entries()) {
+    // One ingestion path for both streaming waves and legacy whole-dataset
+    // delivery — leads land the moment Apify produces them.
+    const ingestItems = async (items: unknown[], shardNumber: number): Promise<void> => {
+      if (!items.length) return;
+      if (options.ingestionCoordinator && input.leadSource === 'google_maps') {
+        await options.ingestionCoordinator.ingest(items, 'apify', input.googleMaps ?? {});
+        counter.count = options.ingestionCoordinator.snapshot().qualifiedContactCount;
+        return;
+      }
+      const sourceLeads = items.map((item) => normalizeLead(item, input.leadSource));
+      const normalizedLeads = input.leadSource === 'google_maps'
+        ? applyLeadQualityFilters(sourceLeads, input.googleMaps)
+        : sourceLeads;
+      await store.addEvent(
+        run.id,
+        'source_results',
+        `Apify shard ${shardNumber} returned ${normalizedLeads.length} records; ${websiteCount(
+          normalizedLeads
+        )} had websites to scan.`,
+        {
+          provider: 'apify',
+          shard: shardNumber,
+          itemCount: normalizedLeads.length,
+          websiteCount: websiteCount(normalizedLeads),
+        }
+      );
+      await saveCounted(normalizedLeads);
+    };
+
+    const processShard = async (index: number, actorInput: (typeof actorInputs)[number]): Promise<void> => {
       await throwIfCancelled(options.isCancelled);
-      await store.addEvent(run.id, 'apify_shard_started', `Apify shard ${index + 1}/${actorInputs.length} started.`, {
+      const shardOperation = `Apify shard ${index + 1}/${actorInputs.length}`;
+      await store.addEvent(run.id, 'apify_shard_started', `${shardOperation} started.`, {
         shard: index + 1,
         shardCount: actorInputs.length,
         actorId: actorInput.actorId,
       });
-      await heartbeat('running', `Apify shard ${index + 1}/${actorInputs.length}`, leadCount);
+      await heartbeat('running', shardOperation, counter.count);
 
       try {
-        const shardOperation = `Apify shard ${index + 1}/${actorInputs.length}`;
-        const shardWork = async () => {
+        let streamedCount = 0;
+        const shardWork = async (): Promise<unknown[]> => {
+          const streamClient = actorClient as Partial<StreamingActorClient>;
+
+          // Streaming path (the default): results flow in waves while the
+          // actor works — heartbeats every poll, leads within the first
+          // minute, nothing lost if the actor dies mid-run.
+          if (typeof streamClient.runAndStream === 'function') {
+            const actorRun = await streamClient.runAndStream(actorInput, {
+              onItems: async (wave) => {
+                const firstWave = streamedCount === 0;
+                streamedCount += wave.length;
+                if (firstWave) {
+                  await store.addEvent(
+                    run.id,
+                    'apify_stream_started',
+                    `${shardOperation} is live — the first records are already flowing in.`,
+                    { provider: 'apify', shard: index + 1 }
+                  );
+                }
+                await ingestItems(wave, index + 1);
+                await heartbeat('running', `${shardOperation} — ${streamedCount} records flowing`, counter.count);
+              },
+              onProgress: async ({ status }) => {
+                await heartbeat('running', `${shardOperation} (${status.toLowerCase()})`, counter.count);
+              },
+            });
+            apifyRunIds.push(actorRun.runId);
+            if (actorRun.datasetId) datasetIds.push(actorRun.datasetId);
+            await store.updateRun(run.id, {
+              apifyRunId: actorRun.runId,
+              datasetId: actorRun.datasetId,
+            });
+            await store.addEvent(run.id, 'actor_succeeded', 'Actor run succeeded.', {
+              apifyRunId: actorRun.runId,
+              datasetId: actorRun.datasetId,
+              shard: index + 1,
+            });
+            return []; // everything already ingested incrementally
+          }
+
+          // Legacy fallback for clients that cannot stream: wait for the
+          // actor to finish, then fetch the whole dataset at once.
           const actorRun = await actorClient.startRun(actorInput);
           apifyRunIds.push(actorRun.runId);
           if (actorRun.datasetId) datasetIds.push(actorRun.datasetId);
@@ -247,37 +327,15 @@ export function createRunService({
           ? await options.engineer.attempt('apify', shardOperation, shardWork, actorInput.token)
           : await shardWork();
 
-        if (options.ingestionCoordinator && input.leadSource === 'google_maps') {
-          await options.ingestionCoordinator.ingest(items, 'apify', input.googleMaps ?? {});
-          leadCount = options.ingestionCoordinator.snapshot().qualifiedContactCount;
-        } else {
-          const sourceLeads = items.map((item) => normalizeLead(item, input.leadSource));
-          const normalizedLeads = input.leadSource === 'google_maps'
-            ? applyLeadQualityFilters(sourceLeads, input.googleMaps)
-            : sourceLeads;
-          await store.addEvent(
-            run.id,
-            'source_results',
-            `Apify shard ${index + 1} returned ${normalizedLeads.length} records; ${websiteCount(
-              normalizedLeads
-            )} had websites to scan.`,
-            {
-              provider: 'apify',
-              shard: index + 1,
-              itemCount: normalizedLeads.length,
-              websiteCount: websiteCount(normalizedLeads),
-            }
-          );
-          leadCount = await saveEmailLeadsInBatches(run.id, normalizedLeads, seenEmails, leadCount);
-        }
-        await store.addEvent(run.id, 'apify_shard_completed', `Apify shard ${index + 1}/${actorInputs.length} completed.`, {
+        if (items.length) await ingestItems(items, index + 1);
+        await store.addEvent(run.id, 'apify_shard_completed', `${shardOperation} completed.`, {
           provider: 'apify',
           shard: index + 1,
           shardCount: actorInputs.length,
-          itemCount: items.length,
-          leadCount,
+          itemCount: streamedCount || items.length,
+          leadCount: counter.count,
         });
-        await heartbeat(index + 1 === actorInputs.length ? 'completed' : 'running', `Apify shard ${index + 1}/${actorInputs.length}`, leadCount);
+        await heartbeat('running', shardOperation, counter.count);
       } catch (error) {
         if (!options.continueOnShardError) throw error;
 
@@ -299,11 +357,35 @@ export function createRunService({
           shard: index + 1,
           shardCount: actorInputs.length,
         });
-        await heartbeat('failed', `Apify shard ${index + 1} failed`, leadCount, 'shard_failed');
+        await heartbeat('failed', `Apify shard ${index + 1} failed`, counter.count, 'shard_failed');
       }
-    }
+    };
 
-    return { leadCount, datasetIds, apifyRunIds, failedShardCount };
+    // Shards run in parallel (one actor per Apify token), so a second token
+    // no longer waits for the first actor to finish. Bounded at 3 so a big
+    // token pool cannot stampede Apify or the database.
+    const concurrency = Math.min(3, actorInputs.length);
+    let nextIndex = 0;
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (nextIndex < actorInputs.length && !fatal) {
+        const index = nextIndex;
+        nextIndex += 1;
+        try {
+          await processShard(index, actorInputs[index]);
+        } catch (error) {
+          fatal = fatal ?? error;
+          return;
+        }
+      }
+    });
+    await Promise.all(workers);
+    if (fatal) throw fatal;
+    // Honour a stop requested while parallel shards were in flight — the
+    // run still ends cancelled, with everything persisted kept.
+    await throwIfCancelled(options.isCancelled);
+
+    await heartbeat('completed', 'Apify shards completed', counter.count);
+    return { leadCount: counter.count, datasetIds, apifyRunIds, failedShardCount };
   }
 
   async function runGooglePlaces(
