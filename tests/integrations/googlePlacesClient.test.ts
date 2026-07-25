@@ -70,6 +70,26 @@ describe('GooglePlacesApiClient', () => {
     ]);
   });
 
+  it('maps a stalled request (timeout/abort) to a retryable transient error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        const error = new Error('The operation timed out');
+        error.name = 'TimeoutError';
+        throw error;
+      })
+    );
+
+    const client = new GooglePlacesApiClient();
+    await expect(
+      client.search({
+        apiKey: 'google-secret-key',
+        maxResults: 20,
+        filters: { searchTerms: ['dentist'], locations: ['Austin, TX'] },
+      })
+    ).rejects.toThrow(/stalled past the 30s ceiling/);
+  });
+
   it('sends Google Places field masks and never includes the API key in the body', async () => {
     let requestInit: RequestInit | undefined;
     vi.stubGlobal(

@@ -232,4 +232,65 @@ describe('LocalMapsScraperClient', () => {
     expect(result).toMatchObject({ batchKey: 'batch-key-1', jobId: 'batch-job', rawBusinessCount: 1 });
     expect(result.items).toHaveLength(1);
   });
+
+  it('rides through status-poll hiccups instead of killing a healthy scrape', async () => {
+    let statusCalls = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
+        return Response.json({ id: 'blip-job' }, { status: 201 });
+      }
+      if (url.endsWith('/api/v1/jobs/blip-job')) {
+        statusCalls += 1;
+        if (statusCalls <= 2) throw new Error('socket stalled'); // two hiccups
+        return Response.json({ status: 'ok' });
+      }
+      if (url.endsWith('/api/v1/jobs/blip-job/download')) {
+        return new Response('title,emails,website\n"Blip Lead","blip@example.com","https://example.com"');
+      }
+      return Response.json([]);
+    }));
+
+    const client = new LocalMapsScraperClient({ pollIntervalMs: 1 });
+    const result = await client.searchBatch({
+      batch: {
+        key: 'blip-key',
+        query: 'dentist Austin, TX',
+        location: 'Austin, TX',
+        lat: '30.2672',
+        lon: '-97.7431',
+        depth: 10,
+        maxResults: 100,
+      },
+      proxies: [],
+    });
+
+    expect(result.jobId).toBe('blip-job');
+    expect(statusCalls).toBe(3);
+  });
+
+  it('declares the lane down only after sustained poll silence', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
+        return Response.json({ id: 'dead-job' }, { status: 201 });
+      }
+      if (url.endsWith('/api/v1/jobs/dead-job')) throw new Error('socket stalled');
+      return Response.json([]);
+    }));
+
+    const client = new LocalMapsScraperClient({ pollIntervalMs: 1 });
+    await expect(
+      client.searchBatch({
+        batch: {
+          key: 'dead-key',
+          query: 'dentist Austin, TX',
+          location: 'Austin, TX',
+          lat: '30.2672',
+          lon: '-97.7431',
+          depth: 10,
+          maxResults: 100,
+        },
+        proxies: [],
+      })
+    ).rejects.toThrow(/stopped answering mid-job/);
+  });
 });

@@ -278,7 +278,19 @@ export function createRunService({
                     { provider: 'apify', shard: index + 1 }
                   );
                 }
-                await ingestItems(wave, index + 1);
+                // Email-enriching a wave can take minutes — keep beating so
+                // honest work never reads as a freeze.
+                const ingestBeat = setInterval(() => {
+                  void heartbeat('running', `${shardOperation} — enriching ${streamedCount} records (still working)`, counter.count).catch(
+                    () => {}
+                  );
+                }, 15_000);
+                ingestBeat.unref?.();
+                try {
+                  await ingestItems(wave, index + 1);
+                } finally {
+                  clearInterval(ingestBeat);
+                }
                 await heartbeat('running', `${shardOperation} — ${streamedCount} records flowing`, counter.count);
               },
               onProgress: async ({ status }) => {
@@ -706,7 +718,26 @@ export function createRunService({
             .catch((error: unknown) => ({ ok: false as const, error }));
 
           const [balancedSettled, apifySettled] = await Promise.all([balancedTask, apifyTask]);
-          await coordinator.drain();
+          // Draining the email-scan queue can take minutes — keep beating so
+          // the finish line never reads as a freeze.
+          const drainBeat = setInterval(() => {
+            const snapNow = coordinator.snapshot();
+            void localStore
+              .upsertProviderState(run.id, {
+                provider: 'email',
+                status: 'running',
+                operation: `Website contact scan finishing — ${snapNow.qualifiedContactCount} emails so far`,
+                yieldCount: snapNow.qualifiedContactCount,
+                heartbeatAt: new Date(),
+              })
+              .catch(() => {});
+          }, 15_000);
+          drainBeat.unref?.();
+          try {
+            await coordinator.drain();
+          } finally {
+            clearInterval(drainBeat);
+          }
           await throwIfCancelled(isCancelled);
           const snap = coordinator.snapshot();
           const sharedMetrics = {

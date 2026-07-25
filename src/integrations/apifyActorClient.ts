@@ -3,7 +3,9 @@ import { ActorClient, ActorRunStarted, ActorRunStatus, ActorStreamCallbacks, Str
 import { ActorRunInput } from '../domain/types';
 
 function createClient(token: string) {
-  return new ApifyClient({ token });
+  // Bounded request timeouts: a stalled Apify API call must fail fast into
+  // the polling loop's resilience logic — never freeze the watch.
+  return new ApifyClient({ token, timeoutSecs: 45 });
 }
 
 const DATASET_PAGE_SIZE = 1000;
@@ -64,21 +66,37 @@ export class ApifyActorClient implements StreamingActorClient {
       }
     };
 
+    // Polling is resilient: Apify's API has hiccups, and a single failed
+    // status call must never kill a healthy actor watch. Only sustained
+    // silence (6 consecutive poll failures) is treated as a real outage.
+    let consecutivePollErrors = 0;
     for (;;) {
       if (Date.now() > deadline) {
         throw new Error('Actor run exceeded the 60-minute watch window.');
       }
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-      const info = await client.run(run.id).get();
-      const status = info?.status ?? 'UNKNOWN';
-      await drainNewItems();
-      if (callbacks.onProgress) await callbacks.onProgress({ status, totalItems: offset });
-      if (TERMINAL_STATUSES.has(status)) {
-        if (status !== 'SUCCEEDED') {
-          throw new Error(`Actor finished with status ${status}`);
+      try {
+        const info = await client.run(run.id).get();
+        const status = info?.status ?? 'UNKNOWN';
+        consecutivePollErrors = 0;
+        await drainNewItems();
+        if (callbacks.onProgress) await callbacks.onProgress({ status, totalItems: offset });
+        if (TERMINAL_STATUSES.has(status)) {
+          if (status !== 'SUCCEEDED') {
+            throw new Error(`Actor finished with status ${status}`);
+          }
+          await drainNewItems(); // final sweep — nothing produced gets left behind
+          return { runId: run.id, status, datasetId };
         }
-        await drainNewItems(); // final sweep — nothing produced gets left behind
-        return { runId: run.id, status, datasetId };
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Actor finished with status')) throw error;
+        consecutivePollErrors += 1;
+        if (callbacks.onProgress) {
+          await callbacks.onProgress({ status: `reconnecting (${consecutivePollErrors}/6)`, totalItems: offset });
+        }
+        if (consecutivePollErrors >= 6) {
+          throw new Error('Apify stopped answering status checks — the actor may still be running; resume the run to re-attach.');
+        }
       }
     }
   }

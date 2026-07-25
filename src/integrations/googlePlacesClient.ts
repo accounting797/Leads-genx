@@ -171,6 +171,9 @@ async function responseError(response: Response): Promise<GooglePlacesError> {
 
 function asGoogleError(error: unknown): GooglePlacesError {
   if (error instanceof GooglePlacesError) return error;
+  if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return new GooglePlacesError('transient', 'Google Places request stalled past the 30s ceiling — restarting it.');
+  }
   return new GooglePlacesError('transient', 'Google Places network request failed.');
 }
 
@@ -281,6 +284,8 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
         requestCount += 1;
         await onRequestEvent?.({ type: 'attempted', requestCount, budget });
         try {
+          // Hard 30s ceiling: a stalled request must fail into the retry
+          // machinery — a run is never allowed to freeze on a hung socket.
           const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
             method: 'POST',
             headers: {
@@ -289,6 +294,7 @@ export class GooglePlacesApiClient implements GooglePlacesClient {
               'X-Goog-FieldMask': FIELD_MASK,
             },
             body: JSON.stringify(body),
+            signal: AbortSignal.timeout(30_000),
           });
           if (!response.ok) throw await responseError(response);
           await onRequestEvent?.({ type: 'succeeded', requestCount, budget, httpStatus: response.status });

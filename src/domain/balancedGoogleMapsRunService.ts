@@ -428,8 +428,23 @@ export async function executeBalancedGoogleMapsRun(
   await throwIfCancelled(isCancelled);
   if (!options.ingestionCoordinator) {
     // Internally owned coordinator: drain and report. A shared coordinator is
-    // drained once by the caller after every provider settles.
-    await coordinator.drain();
+    // drained once by the caller after every provider settles. Keep beating
+    // while the scan queue empties — the finish line must never look frozen.
+    const drainBeat = setInterval(() => {
+      const snapNow = coordinator.snapshot();
+      void heartbeat(
+        'email',
+        'running',
+        `Website contact scan finishing — ${snapNow.qualifiedContactCount} emails so far`,
+        snapNow.qualifiedContactCount
+      ).catch(() => {});
+    }, 15_000);
+    drainBeat.unref?.();
+    try {
+      await coordinator.drain();
+    } finally {
+      clearInterval(drainBeat);
+    }
     const drained = coordinator.snapshot();
     await store.addEvent(run.id, 'email_scan_completed', `Saved ${drained.qualifiedContactCount} unique email leads.`, {
       provider: 'all',
