@@ -113,6 +113,8 @@
     getLeadEmailsTxt: (runId) =>
       requestText('/leads/download?format=emails' + (runId ? '&runId=' + runId : '')),
     listErrors: () => requestJson('/errors'),
+    getExtensionToken: () => requestJson('/extension/token'),
+    regenerateExtensionToken: () => requestJson('/extension/token/regenerate', { method: 'POST' }),
     getSettings: () => requestJson('/settings'),
     saveSettings: (body) =>
       requestJson('/settings', {

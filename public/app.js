@@ -105,6 +105,7 @@
     if (tab === 'settings') loadSettings();
     if (tab === 'account') loadAccount();
     if (tab === 'admin') loadAdminPanel();
+    if (tab === 'linkedin') openLinkedInTab();
   }
 
   function renderSavedProxies(proxies) {
@@ -377,6 +378,136 @@
   async function loadLogs() {
     const logs = await api.listErrors();
     $('logsTable').innerHTML = window.LeadsGenXUi.renderLogs(logs);
+  }
+
+  // ---------------- LinkedIn extension tab ----------------
+
+  let extensionToken = null;
+  let extensionTokenRevealed = false;
+
+  const EXTENSION_RUN_STATUS_LABELS = {
+    queued: 'Queued',
+    running: 'Running',
+    cooling_down: 'Cooling down',
+    waiting_for_scraper: 'Waiting for the scraper',
+    waiting_for_credentials: 'Needs credentials',
+    paused: 'Paused',
+    cancelled: 'Cancelled',
+    completed: 'Completed',
+    partially_completed: 'Partially completed',
+    failed: 'Failed',
+  };
+
+  function extensionRunStatusLabel(status) {
+    return EXTENSION_RUN_STATUS_LABELS[status] || status || '—';
+  }
+
+  function maskedExtensionToken(token) {
+    if (!token) return '••••••';
+    return '••••' + token.slice(-6);
+  }
+
+  function renderExtensionToken() {
+    $('extensionTokenDisplay').textContent =
+      extensionTokenRevealed && extensionToken ? extensionToken : maskedExtensionToken(extensionToken);
+    $('toggleExtensionToken').textContent = extensionTokenRevealed ? 'Hide' : 'Reveal';
+  }
+
+  async function loadExtensionToken() {
+    $('extensionTokenStatus').textContent = 'Fetching your extension key…';
+    try {
+      const result = await api.getExtensionToken();
+      extensionToken = result.token;
+      extensionTokenRevealed = false;
+      renderExtensionToken();
+      $('extensionTokenStatus').textContent = 'This key links the extension to your account — keep it to yourself.';
+    } catch (error) {
+      $('extensionTokenDisplay').textContent = '••••••';
+      $('extensionTokenStatus').textContent = error.message;
+    }
+  }
+
+  async function copyExtensionToken() {
+    if (!extensionToken) {
+      window.LeadsGenXUi.toast('Your extension key is still loading — one moment');
+      return;
+    }
+    await copyText(extensionToken);
+    window.LeadsGenXUi.toast('Copied — paste it in the extension popup');
+  }
+
+  async function regenerateExtensionKey() {
+    if (
+      !window.confirm(
+        'Regenerate your extension key? The old key stops working instantly — you will need to paste the new one into the extension popup.'
+      )
+    ) {
+      return;
+    }
+    $('regenerateExtensionToken').disabled = true;
+    try {
+      const result = await api.regenerateExtensionToken();
+      extensionToken = result.token;
+      extensionTokenRevealed = true;
+      renderExtensionToken();
+      $('extensionTokenStatus').textContent = 'Fresh key generated — paste it into the extension popup to reconnect.';
+      window.LeadsGenXUi.toast('New extension key generated');
+    } catch (error) {
+      $('extensionTokenStatus').textContent = error.message;
+      window.LeadsGenXUi.toast(error.message);
+    } finally {
+      $('regenerateExtensionToken').disabled = false;
+    }
+  }
+
+  function renderExtensionRuns(runs) {
+    if (!runs.length) {
+      $('extensionRunsTable').innerHTML = window.LeadsGenXUi.empty(
+        'No extension sessions yet — your scraped leads will land here.'
+      );
+      return;
+    }
+    $('extensionRunsTable').innerHTML =
+      '<div class="table-wrap"><table><thead><tr>' +
+      '<th>Run #</th><th>Label</th><th>Leads</th><th>Status</th><th>Started</th>' +
+      '</tr></thead><tbody>' +
+      runs
+        .map((run) => {
+          const count = run._count ? run._count.leads : run.leadCount || 0;
+          return (
+            '<tr><td>#' +
+            run.id +
+            '</td><td>' +
+            escapeHtml(run.searchUrl || 'Sales Navigator extension') +
+            '</td><td>' +
+            count +
+            '</td><td><span class="badge ' +
+            escapeHtml(run.status) +
+            '">' +
+            escapeHtml(extensionRunStatusLabel(run.status)) +
+            '</span></td><td>' +
+            escapeHtml(new Date(run.createdAt).toLocaleString()) +
+            '</td></tr>'
+          );
+        })
+        .join('') +
+      '</tbody></table></div>';
+  }
+
+  async function loadExtensionRuns() {
+    try {
+      const runs = await api.listRuns();
+      renderExtensionRuns(runs.filter((run) => run.actorId === 'sn_extension'));
+    } catch (error) {
+      $('extensionRunsTable').innerHTML = window.LeadsGenXUi.empty(error.message);
+    }
+  }
+
+  function openLinkedInTab() {
+    // The key is fetched once (lazy) and only refetched after a regenerate or a
+    // failed load; the runs table refreshes every time the tab is opened.
+    if (!extensionToken) void loadExtensionToken();
+    void loadExtensionRuns();
   }
 
   async function copyText(text) {
@@ -781,6 +912,13 @@
     $('testProxiesBtn').addEventListener('click', testSavedProxies);
     $('testApifyBtn').addEventListener('click', testApifyCredential);
     $('testGoogleBtn').addEventListener('click', testGoogleCredentials);
+    $('refreshExtensionRuns').addEventListener('click', loadExtensionRuns);
+    $('copyExtensionToken').addEventListener('click', () => void copyExtensionToken());
+    $('toggleExtensionToken').addEventListener('click', () => {
+      extensionTokenRevealed = !extensionTokenRevealed;
+      renderExtensionToken();
+    });
+    $('regenerateExtensionToken').addEventListener('click', () => void regenerateExtensionKey());
     $('runsTable').addEventListener('click', (event) => {
       const target = event.target;
       const viewRunId = target.dataset ? target.dataset.viewRun : undefined;
