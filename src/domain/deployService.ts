@@ -388,7 +388,7 @@ export function createDeployService(deps: DeployDeps = {}) {
     startUpdate(params: UpdateParams): DeployState {
       const active = !['idle', 'done', 'error'].includes(state.phase);
       if (active) throw new DeployConflictError('A deployment or update is already in progress.');
-      secrets = [params.rootPassword, params.githubToken].filter((value) => Boolean(value));
+      secrets = [params.rootPassword, params.githubToken].filter((value): value is string => Boolean(value));
       state = {
         phase: 'idle',
         mode: 'update',
