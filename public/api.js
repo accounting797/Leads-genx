@@ -89,6 +89,12 @@
         body: JSON.stringify(body),
       }),
     getDeployStatus: () => requestJson('/admin/deploy'),
+    updateDeployServer: (body) =>
+      requestJson('/admin/deploy/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
     recheckDeployDns: () => requestJson('/admin/deploy/recheck', { method: 'POST' }),
     getSuggestions: () => requestJson('/suggestions'),
     createRun: (body) =>

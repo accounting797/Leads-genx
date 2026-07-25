@@ -139,3 +139,87 @@ describe('deployService failure handling', () => {
     expect(() => service.start(makeParams())).not.toThrow();
   });
 });
+
+describe('deployService one-click update', () => {
+  it('updates, verifies over HTTPS, and lands on done without touching DNS or secrets', async () => {
+    const commands: string[] = [];
+    const service = createDeployService(
+      fastDeps({
+        runRemote: async (_opts: unknown, command: string, onLog: (line: string) => void) => {
+          commands.push(command);
+          onLog('update log mentions root-secret-pw');
+          return 0;
+        },
+        httpsOk: async () => true,
+      })
+    );
+
+    service.startUpdate({ host: '1.2.3.4', rootPassword: 'root-secret-pw', domain: 'leads.example.com' });
+    await waitFor(() => service.getState().phase === 'done');
+
+    const state = service.getState();
+    expect(state.mode).toBe('update');
+    expect(state.siteUrl).toBe('https://leads.example.com');
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toContain('update-server.sh');
+    // The password never appears in the visible log.
+    expect(state.log.join('\n')).not.toContain('root-secret-pw');
+    // No DNS waiting phase in update mode.
+    expect(state.log.join('\n')).not.toContain('Waiting for DNS');
+  });
+
+  it('verifies over SSH when no domain is known', async () => {
+    const commands: string[] = [];
+    const service = createDeployService(
+      fastDeps({
+        runRemote: async (_opts: unknown, command: string) => {
+          commands.push(command);
+          return 0;
+        },
+        httpsOk: async () => {
+          throw new Error('must not be called without a domain');
+        },
+      })
+    );
+
+    service.startUpdate({ host: '1.2.3.4', rootPassword: 'pw' });
+    await waitFor(() => service.getState().phase === 'done');
+    expect(commands).toHaveLength(2);
+    expect(commands[1]).toContain('api/health');
+    expect(service.getState().siteUrl).toBeUndefined();
+  });
+
+  it('lands on error when the update script fails', async () => {
+    const service = createDeployService(
+      fastDeps({
+        runRemote: async () => 1,
+      })
+    );
+    service.startUpdate({ host: '1.2.3.4', rootPassword: 'pw' });
+    await waitFor(() => service.getState().phase === 'error');
+    expect(service.getState().error).toContain('update script exited with code 1');
+  });
+
+  it('refuses an update while a deployment is running', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const service = createDeployService(
+      fastDeps({
+        runRemote: async () => {
+          await gate;
+          return 0;
+        },
+        resolve4: async () => ['1.2.3.4'],
+        httpsOk: async () => true,
+      })
+    );
+    service.start(makeParams());
+    expect(() => service.startUpdate({ host: '1.2.3.4', rootPassword: 'pw' })).toThrow(DeployConflictError);
+    release();
+    await waitFor(() => service.getState().phase === 'done');
+    expect(() => service.startUpdate({ host: '1.2.3.4', rootPassword: 'pw' })).not.toThrow();
+    await waitFor(() => service.getState().phase === 'done');
+  });
+});

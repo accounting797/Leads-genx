@@ -1721,6 +1721,18 @@ tr:last-child td { border-bottom: 0; }
   transition: opacity 0.2s ease;
 }
 
+.deploy-update {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 14px;
+  transition: opacity 0.2s ease;
+}
+
+.deploy-update h4 {
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
 .dns-panel {
   margin-top: 16px;
   padding: 16px;

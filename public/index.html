@@ -475,6 +475,25 @@
               </div>
             </div>
 
+            <div class="deploy-update" id="deployUpdateBlock">
+              <h4>Quick server update</h4>
+              <p class="settings-hint">Already deployed? Bring the server up to the latest version with one click — no domain, token, or DNS wait. Everyone on your domain gets the update instantly.</p>
+              <div class="form-grid two compact">
+                <label>
+                  <span>Server IP</span>
+                  <input id="updateHost" type="text" autocomplete="off" spellcheck="false" placeholder="203.0.113.10">
+                </label>
+                <label>
+                  <span>Root Password</span>
+                  <input id="updatePassword" type="password" autocomplete="off" placeholder="From your VPS provider">
+                </label>
+              </div>
+              <div class="inline-actions">
+                <button id="updateStartBtn" type="button" class="primary-btn">Update Server</button>
+                <span id="updateFormStatus" class="settings-hint"></span>
+              </div>
+            </div>
+
             <div class="dns-panel" id="deployDnsPanel" hidden>
               <h4>Waiting for your domain to point at the server…</h4>
               <p>Go to your domain registrar's DNS settings and add this record:</p>
@@ -488,10 +507,10 @@
             </div>
 
             <div class="deploy-done" id="deployDone" hidden>
-              <h4>Deployment complete — you're all set! 🎉</h4>
+              <h4 id="deployDoneTitle">Deployment complete — you're all set! 🎉</h4>
               <p>Your Leads-GenX is live at:</p>
               <a id="deploySiteUrl" class="deploy-site-url" href="#" target="_blank" rel="noopener">—</a>
-              <p class="settings-hint">Sign in there with your admin account (username <strong id="deployDoneUser">—</strong> and the password you chose above). Your saved credentials are already in place. You can close this local dashboard now — your work continues on the new domain.</p>
+              <p class="settings-hint" id="deployDoneHint">Sign in there with your admin account (username <strong id="deployDoneUser">—</strong> and the password you chose above). Your saved credentials are already in place. You can close this local dashboard now — your work continues on the new domain.</p>
             </div>
 
             <div class="deploy-error" id="deployError" hidden>

@@ -366,6 +366,50 @@ describe('server deployment wizard (admin)', () => {
       .send({ host: '1.2.3.4', rootPassword: 'x', githubToken: 'y', domain: 'x.com', adminPassword: 'z'.repeat(8) })
       .expect(403);
     await request(app()).get('/api/admin/deploy').set('Cookie', johnCookie).expect(403);
+    await request(app())
+      .post('/api/admin/deploy/update')
+      .set('Cookie', johnCookie)
+      .send({ host: '1.2.3.4', rootPassword: 'x' })
+      .expect(403);
+  });
+
+  it('runs a one-click server update from the admin', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fakeDeploy = {
+      start() {
+        throw new Error('full deploy should not run');
+      },
+      startUpdate(params: Record<string, unknown>) {
+        captured = params;
+        return { phase: 'connecting', mode: 'update', log: [] };
+      },
+      getState() {
+        return { phase: 'updating', mode: 'update', log: ['pulling'], serverIp: '1.2.3.4' };
+      },
+      recheckNow() {},
+    };
+    const adminApp = createApp({ prisma, runService: fakeRunService as never, deployService: fakeDeploy as never });
+    const adminCookie = await login('owner', 'owner-password-1');
+
+    const res = await request(adminApp)
+      .post('/api/admin/deploy/update')
+      .set('Cookie', adminCookie)
+      .send({ host: '1.2.3.4', rootPassword: 'root-pw' })
+      .expect(202);
+    expect(res.body.data.phase).toBe('connecting');
+    expect(captured).toMatchObject({ host: '1.2.3.4', rootPassword: 'root-pw' });
+
+    const status = await request(adminApp).get('/api/admin/deploy').set('Cookie', adminCookie).expect(200);
+    expect(status.body.data).toMatchObject({ phase: 'updating', mode: 'update' });
+    // The server IP is remembered (no secrets) so the next update pre-fills.
+    expect(status.body.data.savedTarget).toMatchObject({ host: '1.2.3.4' });
+
+    const bad = await request(adminApp)
+      .post('/api/admin/deploy/update')
+      .set('Cookie', adminCookie)
+      .send({ host: 'nope', rootPassword: '' })
+      .expect(400);
+    expect(bad.body.fields).toMatchObject({ host: expect.any(String), rootPassword: expect.any(String) });
   });
 
   it('accepts a deployment from the admin and exposes status + recheck', async () => {

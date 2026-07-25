@@ -44,6 +44,32 @@ export function createAdminRouter({ prisma, deployService }: { prisma: PrismaCli
 
   // ---------------- Server deployment wizard ----------------
 
+  // Remember where the server lives (never any secrets) so updates are a
+  // one-password affair next time.
+  const DEPLOY_TARGET_KEY = 'deployTarget';
+  async function saveDeployTarget(host: string, domain?: string): Promise<void> {
+    try {
+      const value = JSON.stringify({ host, domain: domain || undefined });
+      await prisma.appSetting.upsert({
+        where: { key: DEPLOY_TARGET_KEY },
+        create: { key: DEPLOY_TARGET_KEY, value, secret: false },
+        update: { value },
+      });
+    } catch {
+      // Pre-filling the form next time is a nicety, never a blocker.
+    }
+  }
+  async function loadDeployTarget(): Promise<{ host?: string; domain?: string } | undefined> {
+    try {
+      const rows = await prisma.appSetting.findMany({ where: { key: DEPLOY_TARGET_KEY } });
+      if (!rows.length) return undefined;
+      const parsed = JSON.parse(rows[0].value);
+      return parsed && typeof parsed === 'object' ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   router.post(
     '/deploy',
     asyncHandler(async (req, res) => {
@@ -94,6 +120,48 @@ export function createAdminRouter({ prisma, deployService }: { prisma: PrismaCli
           adminPassword,
           settings: settings as never,
         });
+        void saveDeployTarget(host, domain);
+        res.status(202).json({ data: { phase: state.phase } });
+      } catch (error) {
+        if (error instanceof DeployConflictError) {
+          res.status(409).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
+    })
+  );
+
+  // One-click server update: pull latest code on the server, rebuild, restart,
+  // verify. No domain, token, or DNS wait — the server already has everything.
+  router.post(
+    '/deploy/update',
+    asyncHandler(async (req, res) => {
+      if (!deployService?.startUpdate) {
+        res.status(503).json({ error: 'Update service unavailable.' });
+        return;
+      }
+      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+      const host = String(body.host ?? '').trim();
+      const rootPassword = String(body.rootPassword ?? '');
+      const saved = await loadDeployTarget();
+      const domain =
+        String(body.domain ?? '')
+          .trim()
+          .toLowerCase()
+          .replace(/^https?:\/\//, '')
+          .replace(/\/.*$/, '') || saved?.domain;
+      const fieldErrors: Record<string, string> = {};
+      if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) fieldErrors.host = 'Enter the server IP (e.g. 203.0.113.10).';
+      if (!rootPassword) fieldErrors.rootPassword = 'Root password is required.';
+      if (Object.keys(fieldErrors).length) {
+        res.status(400).json({ error: 'Check the highlighted fields.', fields: fieldErrors });
+        return;
+      }
+
+      try {
+        const state = deployService.startUpdate({ host, rootPassword, domain });
+        void saveDeployTarget(host, domain);
         res.status(202).json({ data: { phase: state.phase } });
       } catch (error) {
         if (error instanceof DeployConflictError) {
@@ -112,7 +180,8 @@ export function createAdminRouter({ prisma, deployService }: { prisma: PrismaCli
         res.status(503).json({ error: 'Deployment service unavailable.' });
         return;
       }
-      res.json({ data: deployService.getState() });
+      const savedTarget = await loadDeployTarget();
+      res.json({ data: { ...deployService.getState(), savedTarget } });
     })
   );
 

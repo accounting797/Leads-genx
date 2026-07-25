@@ -148,7 +148,8 @@ cd /opt/Leads-genx
 git pull
 npm install --no-fund --no-audit
 npx prisma generate
-npm run build
+# Cap compiler memory so updating never starves the box on small servers.
+NODE_OPTIONS="--max-old-space-size=1024" npm run build
 DATABASE_URL="file:/var/lib/leads-genx/prod.db" npx prisma db push --skip-generate
 systemctl restart leads-genx
 echo "Leads-GenX updated and restarted."

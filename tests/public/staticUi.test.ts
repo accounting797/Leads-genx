@@ -191,6 +191,21 @@ describe('static dashboard settings page', () => {
     expect(appJs).toContain('Nova is waiting for a fresh key');
   });
 
+  it('offers a one-click server update alongside the full deployment wizard', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const apiJs = readPublicFile('api.js');
+
+    expect(html).toContain('id="deployUpdateBlock"');
+    expect(html).toContain('id="updateHost"');
+    expect(html).toContain('id="updatePassword"');
+    expect(html).toContain('id="updateStartBtn"');
+    expect(apiJs).toContain("'/admin/deploy/update'");
+    expect(appJs).toContain('startServerUpdate');
+    expect(appJs).toContain('savedTarget');
+    expect(appJs).toContain("updating: 'Updating server…'");
+  });
+
   it('loads, saves, and clears settings without redisplaying secrets', () => {
     const apiJs = readPublicFile('api.js');
     const appJs = readPublicFile('app.js');

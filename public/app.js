@@ -906,6 +906,7 @@
     $('adminCreateBtn').addEventListener('click', adminCreateUser);
     $('refreshAdmin').addEventListener('click', loadAdminPanel);
     $('deployStartBtn').addEventListener('click', startDeployment);
+    $('updateStartBtn').addEventListener('click', startServerUpdate);
     $('deployRecheckBtn').addEventListener('click', async () => {
       try {
         await api.recheckDeployDns();
@@ -1067,13 +1068,14 @@
     securing: 'Securing server…',
     awaiting_dns: 'Waiting for DNS…',
     setting_up_https: 'Setting up HTTPS…',
+    updating: 'Updating server…',
     verifying: 'Verifying site…',
     done: 'Live',
     error: 'Failed',
   };
 
   function deployActive(phase) {
-    return ['connecting', 'installing', 'securing', 'awaiting_dns', 'setting_up_https', 'verifying'].includes(phase);
+    return ['connecting', 'installing', 'securing', 'awaiting_dns', 'setting_up_https', 'updating', 'verifying'].includes(phase);
   }
 
   function renderDeployState(state) {
@@ -1084,6 +1086,13 @@
     const active = deployActive(state.phase);
     $('deployForm').style.opacity = active ? '0.55' : '';
     $('deployStartBtn').disabled = active;
+    $('deployUpdateBlock').style.opacity = active ? '0.55' : '';
+    $('updateStartBtn').disabled = active;
+
+    // Pre-fill the quick-update IP from the remembered server (never secrets).
+    if (state.savedTarget && state.savedTarget.host && !$('updateHost').value) {
+      $('updateHost').value = state.savedTarget.host;
+    }
 
     const consoleEl = $('deployConsole');
     const hasLog = state.log && state.log.length > 0;
@@ -1097,10 +1106,21 @@
     if (state.phase === 'awaiting_dns') $('deployDnsIp').textContent = state.serverIp || '—';
 
     $('deployDone').hidden = state.phase !== 'done';
-    if (state.phase === 'done' && state.siteUrl) {
-      $('deploySiteUrl').textContent = state.siteUrl;
-      $('deploySiteUrl').href = state.siteUrl;
-      if (currentUser) $('deployDoneUser').textContent = currentUser.username;
+    if (state.phase === 'done') {
+      if (state.mode === 'update') {
+        $('deployDoneTitle').textContent = "Server updated — everyone's on the latest version";
+        $('deployDoneHint').textContent =
+          'The server pulled the latest Leads-GenX, rebuilt, and restarted cleanly. Every user on your domain is updated automatically — nothing for them to install.';
+      } else {
+        $('deployDoneTitle').textContent = "Deployment complete — you're all set! 🎉";
+        $('deployDoneHint').innerHTML =
+          'Sign in there with your admin account (username <strong id="deployDoneUser">—</strong> and the password you chose above). Your saved credentials are already in place. You can close this local dashboard now — your work continues on the new domain.';
+      }
+      if (state.siteUrl) {
+        $('deploySiteUrl').textContent = state.siteUrl;
+        $('deploySiteUrl').href = state.siteUrl;
+        if (currentUser) $('deployDoneUser').textContent = currentUser.username;
+      }
     }
 
     $('deployError').hidden = state.phase !== 'error';
@@ -1142,6 +1162,21 @@
       await refreshDeployStatus();
     } catch (error) {
       $('deployFormStatus').textContent = error.message;
+    }
+  }
+
+  async function startServerUpdate() {
+    $('updateFormStatus').textContent = '';
+    try {
+      await api.updateDeployServer({
+        host: $('updateHost').value.trim(),
+        rootPassword: $('updatePassword').value,
+      });
+      $('updatePassword').value = '';
+      window.LeadsGenXUi.toast('Server update started — watch the console');
+      await refreshDeployStatus();
+    } catch (error) {
+      $('updateFormStatus').textContent = error.message;
     }
   }
 

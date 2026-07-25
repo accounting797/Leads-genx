@@ -8,12 +8,14 @@ export type DeployPhase =
   | 'securing'
   | 'awaiting_dns'
   | 'setting_up_https'
+  | 'updating'
   | 'verifying'
   | 'done'
   | 'error';
 
 export interface DeployState {
   phase: DeployPhase;
+  mode?: 'deploy' | 'update';
   log: string[];
   serverIp?: string;
   domain?: string;
@@ -21,6 +23,13 @@ export interface DeployState {
   error?: string;
   startedAt?: string;
   finishedAt?: string;
+}
+
+export interface UpdateParams {
+  host: string;
+  rootPassword: string;
+  /** Optional — when known, the update is verified publicly over HTTPS. */
+  domain?: string;
 }
 
 export interface DeployParams {
@@ -305,6 +314,50 @@ export function createDeployService(deps: DeployDeps = {}) {
     }
   }
 
+  async function runUpdate(params: UpdateParams): Promise<void> {
+    const remote = { host: params.host, password: params.rootPassword };
+    try {
+      setPhase('connecting');
+      log(`Connecting to root@${params.host} over SSH…`);
+
+      setPhase('updating');
+      log('Pulling the latest Leads-GenX on the server, rebuilding, and restarting (a few minutes)…');
+      const updateCode = await runRemote(remote, 'bash /opt/Leads-genx/update-server.sh', log);
+      if (updateCode !== 0) throw new Error(`The server update script exited with code ${updateCode}.`);
+      log('Update installed and the app restarted.');
+
+      setPhase('verifying');
+      if (params.domain) {
+        log(`Verifying ${params.domain} answers over HTTPS…`);
+        const verifyDeadline = Date.now() + verifyTimeoutMs;
+        let live = false;
+        while (!live && Date.now() < verifyDeadline) {
+          live = await httpsOk(`https://${params.domain}/api/health`);
+          if (!live) await sleep(5000);
+        }
+        if (!live) throw new Error('The site did not answer over HTTPS after the update — check the server logs.');
+        state.siteUrl = `https://${params.domain}`;
+      } else {
+        log('Verifying the app answers on the server…');
+        const healthCode = await runRemote(
+          remote,
+          'for i in 1 2 3 4 5 6; do curl -fsS --max-time 5 http://127.0.0.1:4177/api/health >/dev/null && exit 0; sleep 5; done; exit 1',
+          log
+        );
+        if (healthCode !== 0) throw new Error('The app did not answer on the server after the update — check the server logs.');
+      }
+
+      setPhase('done');
+      state.finishedAt = new Date().toISOString();
+      log(state.siteUrl ? `Update complete — ${state.siteUrl} is running the latest version.` : 'Update complete — the server is running the latest version.');
+    } catch (error) {
+      setPhase('error');
+      state.error = error instanceof Error ? error.message : String(error);
+      state.finishedAt = new Date().toISOString();
+      log(`Update failed: ${state.error}`);
+    }
+  }
+
   return {
     start(params: DeployParams): DeployState {
       const active = !['idle', 'done', 'error'].includes(state.phase);
@@ -312,12 +365,28 @@ export function createDeployService(deps: DeployDeps = {}) {
       secrets = [params.githubToken, params.rootPassword, params.adminPassword].filter((value) => Boolean(value));
       state = {
         phase: 'idle',
+        mode: 'deploy',
         log: [],
         serverIp: params.host,
         domain: params.domain,
         startedAt: new Date().toISOString(),
       };
       void run(params);
+      return state;
+    },
+    startUpdate(params: UpdateParams): DeployState {
+      const active = !['idle', 'done', 'error'].includes(state.phase);
+      if (active) throw new DeployConflictError('A deployment or update is already in progress.');
+      secrets = [params.rootPassword].filter((value) => Boolean(value));
+      state = {
+        phase: 'idle',
+        mode: 'update',
+        log: [],
+        serverIp: params.host,
+        domain: params.domain,
+        startedAt: new Date().toISOString(),
+      };
+      void runUpdate(params);
       return state;
     },
     getState(): DeployState {
