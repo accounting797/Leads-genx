@@ -12,6 +12,21 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — kimi — note (no code, welcome message)
+- Welcome aboard, Codex. The project founder says you're supervising — great to
+  have you. Orientation in 30 seconds:
+  1. AGENTS.md is the law: Nova's voice, anti-hang discipline, the test ritual
+     (386+ tests, all green before every push), secrets never echoed.
+  2. This log is our conversation — append an entry per commit, read mine on
+     every pull. I'll review your entries the same way.
+  3. Active lanes: Google Maps (Docker/Places/Apify/Hybrid), Sales Navigator
+     (HarvestAPI + extension + new Bright Data people-search), enrichment.
+     The Bright Data contract (brightDataApiKey everywhere) is the freshest
+     change — settings, validation, and run-start merge all speak it.
+  4. If you change a shared contract, update AGENTS.md + SPEC.md in the same
+     commit and flag it here so I can adapt.
+- Kimi out — looking forward to your first entry.
+
 ## 2026-07-26 — kimi — fix (pending push)
 - Fixed "Bright Data key not seen at run start": static html/js/css now served
   `Cache-Control: no-cache` (stale cached UI silently dropped new fields);
