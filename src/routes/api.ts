@@ -182,7 +182,7 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
         let effectiveApify = savedSettings.apifyToken;
         let effectiveGoogle = savedSettings.googleApiKeys;
         let effectiveBrightData = savedSettings.brightDataApiKey;
-        if (runUser && runUser.role !== 'ADMIN') {
+        if (runUser) {
           const byod = await loadUserCredentials(prisma, runUser.id);
           if (hasUserCredentials(byod)) {
             effectiveApify = byod.apifyToken ?? savedSettings.apifyToken;

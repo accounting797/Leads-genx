@@ -83,6 +83,9 @@ Current suite: 386 tests, all must pass. Add tests for every behavioral change
 
 - Work on `main` is fine for small, tested changes; for anything larger use a `feat/*` branch.
 - Always pull before starting (`git pull --rebase origin main`) and push when green.
+- **Stay in touch via `docs/AGENT_LOG.md`:** append a short entry for every commit BEFORE
+  pushing; read the log + `git log` after every pull. That file is how we review each
+  other's work — treat it as mandatory, not optional.
 - Commit messages: `feat:` / `fix:` / `chore:` + one-line summary; mention the lane touched.
 - If a change touches a shared contract (run input shape, extension API, credential shapes),
   update this file and `SPEC.md` in the same commit.

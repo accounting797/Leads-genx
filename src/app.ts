@@ -50,7 +50,18 @@ export function createApp(deps: ApiDeps = {}) {
       deployService: deps.deployService ?? createDeployService(),
     })
   );
-  app.use(express.static(path.join(__dirname, '..', 'public')));
+  app.use(
+    express.static(path.join(__dirname, '..', 'public'), {
+      setHeaders: (res, filePath) => {
+        // HTML/JS/CSS must revalidate every load — a stale cached frontend
+        // silently drops new fields (a "saved" key that never reaches the
+        // server). Versioned assets can still be cached by the browser.
+        if (/\.(html|js|css)$/.test(filePath)) {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    })
+  );
 
   return app;
 }
