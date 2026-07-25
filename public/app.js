@@ -358,6 +358,7 @@
       );
       if (active) startProgress(active.id);
     }
+    return runs;
   }
 
   async function loadLeads() {
@@ -595,6 +596,27 @@
       .join('');
   }
 
+  // A run reached a terminal state: the countdown must return to zero —
+  // unless another run is still active, in which case the countdown
+  // automatically switches over and keeps tracking that one.
+  function settleFinishedRun(finishedRunId, runs) {
+    const next = (runs || []).find(
+      (candidate) =>
+        ['queued', 'running', 'cooling_down', 'waiting_for_scraper', 'waiting_for_credentials'].includes(
+          candidate.status
+        ) && String(candidate.id) !== String(finishedRunId)
+    );
+    if (next) {
+      startProgress(next.id);
+      return;
+    }
+    activeRunId = null;
+    progressStartedAt = null;
+    if (progressTimer) clearInterval(progressTimer);
+    progressTimer = null;
+    $('progressElapsed').textContent = 'Elapsed 0s';
+  }
+
   async function checkProgress() {
     if (!activeRunId) return;
     try {
@@ -612,7 +634,8 @@
       const completedBatches = batches.filter((batch) => batch.status === 'completed').length;
       const target = Math.max(1, run.maxResults || run.googleMapsMaxPlaces || 1);
       const resultCount = Math.max(run.businessCount || 0, run.leadCount || 0);
-      const elapsed = Math.floor((Date.now() - progressStartedAt) / 1000);
+      const startedMs = run.createdAt ? Date.parse(run.createdAt) : progressStartedAt;
+      const elapsed = Math.max(0, Math.floor((Date.now() - (startedMs || Date.now())) / 1000));
       const batchProgress = batches.length ? completedBatches / batches.length : 0;
       const resultProgress = Math.min(1, resultCount / target);
       const fraction = Math.max(batchProgress, resultProgress);
@@ -638,22 +661,28 @@
         $('progressFill').style.width = '100%';
         updateRadar(run, events, 1, elapsed);
         clearInterval(progressTimer);
+        progressTimer = null;
         setAnalystLive(false);
-        await loadRuns(String(run.id));
+        const runs = await loadRuns(String(run.id));
         await loadLeads();
+        settleFinishedRun(run.id, runs);
       } else if (run.status === 'failed') {
         $('progressFill').style.width = '100%';
         updateRadar(run, events, fraction, elapsed);
         clearInterval(progressTimer);
+        progressTimer = null;
         setAnalystLive(false);
-        await loadRuns(String(run.id));
+        const runs = await loadRuns(String(run.id));
         await loadLogs();
+        settleFinishedRun(run.id, runs);
       } else if (['partially_completed', 'cancelled', 'paused'].includes(run.status)) {
         $('progressFill').style.width = Math.min(94, Math.max(12, Math.round(fraction * 100))) + '%';
         updateRadar(run, events, fraction, elapsed);
         clearInterval(progressTimer);
+        progressTimer = null;
         setAnalystLive(false);
         await refreshLiveProgressTables(run.id);
+        settleFinishedRun(run.id, await api.listRuns());
       } else if (['waiting_for_scraper', 'waiting_for_credentials'].includes(run.status)) {
         // Keep watching: the engineer may reconnect or the operator may resume,
         // so the analyst must stay alive instead of freezing on a waiting run.
@@ -776,8 +805,11 @@
     try {
       await api.stopRun(runId);
       window.LeadsGenXUi.toast('Run #' + runId + ' stopped — output kept');
-      await loadRuns();
+      const runs = await loadRuns();
       await loadLeads();
+      // Stopping the tracked run ends its countdown right away — back to
+      // zero, or straight onto the next active run if one is still going.
+      if (String(activeRunId) === String(runId)) settleFinishedRun(runId, runs);
     } catch (error) {
       window.LeadsGenXUi.toast(error.message);
     }

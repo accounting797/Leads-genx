@@ -431,4 +431,54 @@ describe('executeBalancedGoogleMapsRun', () => {
     expect(run.status).toBe('waiting_for_credentials');
     expect(state.batches.filter((batch) => batch.status === 'skipped_empty_circuit')).toHaveLength(1);
   });
+
+  it('closes the Docker bonus lane early once Google has delivered and the lane has gone quiet', async () => {
+    const run: RunRecord = {
+      id: 11, status: 'queued', leadSource: 'google_maps', actorId: 'local_first',
+      maxResults: 20, leadCount: 0,
+    };
+    const state = fakeStore(run);
+    let dockerCalls = 0;
+
+    await executeBalancedGoogleMapsRun({
+      store: state.store,
+      dockerGraceMs: 0,
+      localClient: {
+        async search() { return []; },
+        async health() { return true; },
+        async searchBatch({ batch }) {
+          dockerCalls += 1;
+          // Grind quietly until Google's delivery has landed and settled,
+          // then come back empty-handed — the lane should be closed as a win.
+          for (let i = 0; i < 400 && state.businesses.length === 0; i += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          return { batchKey: batch.key, jobId: 'job-1', rawBusinessCount: 0, items: [] };
+        },
+      },
+      googleClient: {
+        async search(input) {
+          const item = { id: 'google-ok', displayName: { text: 'Google Co' } };
+          await input.onPage?.({ shard: 1, shardCount: 1, query: 'dentist', items: [item], totalItemCount: 1 });
+          return [item];
+        },
+      },
+    }, run, {
+      leadSource: 'google_maps', maxResults: 20, googleApiKey: 'secret',
+      googleMaps: {
+        provider: 'local_first', searchTerms: ['dentist', 'plumber'], locations: ['Austin, TX'], apiRequestBudget: 50,
+      },
+    });
+
+    expect(run.status).toBe('completed');
+    expect(run.googleBusinessCount).toBe(1);
+    // The first batch ran honestly; the rest were closed as 'lane_closed_early'
+    // instead of holding a finished run hostage.
+    expect(dockerCalls).toBe(1);
+    expect(
+      state.batches.some((batch) => batch.status === 'skipped_provider_failure' && batch.errorCode === 'lane_closed_early')
+    ).toBe(true);
+    expect(state.events.some((event) => event.type === 'local_lane_closed_early')).toBe(true);
+  });
 });

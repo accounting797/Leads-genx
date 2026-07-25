@@ -19,6 +19,9 @@ export interface BalancedGoogleMapsRunDeps {
   engineer?: RunEngineer;
   isCancelled?: () => Promise<boolean>;
   now?: () => Date;
+  // How long the Docker bonus lane may stay silent after Google has already
+  // delivered before we close it and call the run a win (default 20 min).
+  dockerGraceMs?: number;
 }
 
 export interface BalancedGoogleMapsExecutionOptions {
@@ -51,7 +54,7 @@ function seedFromRun(run: RunRecord): Partial<IngestionSnapshot> {
 }
 
 export async function executeBalancedGoogleMapsRun(
-  { store, localClient, googleClient, emailExtractor, emailConcurrency = 50, engineer, isCancelled, now = () => new Date() }: BalancedGoogleMapsRunDeps,
+  { store, localClient, googleClient, emailExtractor, emailConcurrency = 50, engineer, isCancelled, now = () => new Date(), dockerGraceMs = 20 * 60_000 }: BalancedGoogleMapsRunDeps,
   run: RunRecord,
   input: ValidatedRunInput,
   options: BalancedGoogleMapsExecutionOptions = {}
@@ -269,6 +272,13 @@ export async function executeBalancedGoogleMapsRun(
   // actionable failure when nothing else could produce either.
   let dockerLaneUnavailable = false;
 
+  // Completion intelligence: the Google lane reports when it settles, and
+  // the Docker lane stamps every fresh yield. When Google has delivered and
+  // Docker has gone quiet for a full grace window, the bonus lane gets
+  // closed early so a supplement lane never holds a finished run hostage.
+  let googleSettledState: ProviderState | undefined;
+  let lastDockerYieldAt = now().getTime();
+
   async function runLocalProvider(): Promise<ProviderState> {
     const runnable = await store.listRunnableBatches(run.id, now());
 
@@ -321,6 +331,36 @@ export async function executeBalancedGoogleMapsRun(
     for (let batchIndex = 0; batchIndex < runnable.length; batchIndex += 1) {
       await throwIfCancelled(isCancelled);
       if (coordinator.snapshot().businessCount >= input.maxResults) break;
+
+      // Know when to complete: once the Google lane has delivered and the
+      // Docker bonus lane has produced nothing for a full grace window, the
+      // smart move is to close the lane and call the run a win — never let
+      // a supplement lane hold a finished run hostage at 99%.
+      if (
+        googleSettledState === 'completed' &&
+        coordinator.snapshot().businessCount > 0 &&
+        now().getTime() - lastDockerYieldAt >= dockerGraceMs
+      ) {
+        for (const leftover of runnable.slice(batchIndex)) {
+          await store.upsertBatch(run.id, {
+            ...leftover,
+            status: 'skipped_provider_failure',
+            errorCode: 'lane_closed_early',
+          });
+        }
+        await store.addEvent(
+          run.id,
+          'local_lane_closed_early',
+          "Nova here — Google already delivered the goods and the Docker bonus lane has gone quiet, so I'm closing it and calling this run a win. Nothing is lost; every lead is saved.",
+          {
+            provider: 'local_maps_scraper',
+            skippedBatchCount: runnable.length - batchIndex,
+            dockerYield,
+          },
+        );
+        await heartbeat('docker', 'completed', 'Bonus lane closed — Google delivered', dockerYield);
+        return 'completed';
+      }
       const checkpoint = runnable[batchIndex];
       const batch: LocalDiscoveryBatch | undefined = plannedByKey.get(checkpoint.batchKey);
       if (!batch) continue;
@@ -351,6 +391,7 @@ export async function executeBalancedGoogleMapsRun(
         }
         successfulBatchCount += 1;
         dockerYield += result.rawBusinessCount;
+        if (result.rawBusinessCount > 0) lastDockerYieldAt = now().getTime();
         if (result.rawBusinessCount === 0) {
           consecutiveEmptyBatches += 1;
           await store.addEvent(run.id, 'local_batch_empty', 'Docker discovery batch returned no businesses.', {
@@ -440,6 +481,13 @@ export async function executeBalancedGoogleMapsRun(
   }
 
   const googleTask = runGoogleProvider();
+  // Track when Google settles so the Docker lane knows when closing early
+  // is the smart move.
+  void googleTask
+    .then((state) => {
+      googleSettledState = state;
+    })
+    .catch(() => {});
   const localTask = runLocalProvider();
   const [googleResult, localResult] = await Promise.allSettled([googleTask, localTask]);
   await throwIfCancelled(isCancelled);
