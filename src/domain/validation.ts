@@ -222,12 +222,29 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
     parsedOutputMode === 'hybrid_max'
       ? 'hybrid'
       : parseGoogleMapsProvider(rawGoogleMaps.provider) ?? 'local_first';
+  const brightDataApiKey = asString(obj.brightDataApiKey);
+  const parsedSalesNavigatorForGate = parseSalesNavigator(obj.salesNavigator ?? obj.filters);
+  // Sales Navigator filter searches can run entirely on Bright Data — no
+  // Apify token, no SN cookies. URL/cookie-driven runs still need Apify.
+  const snRunsOnBrightData =
+    parseLeadSource(obj.leadSource) === 'sales_navigator' &&
+    !asString(obj.searchUrl) &&
+    hasSalesNavigatorFilters(parsedSalesNavigatorForGate) &&
+    Boolean(brightDataApiKey);
   const requiresApifyToken =
-    parseLeadSource(obj.leadSource) === 'sales_navigator' ||
+    (parseLeadSource(obj.leadSource) === 'sales_navigator' && !snRunsOnBrightData) ||
     (parseLeadSource(obj.leadSource) === 'google_maps' && requestedGoogleMapsProvider === 'apify') ||
     !parseLeadSource(obj.leadSource);
 
-  if (requiresApifyToken && !apifyToken && !hasSavedToken) {
+  // Engineless SN filter searches get the dedicated Bright Data guidance
+  // below instead of a misleading bare "Apify token is required".
+  const snFilterSearchWithoutEngine =
+    parseLeadSource(obj.leadSource) === 'sales_navigator' &&
+    !asString(obj.searchUrl) &&
+    hasSalesNavigatorFilters(parsedSalesNavigatorForGate) &&
+    !brightDataApiKey &&
+    !(parsedSalesNavigatorForGate?.cookies && parsedSalesNavigatorForGate?.userAgent);
+  if (requiresApifyToken && !apifyToken && !hasSavedToken && !snFilterSearchWithoutEngine) {
     fields.apifyToken = 'Apify token is required.';
   }
 
@@ -296,19 +313,35 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
     if (maxResults > 10000) fields.maxResults = 'Hybrid maxResults cannot exceed 10000 businesses.';
   }
 
+  const snBrightDataLane = leadSource === 'sales_navigator' && !searchUrl && hasSalesNavigatorFilters(salesNavigator) && Boolean(brightDataApiKey);
+
   if (leadSource === 'sales_navigator' && !searchUrl && !hasSalesNavigatorFilters(salesNavigator)) {
     fields.salesNavigator = 'Sales Navigator runs need a search URL or professional filters.';
   }
 
-  if (leadSource === 'sales_navigator' && !salesNavigator?.cookies) {
+  // Filter searches have two engines: Bright Data (key only, no SN account)
+  // or HarvestAPI (Apify token + LinkedIn cookies). Demand guidance only
+  // when NEITHER engine can run.
+  if (
+    leadSource === 'sales_navigator' &&
+    !searchUrl &&
+    hasSalesNavigatorFilters(salesNavigator) &&
+    !brightDataApiKey &&
+    !(salesNavigator?.cookies && salesNavigator?.userAgent)
+  ) {
+    fields.brightDataApiKey =
+      'Filter searches run through Bright Data — save a Bright Data API key in Settings, add your LinkedIn cookies, or paste a Sales Navigator search URL.';
+  }
+
+  if (leadSource === 'sales_navigator' && !snBrightDataLane && !salesNavigator?.cookies) {
     fields.cookies = 'LinkedIn cookies are required for Sales Navigator runs.';
   }
 
-  if (leadSource === 'sales_navigator' && salesNavigator?.cookies && !hasValidCookieJson(salesNavigator.cookies)) {
+  if (leadSource === 'sales_navigator' && !snBrightDataLane && salesNavigator?.cookies && !hasValidCookieJson(salesNavigator.cookies)) {
     fields.cookies = 'LinkedIn cookie JSON must be a non-empty array of cookies with name and value fields.';
   }
 
-  if (leadSource === 'sales_navigator' && !salesNavigator?.userAgent) {
+  if (leadSource === 'sales_navigator' && !snBrightDataLane && !salesNavigator?.userAgent) {
     fields.userAgent = 'Browser user agent is required for Sales Navigator runs.';
   }
 
@@ -326,6 +359,7 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
 
   return {
     apifyToken,
+    brightDataApiKey,
     apifyTokens: apifyTokens.length ? apifyTokens : undefined,
     googleApiKey,
     googleApiKeys: googleApiKeys.length ? googleApiKeys : undefined,

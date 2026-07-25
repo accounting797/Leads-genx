@@ -174,3 +174,76 @@ export async function testBrightDataKey(
     return { ok: false, detail: bdError.message };
   }
 }
+
+/**
+ * Elasticsearch-backed dataset search (Bright Data's "search datasets" API):
+ * find MANY records by criteria instead of fetching one profile per URL.
+ *   POST https://api.brightdata.com/datasets/search/{dataset_id}
+ *   body: { mode: 'sync', filter, size, sort?, search_after? }
+ *   → { hits, total_hits, took, search_after? }  (search_after = pagination cursor)
+ *
+ * Filter tree (max depth 3): group { operator: 'and'|'or', filters: [...] }
+ * or leaf { name, operator, value }. Leaf operators: =, !=, <, <=, >, >=,
+ * in, not_in, includes, not_includes, array_includes, not_array_includes,
+ * is_null, is_not_null.
+ */
+export interface BrightDataSearchHit {
+  [key: string]: unknown;
+}
+
+export interface BrightDataSearchResult {
+  hits: BrightDataSearchHit[];
+  totalHits: number;
+  searchAfter?: unknown[];
+}
+
+export interface BrightDataSearchOptions {
+  apiKey: string;
+  datasetId: string;
+  filter: Record<string, unknown>;
+  size?: number;
+  searchAfter?: unknown[];
+  fetchImpl?: typeof fetch;
+}
+
+export async function searchDataset(options: BrightDataSearchOptions): Promise<BrightDataSearchResult> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const body: Record<string, unknown> = {
+    mode: 'sync',
+    filter: options.filter,
+    size: options.size ?? 100,
+  };
+  if (options.searchAfter !== undefined) body.search_after = options.searchAfter;
+  const payload = (await request(
+    fetchImpl,
+    `${API_BASE}/datasets/search/${encodeURIComponent(options.datasetId)}`,
+    options.apiKey,
+    { method: 'POST', body: JSON.stringify(body) }
+  )) as { hits?: BrightDataSearchHit[]; total_hits?: number; search_after?: unknown[] };
+  return {
+    hits: Array.isArray(payload.hits) ? payload.hits : [],
+    totalHits: typeof payload.total_hits === 'number' ? payload.total_hits : 0,
+    searchAfter: payload.search_after,
+  };
+}
+
+export interface BrightDataDatasetField {
+  name: string;
+  type?: string;
+  description?: string;
+}
+
+/** Filterable fields of a searchable dataset (drives defensive filter mapping). */
+export async function listDatasetFields(
+  apiKey: string,
+  datasetId: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<BrightDataDatasetField[]> {
+  const payload = (await request(fetchImpl, `${API_BASE}/datasets/${encodeURIComponent(datasetId)}/metadata`, apiKey)) as {
+    fields?: Record<string, { type?: string; description?: string; active?: boolean }>;
+  };
+  const fields = payload.fields ?? {};
+  return Object.entries(fields)
+    .filter(([, meta]) => meta && meta.active !== false)
+    .map(([name, meta]) => ({ name, type: meta.type, description: meta.description }));
+}

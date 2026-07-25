@@ -181,20 +181,24 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
         const savedSettings = await loadOperatorSettings(prisma);
         let effectiveApify = savedSettings.apifyToken;
         let effectiveGoogle = savedSettings.googleApiKeys;
+        let effectiveBrightData = savedSettings.brightDataApiKey;
         if (runUser && runUser.role !== 'ADMIN') {
           const byod = await loadUserCredentials(prisma, runUser.id);
           if (hasUserCredentials(byod)) {
             effectiveApify = byod.apifyToken ?? savedSettings.apifyToken;
             effectiveGoogle = byod.googleApiKeys.length ? byod.googleApiKeys : savedSettings.googleApiKeys;
+            effectiveBrightData = byod.brightDataApiKey ?? savedSettings.brightDataApiKey;
           }
         }
         hasSavedToken = Boolean(effectiveApify);
         const bodyHasToken = typeof body.apifyToken === 'string' && Boolean(body.apifyToken.trim());
         const bodyHasGoogleKey = typeof body.googleApiKey === 'string' && Boolean(body.googleApiKey.trim());
+        const bodyHasBrightData = typeof body.brightDataApiKey === 'string' && Boolean(body.brightDataApiKey.trim());
         if (!bodyHasToken && effectiveApify) body.apifyToken = effectiveApify;
         if (!bodyHasGoogleKey && effectiveGoogle.length) {
           body.googleApiKey = effectiveGoogle.join('\n');
         }
+        if (!bodyHasBrightData && effectiveBrightData) body.brightDataApiKey = effectiveBrightData;
       } catch {
         hasSavedToken = false;
       }

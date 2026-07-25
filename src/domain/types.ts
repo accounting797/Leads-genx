@@ -56,6 +56,7 @@ export interface GoogleMapsFilters {
 
 export interface ValidatedRunInput {
   apifyToken?: string;
+  brightDataApiKey?: string;
   apifyTokens?: string[];
   googleApiKey?: string;
   googleApiKeys?: string[];
