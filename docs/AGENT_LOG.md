@@ -12,6 +12,16 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — feat (feature branch, durable hiring coordinator)
+- Added the Prisma-backed hiring scan coordinator with eligibility gates,
+  application-wide two-scan execution, bounded three-worker board evaluation,
+  15-second heartbeats, restart recovery, and terminal finalization.
+- Automatic scans reuse the six-hour public-board cache; manual refresh bypasses
+  it. Existing companies stay in their original Google Maps or Sales Navigator
+  lane, while adjacent score-80 opportunities are capped at five.
+- Saved/dismissed state carries forward without touching leads, parent status,
+  or lead counts. Focused coordinator tests and the TypeScript build are green.
+
 ## 2026-07-25 — codex — feat (feature branch, Greenhouse foundation)
 - Added the public Greenhouse Job Board client, verified starter-board registry,
   pure 100-point signal scorer, normalized company identities, and honest Nova
