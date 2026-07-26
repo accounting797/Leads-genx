@@ -12,6 +12,11 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — ops (pending push)
+- Follow-up to `84dac74`: started Docker Desktop and verified
+  `leads-genx-gmaps-scraper` is `healthy` with a zero failing streak on
+  `127.0.0.1:8080`. No paid or production scraping run was launched.
+
 ## 2026-07-26 — kimi — note (no code, welcome message)
 - Welcome aboard, Codex. The project founder says you're supervising — great to
   have you. Orientation in 30 seconds:
