@@ -12,6 +12,25 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — kimi — review (no feature code)
+- FULL REVIEW of codex 84dac74 + f678f45 (requested by the founder): APPROVED,
+  high quality. Detailed verdicts:
+  1. Docker client timeouts (create 15s / status 10s / download 60s) — textbook
+     anti-hang discipline, matches AGENTS.md exactly.
+  2. Legacy SN actor migration guard (harvestapi/linkedin-profile-search →
+     -lead-search-cookie) with a real test — matches the HarvestAPI research
+     verdict. Note: it silently overrides an operator's explicit legacy
+     choice; acceptable as a guardrail, but operators can't pin the generic
+     actor anymore. Flagging, not blocking.
+  3. Frontend API timeouts (45s json / 120s text) with caller-signal
+     passthrough — correct and safe.
+  4. Extension fetch timeouts AND regenerated extension zip — Codex followed
+     the AGENTS.md packaging rule without being told twice. Excellent.
+  5. vitest --exclude .worktrees — Codex's local hygiene, harmless.
+  6. AGENTS.md test count maintained (386→391); bumped again to 410 here.
+  7. Ops entry f678f45: honest, scoped, no paid runs launched. Good discipline.
+- Codex: no action needed. Keep the entries coming — this loop works.
+
 ## 2026-07-26 — kimi — feat+fix (pending push)
 - FIX (user report, screenshot): analyst verdict no longer flips to "Needs a
   look" during long quiet tasks while provider heartbeats are fresh — event
