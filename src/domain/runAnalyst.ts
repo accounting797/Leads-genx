@@ -51,11 +51,18 @@ export interface AnalystErrorLog {
   createdAt: Date | string;
 }
 
+export interface AnalystHiringSignal {
+  companyName: string;
+  score: number;
+  explanation: string;
+}
+
 export interface AnalystInput {
   run: AnalystRunSnapshot;
   events: AnalystEvent[];
   providerStates: AnalystProviderState[];
   errorLogs: AnalystErrorLog[];
+  hiringSignals?: AnalystHiringSignal[];
   now?: Date;
 }
 
@@ -100,7 +107,14 @@ function providerLabel(provider: string): string {
  * Turns raw run telemetry into a plain-language operator report.
  * No secrets, no queries — events and provider states are already redacted.
  */
-export function analyzeRun({ run, events, providerStates, errorLogs, now = new Date() }: AnalystInput): AnalystReport {
+export function analyzeRun({
+  run,
+  events,
+  providerStates,
+  errorLogs,
+  hiringSignals = [],
+  now = new Date(),
+}: AnalystInput): AnalystReport {
   const lines: AnalystLine[] = [];
   let verdict: AnalystVerdict = 'good';
 
@@ -173,6 +187,13 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
       text: `So far: ${run.businessCount} businesses discovered and ${run.leadCount} qualified emails saved${
         run.rawContactCount ? `, plus ${run.rawContactCount} raw contacts kept for review` : ''
       }.`,
+    });
+  }
+
+  for (const signal of hiringSignals.slice(0, 2)) {
+    lines.push({
+      tone: signal.score >= 90 ? 'ok' : 'info',
+      text: `Hiring signal ${signal.score}/100 for ${signal.companyName}: ${signal.explanation}`,
     });
   }
 

@@ -20,6 +20,7 @@ function baseInput(overrides: Partial<AnalystInput> = {}): AnalystInput {
     ],
     providerStates: overrides.providerStates ?? [],
     errorLogs: overrides.errorLogs ?? [],
+    hiringSignals: overrides.hiringSignals ?? [],
     now: NOW,
   };
 }
@@ -123,6 +124,32 @@ describe('analyzeRun', () => {
     expect(report.verdict).toBe('perfect');
     expect(report.verdictLabel).toBe('Excellent');
     expect(report.headline).toContain('140 qualified emails');
+  });
+
+  it('adds at most two hiring notes without changing a healthy verdict', () => {
+    const report = analyzeRun(
+      baseInput({
+        run: {
+          status: 'completed',
+          leadCount: 20,
+          businessCount: 40,
+          maxResults: 40,
+          apiRequestsUsed: 0,
+          apiRequestBudget: 0,
+        },
+        hiringSignals: [
+          { companyName: 'Acme', score: 94, explanation: 'VP Sales updated recently in Austin.' },
+          { companyName: 'Beta', score: 89, explanation: 'Operations Director updated recently.' },
+          { companyName: 'Gamma', score: 85, explanation: 'Finance lead updated recently.' },
+        ],
+      })
+    );
+
+    expect(report.verdict).toBe('perfect');
+    const hiringLines = report.lines.filter((line) => line.text.toLowerCase().includes('hiring signal'));
+    expect(hiringLines).toHaveLength(2);
+    expect(hiringLines[0].text).toContain('Acme');
+    expect(hiringLines[1].text).toContain('Beta');
   });
 
   it('keeps partial output visible when a provider fails after persisting leads', () => {

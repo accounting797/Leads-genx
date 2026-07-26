@@ -12,6 +12,15 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — feat (feature branch, safe hiring API + Nova)
+- Added ownership-scoped read, refresh, save/dismiss, and prepare-search
+  endpoints. Cross-user run and opportunity access returns 404.
+- `GET /api/leads` now validates and filters the Google Maps or Sales Navigator
+  lane explicitly, and adds a non-persistent hiring badge only for exact
+  company identities from the latest scan.
+- Nova receives only the two highest current, non-dismissed hiring summaries;
+  these are informational and never change the run-health verdict.
+
 ## 2026-07-25 — codex — feat (feature branch, supplemental scheduling)
 - Added one run-settlement wrapper for foreground, background, resumed, and
   recovered executions. It schedules hiring discovery after the parent has

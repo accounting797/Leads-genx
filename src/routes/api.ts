@@ -40,6 +40,8 @@ import { createAuthRouter } from './auth';
 import { createAdminRouter } from './admin';
 import { createExtensionRouter } from './extension';
 import type { HiringSignalService } from '../domain/hiringSignalService';
+import { createHiringSignalsRouter } from './hiringSignals';
+import { companyIdentity } from '../domain/greenhouseSignals';
 
 function parseEventMetadata(metadataJson: string | null): { kind?: string } | undefined {
   if (!metadataJson) return undefined;
@@ -169,6 +171,10 @@ export function createApiRouter({
 
   if (authEnabled && prisma) {
     router.use('/admin', adminGuard, createAdminRouter({ prisma, deployService }));
+  }
+
+  if (prisma && hiringSignalService) {
+    router.use(createHiringSignalsRouter({ prisma, service: hiringSignalService }));
   }
 
   router.get('/suggestions', (_req, res) => {
@@ -487,10 +493,23 @@ export function createApiRouter({
         res.status(404).json({ error: 'Run not found' });
         return;
       }
-      const [events, providerStates, errorLogs] = await Promise.all([
+      const latestHiringScan = await prisma.hiringSignalScan.findFirst({
+        where: { runId },
+        orderBy: { id: 'desc' },
+        select: { id: true },
+      });
+      const [events, providerStates, errorLogs, hiringSignals] = await Promise.all([
         prisma.runEvent.findMany({ where: { runId }, orderBy: { createdAt: 'asc' }, take: 200 }),
         prisma.runProviderState.findMany({ where: { runId } }),
         prisma.errorLog.findMany({ where: { runId }, orderBy: { createdAt: 'desc' }, take: 20 }),
+        latestHiringScan
+          ? prisma.hiringOpportunity.findMany({
+              where: { scanId: latestHiringScan.id, dismissed: false },
+              orderBy: [{ score: 'desc' }, { companyName: 'asc' }],
+              take: 2,
+              select: { companyName: true, score: true, explanation: true },
+            })
+          : Promise.resolve([]),
       ]);
       const report = analyzeRun({
         run: {
@@ -512,16 +531,26 @@ export function createApiRouter({
         })),
         providerStates,
         errorLogs,
+        hiringSignals: hiringSignals.map((signal) => ({
+          companyName: signal.companyName,
+          score: signal.score,
+          explanation: signal.explanation ?? '',
+        })),
       });
       res.json({ data: report });
     })
   );
 
-  function leadScope(res: Response, runId?: number): Record<string, unknown> | undefined {
+  function leadScope(
+    res: Response,
+    runId?: number,
+    leadSource?: 'google_maps' | 'sales_navigator'
+  ): Record<string, unknown> | undefined {
     const user = currentUser(res);
     if (!prisma) return undefined;
     const where: Record<string, unknown> = {};
     if (runId) where.runId = runId;
+    if (leadSource) where.leadSource = leadSource;
     if (user && user.role !== 'ADMIN') where.run = { userId: user.id };
     return Object.keys(where).length ? where : undefined;
   }
@@ -530,13 +559,62 @@ export function createApiRouter({
     '/leads',
     asyncHandler(async (req, res) => {
       const runId = req.query.runId ? Number(req.query.runId) : undefined;
+      const leadSource = typeof req.query.leadSource === 'string' ? req.query.leadSource : undefined;
+      if (leadSource && leadSource !== 'google_maps' && leadSource !== 'sales_navigator') {
+        res.status(400).json({ error: 'Choose Google Maps or Sales Navigator.' });
+        return;
+      }
+      const selectedLeadSource =
+        leadSource === 'google_maps' || leadSource === 'sales_navigator' ? leadSource : undefined;
       const leads = prisma
         ? await prisma.lead.findMany({
-            where: leadScope(res, runId),
+            where: leadScope(res, runId, selectedLeadSource),
             orderBy: { createdAt: 'desc' },
           })
         : [];
-      res.json({ data: leads });
+      if (!prisma || !leads.length) {
+        res.json({ data: leads });
+        return;
+      }
+      const runIds = [...new Set(leads.map((lead) => lead.runId))];
+      const scans = await prisma.hiringSignalScan.findMany({
+        where: { runId: { in: runIds } },
+        orderBy: { id: 'desc' },
+        select: { id: true, runId: true },
+      });
+      const latestScanIds = new Map<number, number>();
+      for (const scan of scans) {
+        if (!latestScanIds.has(scan.runId)) latestScanIds.set(scan.runId, scan.id);
+      }
+      const signals = latestScanIds.size
+        ? await prisma.hiringOpportunity.findMany({
+            where: {
+              scanId: { in: [...latestScanIds.values()] },
+              dismissed: false,
+              relationship: 'exact',
+            },
+            orderBy: { score: 'desc' },
+          })
+        : [];
+      const signalByIdentity = new Map(
+        signals.map((signal) => [
+          `${signal.runId}:${signal.companyKey}`,
+          {
+            id: signal.id,
+            score: signal.score,
+            explanation: signal.explanation ?? '',
+            evidenceUrl: signal.evidenceUrl,
+            observedAt: signal.observedAt.toISOString(),
+          },
+        ])
+      );
+      res.json({
+        data: leads.map((lead) => {
+          const identity = companyIdentity({ companyName: lead.companyName, website: lead.website });
+          const hiringSignal = signalByIdentity.get(`${lead.runId}:${identity.companyKey}`);
+          return hiringSignal ? { ...lead, hiringSignal } : lead;
+        }),
+      });
     })
   );
 
