@@ -48,6 +48,32 @@ function createStore(): RunStore & {
 }
 
 describe('createRunService', () => {
+  it('starts a Bright Data filter run without constructing an Apify actor input', async () => {
+    const store = createStore();
+    store.updateRun = async () => new Promise<never>(() => {});
+    const actorClient: ActorClient = {
+      async startRun() {
+        throw new Error('Apify must not be used for a Bright Data filter run');
+      },
+      async getRun() {
+        throw new Error('Apify must not be used for a Bright Data filter run');
+      },
+      async getDatasetItems() {
+        throw new Error('Apify must not be used for a Bright Data filter run');
+      },
+    };
+    const service = createRunService({ store, actorClient });
+
+    const run = await service.startRun({
+      brightDataApiKey: 'bright-data-key',
+      leadSource: 'sales_navigator',
+      maxResults: 10,
+      salesNavigator: { titles: ['VP Sales'] },
+    });
+
+    expect(run.actorId).toBe('brightdata_linkedin');
+  });
+
   it('notifies the supplemental coordinator once after a foreground run settles', async () => {
     const store = createStore();
     const settled: number[] = [];

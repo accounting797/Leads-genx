@@ -12,6 +12,17 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — codex — fix (Bright Data start routing + extension package)
+- Fixed Sales Navigator filter runs with a saved Bright Data key failing before
+  execution with `Apify token is required to build actor input`. Initial run
+  creation now identifies the dedicated `brightdata_linkedin` lane without
+  constructing an Apify actor input.
+- Added a regression test proving Bright Data filter runs start without Apify.
+- Rebuilt `public/downloads/leadsgenx-sn-extension.zip` from the current
+  extension source and verified all packaged files match byte-for-byte.
+- Verification: fresh Prisma `db push`, 478/478 tests green, plain build clean,
+  extension JavaScript syntax clean.
+
 ## 2026-07-26 — kimi — fix (update blocker + deploy UX)
 - FIX (founder screenshot): server update failed — bare `git pull` on the
   server aborted because npm had locally modified package-lock.json. Both

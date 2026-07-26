@@ -1160,13 +1160,19 @@ export function createRunService({
         }
       }
     }
-    const actorInput = isLocalFirstRun(input)
-      ? { actorId: 'local_first' }
-      : isHybridRun(input)
-      ? { actorId: 'hybrid' }
-      : isGooglePlacesRun(input)
-        ? { actorId: 'google_places' }
-        : buildActorInput(input);
+    const actorInput =
+      input.leadSource === 'sales_navigator' &&
+      !input.searchUrl &&
+      input.salesNavigator &&
+      input.brightDataApiKey
+        ? { actorId: 'brightdata_linkedin' }
+        : isLocalFirstRun(input)
+          ? { actorId: 'local_first' }
+          : isHybridRun(input)
+            ? { actorId: 'hybrid' }
+            : isGooglePlacesRun(input)
+              ? { actorId: 'google_places' }
+              : buildActorInput(input);
     const run = await store.createRun({
       userId: options.userId ?? null,
       status: 'queued',
