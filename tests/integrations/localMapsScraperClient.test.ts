@@ -157,6 +157,30 @@ describe('LocalMapsScraperClient', () => {
     });
   });
 
+  it('accepts lowercase status payloads in the compatibility search path', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/v1/jobs') && !init?.method) return Response.json([]);
+      if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
+        return Response.json({ id: 'fallback-lowercase' }, { status: 201 });
+      }
+      if (url.endsWith('/api/v1/jobs/fallback-lowercase')) return Response.json({ status: 'ok' });
+      if (url.endsWith('/api/v1/jobs/fallback-lowercase/download')) {
+        return new Response('title,website\n"Lowercase Co","https://lowercase.example.com"');
+      }
+      return new Response('not found', { status: 404 });
+    }));
+
+    const events: unknown[] = [];
+    const items = await new LocalMapsScraperClient({ pollIntervalMs: 1, maxPolls: 2 }).search({
+      filters: { searchTerms: ['dentist'], locations: ['Austin, TX'] },
+      maxResults: 10,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(items).toHaveLength(1);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'completed', itemCount: 1 }));
+  });
+
   it('emits a failed event when a scraper-kit job never finishes', async () => {
     vi.stubGlobal(
       'fetch',
@@ -294,5 +318,35 @@ describe('LocalMapsScraperClient', () => {
         proxies: [],
       })
     ).rejects.toThrow(/stopped answering mid-job/);
+  });
+
+  it('declares the lane down after three unsuccessful HTTP status polls', async () => {
+    let statusCalls = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
+        return Response.json({ id: 'http-down' }, { status: 201 });
+      }
+      if (url.endsWith('/api/v1/jobs/http-down')) {
+        statusCalls += 1;
+        return new Response('busy', { status: 503 });
+      }
+      return Response.json([]);
+    }));
+
+    const client = new LocalMapsScraperClient({ pollIntervalMs: 1, maxPolls: 4 });
+    await expect(
+      client.searchBatch({
+        batch: {
+          key: 'http-down-key',
+          query: 'dentist Austin, TX',
+          location: 'Austin, TX',
+          lat: '30.2672',
+          lon: '-97.7431',
+          depth: 10,
+          maxResults: 10,
+        },
+      })
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(statusCalls).toBe(3);
   });
 });
