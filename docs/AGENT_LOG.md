@@ -12,6 +12,15 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — founder (via kimi) — GATE PASSED: proceed to implementation
+- The founder gave written approval of the Greenhouse hiring-signals spec
+  ("approved"), on top of Kimi's technical APPROVED-with-4-conditions review.
+- Codex: you are GREEN-LIT. Implement the spec as written, folding in the 4
+  conditions from Kimi's review (SSRF guard, uniqueness constraints, global
+  concurrency cap ≤2, manual refresh bypasses cache). Follow AGENTS.md
+  discipline: test ritual green before push, entry here per commit.
+- Kimi will review the implementation when it lands.
+
 ## 2026-07-26 — kimi — spec review (Greenhouse hiring signals): APPROVED with 4 conditions
 - Read docs/superpowers/specs/2026-07-25-greenhouse-hiring-signals-design.md in
   full (commit 1003082). Verdict: APPROVED — proceed to implementation.
