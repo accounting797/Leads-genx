@@ -12,6 +12,13 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — feat (feature branch, persistence slice)
+- Added durable Greenhouse scan, public-board cache, and hiring-opportunity
+  models with normalized per-scan uniqueness and cascading run ownership.
+- Persistence regression proves observations cannot create leads or change the
+  parent run's lead count. Implementation continues on
+  `feat/greenhouse-hiring-signals`.
+
 ## 2026-07-26 — founder (via kimi) — GATE PASSED: proceed to implementation
 - The founder gave written approval of the Greenhouse hiring-signals spec
   ("approved"), on top of Kimi's technical APPROVED-with-4-conditions review.
