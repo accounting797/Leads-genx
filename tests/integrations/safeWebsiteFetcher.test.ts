@@ -36,6 +36,49 @@ describe('safe careers-page fetcher', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    {
+      branch: 'redirect',
+      response: () =>
+        new Response('redirect body', {
+          status: 302,
+          headers: { location: 'https://127.0.0.1/admin' },
+        }),
+      expectedCode: 'unsafe_website_url',
+    },
+    {
+      branch: 'non-OK response',
+      response: () =>
+        new Response('temporarily unavailable', {
+          status: 503,
+          headers: { 'content-type': 'text/html' },
+        }),
+      expectedCode: 'website_unavailable',
+    },
+    {
+      branch: 'unsupported content type',
+      response: () =>
+        new Response('{"ok":true}', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      expectedCode: 'unsupported_content_type',
+    },
+  ])('cancels an abandoned $branch body', async ({ response: createResponse, expectedCode }) => {
+    const response = createResponse();
+    const body = response.body;
+    expect(body).not.toBeNull();
+    const cancel = vi.spyOn(body!, 'cancel').mockRejectedValue(new Error('cancel failed'));
+
+    await expect(
+      safeFetchWebsite('https://example.com/careers', {
+        fetchImpl: async () => response,
+        lookup: publicLookup,
+      })
+    ).rejects.toMatchObject({ code: expectedCode });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
   it('pins each request to a validated address while preserving the hostname for TLS', async () => {
     const connections: Array<{ address: string; family: number; servername: string }> = [];
     const lookup = vi.fn(async (hostname: string) => [

@@ -56,7 +56,15 @@ Newest entries on top. Format:
   the current 50-request Standard baseline instead of the stale sequential
   25-request description.
 
-## 2026-07-25 — codex — fix (pending commit, Greenhouse final review)
+## 2026-07-25 — codex — fix (pending commit, Greenhouse response cleanup)
+- The careers-page fetcher now explicitly cancels response bodies before
+  following redirects or rejecting non-OK and unsupported-content responses.
+- Cancellation failures are contained so the existing redirect and typed-error
+  behavior remains authoritative. Focused coverage exercises all three
+  abandonment branches; no timeout, size, URL, or public-address contract
+  changed.
+
+## 2026-07-25 — codex — fix (Greenhouse final review)
 - Closed the Greenhouse final-review defects with DNS-to-socket pinning,
   streaming response caps, a durable active-per-run scan key plus atomic claim,
   stale-only recovery, cache-freshness projections, and unchanged-event

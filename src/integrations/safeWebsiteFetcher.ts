@@ -193,6 +193,14 @@ async function readBoundedBody(response: Response, maxBytes: number): Promise<st
   return new TextDecoder('utf-8', { fatal: false }).decode(joined);
 }
 
+async function cancelAbandonedBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Preserve redirect and response-validation behavior if stream cleanup fails.
+  }
+}
+
 export async function safeFetchWebsite(
   rawUrl: string,
   options: SafeWebsiteFetcherOptions = {}
@@ -222,6 +230,7 @@ export async function safeFetchWebsite(
 
     if (REDIRECT_STATUSES.has(response.status)) {
       const location = response.headers.get('location');
+      await cancelAbandonedBody(response);
       if (!location || redirectCount === MAX_REDIRECTS) {
         throw new SafeWebsiteError('Website redirected too many times.', 'redirect_limit');
       }
@@ -229,10 +238,12 @@ export async function safeFetchWebsite(
       continue;
     }
     if (!response.ok) {
+      await cancelAbandonedBody(response);
       throw new SafeWebsiteError(`Website returned HTTP ${response.status}.`, 'website_unavailable');
     }
     const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
     if (!contentType.startsWith('text/html') && !contentType.startsWith('application/xhtml+xml')) {
+      await cancelAbandonedBody(response);
       throw new SafeWebsiteError('Website did not return HTML.', 'unsupported_content_type');
     }
     return { finalUrl: current.toString(), html: await readBoundedBody(response, maxBytes) };
