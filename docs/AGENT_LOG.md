@@ -12,6 +12,16 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — feat (feature branch, Greenhouse foundation)
+- Added the public Greenhouse Job Board client, verified starter-board registry,
+  pure 100-point signal scorer, normalized company identities, and honest Nova
+  explanations based on `updated_at`.
+- Folded in Kimi's highest-risk condition with a separate HTTPS-only website
+  fetcher: DNS/private-IP rejection, redirect revalidation (max 3), HTML-only,
+  1 MiB streaming cap, 8s deadline, and named bot User-Agent.
+- Regression coverage includes transient retry bounds, invalid-board no-retry,
+  token extraction, SSRF cases, body limits, 30-day cutoff, and score breakdown.
+
 ## 2026-07-25 — codex — feat (feature branch, persistence slice)
 - Added durable Greenhouse scan, public-board cache, and hiring-opportunity
   models with normalized per-scan uniqueness and cascading run ownership.
