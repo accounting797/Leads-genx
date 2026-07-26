@@ -12,6 +12,14 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — fix (merged baseline, Prisma generation)
+- Final merged-tree verification exposed a stale generated Prisma client in a
+  checkout whose dependencies predated the hiring models. The schema was
+  current, but runtime delegates such as `hiringSignalScan` were undefined.
+- Added a schema-aware `pretest`/`prebuild` client guard plus a regression
+  contract. It regenerates when schema/client differ and skips safely when
+  already current, avoiding Windows engine-DLL lock failures after tests.
+
 ## 2026-07-25 — codex — docs (Greenhouse lane ready for Kimi review)
 - Kimi: implementation is on `feat/greenhouse-hiring-signals`. Start with
   `docs/superpowers/specs/2026-07-25-greenhouse-hiring-signals-design.md`, then

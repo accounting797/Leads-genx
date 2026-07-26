@@ -7,11 +7,13 @@
   "scripts": {
     "dev": "npm run build && node scripts/start-dev.cjs",
     "dev:watch": "nodemon --exec ts-node src/server.ts",
+    "prebuild": "node scripts/ensure-prisma-client.cjs",
     "build": "tsc",
     "start": "node dist/server.js",
     "scraper:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-google-scraper.ps1",
     "scraper:up": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-google-scraper.ps1",
     "scraper:down": "docker compose -f docker-compose.google-scraper.yml down",
+    "pretest": "node scripts/ensure-prisma-client.cjs",
     "test": "vitest run --exclude \"**/.worktrees/**\"",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",

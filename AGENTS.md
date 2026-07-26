@@ -59,7 +59,7 @@ export DATABASE_URL="file:/tmp/t.db" && rm -f /tmp/t.db \
 npm run build   # plain — never pipe tsc; a masked exit code once nearly shipped a broken build
 ```
 
-Current suite: 452 tests, all must pass. Add tests for every behavioral change
+Current suite: 453 tests, all must pass. Add tests for every behavioral change
 (harness examples: `tests/api/extensionApi.test.ts`, `tests/domain/brightDataLinkedInSearch.test.ts`).
 
 ## Conventions
