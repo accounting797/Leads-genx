@@ -4,6 +4,9 @@
   let lastShuffleComboId;
   const maxResultsBySource = {};
   let activeSource = 'google_maps';
+  let activeLeadLane = 'google_maps';
+  let latestRuns = [];
+  let hiringRefreshTimer = null;
   let activeRunId = null;
   let progressTimer = null;
   let progressStartedAt = null;
@@ -102,6 +105,7 @@
     $(tab + 'Tab').classList.add('active');
     if (tab === 'runs') loadRuns();
     if (tab === 'leads') loadLeads();
+    if (tab === 'hiring') loadHiringSignals();
     if (tab === 'logs') loadLogs();
     if (tab === 'settings') loadSettings();
     if (tab === 'account') loadAccount();
@@ -345,7 +349,9 @@
 
   async function loadRuns(preferredRunId) {
     const runs = await api.listRuns();
+    latestRuns = runs;
     const selectedRunId = preferredRunId || $('leadRunFilter').value;
+    const selectedHiringRunId = $('hiringRunFilter').value;
     $('runsTable').innerHTML = window.LeadsGenXUi.renderRuns(runs);
     $('metricRuns').textContent = runs.length;
     $('metricActive').textContent = runs.filter((run) =>
@@ -353,11 +359,34 @@
     ).length;
     const total = runs.reduce((sum, run) => sum + (run._count ? run._count.leads : run.leadCount || 0), 0);
     $('metricLeads').textContent = total;
+    const laneRuns = runs.filter((run) => run.leadSource === activeLeadLane);
     $('leadRunFilter').innerHTML =
-      '<option value="">All runs</option>' +
-      runs.map((run) => '<option value="' + run.id + '">Run #' + run.id + ' - ' + run.leadSource + '</option>').join('');
-    if (selectedRunId && runs.some((run) => String(run.id) === String(selectedRunId))) {
+      '<option value="">All ' +
+      (activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator') +
+      ' runs</option>' +
+      laneRuns.map((run) => '<option value="' + run.id + '">Run #' + run.id + '</option>').join('');
+    if (selectedRunId && laneRuns.some((run) => String(run.id) === String(selectedRunId))) {
       $('leadRunFilter').value = selectedRunId;
+    }
+    const hiringRuns = runs.filter((run) => ['completed', 'partially_completed'].includes(run.status));
+    $('hiringRunFilter').innerHTML =
+      '<option value="">Choose a completed run</option>' +
+      hiringRuns
+        .map(
+          (run) =>
+            '<option value="' +
+            run.id +
+            '">Run #' +
+            run.id +
+            ' · ' +
+            (run.leadSource === 'google_maps' ? 'Google Maps' : 'Sales Navigator') +
+            '</option>'
+        )
+        .join('');
+    if (selectedHiringRunId && hiringRuns.some((run) => String(run.id) === String(selectedHiringRunId))) {
+      $('hiringRunFilter').value = selectedHiringRunId;
+    } else if (hiringRuns.length) {
+      $('hiringRunFilter').value = String(hiringRuns[0].id);
     }
     // Reattach live tracking to the newest active run after a page reload.
     if (!activeRunId) {
@@ -371,9 +400,124 @@
 
   async function loadLeads() {
     const runId = $('leadRunFilter').value;
-    const leads = await api.listLeads(runId);
-    $('leadSummary').textContent = (runId ? 'Selected run: ' : 'All runs: ') + leads.length + ' email leads';
+    const leads = await api.listLeads(runId, activeLeadLane);
+    const laneLabel = activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator';
+    $('leadSummary').textContent =
+      laneLabel + ' · ' + (runId ? 'selected run: ' : 'all runs: ') + leads.length + ' leads';
     $('leadsTable').innerHTML = window.LeadsGenXUi.renderLeads(leads);
+  }
+
+  async function setLeadLane(lane) {
+    activeLeadLane = lane === 'sales_navigator' ? 'sales_navigator' : 'google_maps';
+    document.querySelectorAll('[data-lead-lane]').forEach((button) => {
+      button.classList.toggle('active', button.dataset.leadLane === activeLeadLane);
+    });
+    const laneRuns = latestRuns.filter((run) => run.leadSource === activeLeadLane);
+    $('leadRunFilter').innerHTML =
+      '<option value="">All ' +
+      (activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator') +
+      ' runs</option>' +
+      laneRuns.map((run) => '<option value="' + run.id + '">Run #' + run.id + '</option>').join('');
+    await loadLeads();
+  }
+
+  async function loadHiringSignals() {
+    if (hiringRefreshTimer) {
+      clearTimeout(hiringRefreshTimer);
+      hiringRefreshTimer = null;
+    }
+    const runId = $('hiringRunFilter').value;
+    if (!runId) {
+      $('hiringStatus').textContent = 'Choose a completed run to see its hiring signals.';
+      $('hiringMatches').innerHTML = '';
+      $('hiringOpportunities').innerHTML = '';
+      return;
+    }
+    try {
+      const result = await api.getHiringSignals(runId);
+      const scan = result.scan;
+      $('hiringStatus').textContent = scan
+        ? scan.status === 'queued' || scan.status === 'running'
+          ? 'Nova is checking public Greenhouse boards now · ' + scan.inspectedCount + ' inspected.'
+          : 'Latest scan ' +
+            scan.status.replace(/_/g, ' ') +
+            ' · ' +
+            scan.matchedCount +
+            ' existing matches · ' +
+            scan.opportunityCount +
+            ' adjacent opportunities.'
+        : 'No hiring scan yet for this run. Refresh signals when you’re ready.';
+      const rendered = window.LeadsGenXUi.renderHiringSignals(result);
+      $('hiringMatches').innerHTML = rendered.matches;
+      $('hiringOpportunities').innerHTML = rendered.opportunities;
+      if (scan && (scan.status === 'queued' || scan.status === 'running')) {
+        hiringRefreshTimer = setTimeout(loadHiringSignals, 2000);
+      }
+    } catch (error) {
+      $('hiringStatus').textContent = error.message;
+    }
+  }
+
+  async function refreshHiringSignals() {
+    const runId = $('hiringRunFilter').value;
+    if (!runId) {
+      window.LeadsGenXUi.toast('Choose a completed run first.');
+      return;
+    }
+    $('refreshHiringSignals').disabled = true;
+    try {
+      await api.refreshHiringSignals(runId);
+      window.LeadsGenXUi.toast('Nova is refreshing public hiring signals.');
+      await loadHiringSignals();
+    } catch (error) {
+      window.LeadsGenXUi.toast(error.message);
+    } finally {
+      $('refreshHiringSignals').disabled = false;
+    }
+  }
+
+  async function prepareHiringSearch(id, targetLane) {
+    const prepared = await api.prepareHiringSearch(id, targetLane);
+    setSource(prepared.targetLane);
+    if (prepared.targetLane === 'google_maps') {
+      chips.gmSearchTerms.setValues([prepared.companyName]);
+      if (prepared.geographies && prepared.geographies.length) {
+        chips.gmLocations.setValues(prepared.geographies.slice(0, 1));
+      }
+    } else {
+      chips.snCompanies.setValues([prepared.companyName]);
+      if (prepared.geographies && prepared.geographies.length) {
+        chips.snGeographies.setValues(prepared.geographies.slice(0, 1));
+      }
+      if (prepared.industries && prepared.industries.length) {
+        chips.snIndustries.setValues(prepared.industries.slice(0, 3));
+      }
+    }
+    setTab('runs');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.LeadsGenXUi.toast('Review the prepared filters, then start when you’re ready.');
+  }
+
+  async function handleHiringAction(event) {
+    const target = event.target.closest('button');
+    if (!target) return;
+    try {
+      if (target.dataset.prepareHiring) {
+        await prepareHiringSearch(target.dataset.prepareHiring, target.dataset.targetLane);
+        return;
+      }
+      if (target.dataset.saveHiring) {
+        await api.updateHiringOpportunity(target.dataset.saveHiring, { saved: target.textContent.trim() === 'Save' });
+        await loadHiringSignals();
+        return;
+      }
+      if (target.dataset.dismissHiring) {
+        await api.updateHiringOpportunity(target.dataset.dismissHiring, { dismissed: true });
+        await loadHiringSignals();
+      }
+    } catch (error) {
+      window.LeadsGenXUi.toast(error.message);
+    }
   }
 
   async function openAllLeads() {
@@ -951,7 +1095,15 @@
     $('refreshLogs').addEventListener('click', loadLogs);
     $('metricLeadsCard').addEventListener('click', openAllLeads);
     $('leadRunFilter').addEventListener('change', loadLeads);
-    $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
+    document.querySelectorAll('[data-lead-lane]').forEach((button) =>
+      button.addEventListener('click', () => void setLeadLane(button.dataset.leadLane))
+    );
+    $('hiringRunFilter').addEventListener('change', loadHiringSignals);
+    $('refreshHiringSignals').addEventListener('click', refreshHiringSignals);
+    $('hiringOpportunities').addEventListener('click', (event) => void handleHiringAction(event));
+    $('downloadEmails').addEventListener('click', () =>
+      api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane)
+    );
     $('saveSettingsBtn').addEventListener('click', () => saveSettings());
     $('clearApifyBtn').addEventListener('click', () => saveSettings({ apifyToken: '' }));
     $('clearBrightDataBtn').addEventListener('click', () => saveSettings({ brightDataApiKey: '' }));
@@ -992,8 +1144,12 @@
       const deleteRunId = target.dataset ? target.dataset.deleteRun : undefined;
       const stopRunId = target.dataset ? target.dataset.stopRun : undefined;
       if (viewRunId) {
-        $('leadRunFilter').value = viewRunId;
-        setTab('leads');
+        const selectedRun = latestRuns.find((run) => String(run.id) === String(viewRunId));
+        void setLeadLane(selectedRun && selectedRun.leadSource);
+        setTimeout(() => {
+          $('leadRunFilter').value = viewRunId;
+          setTab('leads');
+        }, 0);
       }
       if (copyRunEmailsId) void copyRunEmails(copyRunEmailsId);
       if (stopRunId) void stopRun(stopRunId);

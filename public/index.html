@@ -347,6 +347,7 @@
         <nav class="tabs">
           <button class="tab active" data-tab="runs" type="button">Runs</button>
           <button class="tab" data-tab="leads" type="button">Leads</button>
+          <button class="tab" data-tab="hiring" type="button">Hiring opportunities</button>
           <button class="tab" data-tab="account" type="button" id="accountTabBtn">Account</button>
           <button class="tab" data-tab="logs" type="button" data-admin-only>Logs</button>
           <button class="tab" data-tab="linkedin" type="button">LinkedIn</button>
@@ -373,7 +374,27 @@
               <button id="downloadEmails" type="button" class="ghost-btn">Download Emails TXT</button>
             </div>
           </div>
+          <div class="lane-toggle" role="tablist" aria-label="Lead lane">
+            <button class="lane-btn active" data-lead-lane="google_maps" type="button">Google Maps leads</button>
+            <button class="lane-btn" data-lead-lane="sales_navigator" type="button">Sales Navigator leads</button>
+          </div>
           <div id="leadsTable"></div>
+        </div>
+
+        <div id="hiringTab" class="tab-page">
+          <div class="table-actions">
+            <div>
+              <h2>Hiring opportunities</h2>
+              <p>Public Greenhouse signals, kept separate from your lead lists. Nova only prepares searches—you choose when to run them.</p>
+            </div>
+            <div class="inline-actions">
+              <select id="hiringRunFilter"><option value="">Choose a completed run</option></select>
+              <button id="refreshHiringSignals" type="button" class="ghost-btn">Refresh signals</button>
+            </div>
+          </div>
+          <p id="hiringStatus" class="hiring-status">Choose a completed run to see its hiring signals.</p>
+          <div id="hiringMatches"></div>
+          <div id="hiringOpportunities"></div>
         </div>
 
         <div id="accountTab" class="tab-page">

@@ -1895,3 +1895,152 @@ tr:last-child td { border-bottom: 0; }
   background: rgba(94, 234, 212, 0.08);
   vertical-align: middle;
 }
+
+/* ---------------- Source lanes + hiring opportunities ---------------- */
+
+.lane-toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin: 0 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(7, 12, 18, 0.65);
+}
+
+.lane-btn {
+  border: 0;
+  border-radius: 9px;
+  padding: 9px 14px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.lane-btn.active {
+  color: #eafff9;
+  background: rgba(94, 234, 212, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.25);
+}
+
+.hiring-badge {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 2px 7px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 999px;
+  color: #f8d486;
+  background: rgba(120, 83, 25, 0.18);
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.hiring-status {
+  margin: 0 0 18px;
+  padding: 11px 14px;
+  border-left: 3px solid rgba(251, 191, 36, 0.55);
+  border-radius: 0 9px 9px 0;
+  color: #d8c7a8;
+  background: rgba(98, 70, 28, 0.12);
+}
+
+.hiring-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 22px 0 10px;
+}
+
+.hiring-section-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.hiring-section-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hiring-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.hiring-card {
+  padding: 16px;
+  border: 1px solid rgba(189, 149, 81, 0.22);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(101, 72, 31, 0.12), rgba(13, 20, 26, 0.82)),
+    var(--panel);
+}
+
+.hiring-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hiring-card h3 {
+  margin: 3px 0 0;
+  font-size: 18px;
+}
+
+.hiring-lane {
+  color: #c9a86d;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hiring-score {
+  display: grid;
+  min-width: 42px;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 50%;
+  color: #ffe0a1;
+  background: rgba(93, 63, 19, 0.2);
+}
+
+.hiring-card > p {
+  min-height: 40px;
+  color: #c5ccd3;
+  line-height: 1.45;
+}
+
+.hiring-jobs {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hiring-jobs li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.hiring-jobs li span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.hiring-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}

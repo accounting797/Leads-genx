@@ -123,7 +123,28 @@
     stopRun: (id) => requestJson('/runs/' + id + '/stop', { method: 'POST' }),
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
     getRunAnalyst: (id) => requestJson('/runs/' + id + '/analyst'),
-    listLeads: (runId) => requestJson('/leads' + (runId ? '?runId=' + runId : '')),
+    listLeads: (runId, leadSource) => {
+      const params = new URLSearchParams();
+      if (runId) params.set('runId', runId);
+      if (leadSource) params.set('leadSource', leadSource);
+      const query = params.toString();
+      return requestJson('/leads' + (query ? '?' + query : ''));
+    },
+    getHiringSignals: (runId) => requestJson('/runs/' + runId + '/hiring-signals'),
+    refreshHiringSignals: (runId) =>
+      requestJson('/runs/' + runId + '/hiring-signals/refresh', { method: 'POST' }),
+    updateHiringOpportunity: (id, body) =>
+      requestJson('/hiring-opportunities/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    prepareHiringSearch: (id, targetLane) =>
+      requestJson('/hiring-opportunities/' + id + '/prepare-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetLane }),
+      }),
     getLeadEmailsTxt: (runId) =>
       requestText('/leads/download?format=emails' + (runId ? '&runId=' + runId : '')),
     listErrors: () => requestJson('/errors'),
@@ -162,10 +183,11 @@
       }),
     enrichLinkedIn: (runId) => requestJson('/runs/' + runId + '/enrich-linkedin', { method: 'POST' }),
     shuffleNext: () => requestJson('/shuffle/next'),
-    downloadLeads: (runId, format) => {
+    downloadLeads: (runId, format, leadSource) => {
       const params = new URLSearchParams();
       if (runId) params.set('runId', runId);
       if (format) params.set('format', format);
+      if (leadSource) params.set('leadSource', leadSource);
       const query = params.toString();
       window.location.href = BASE + '/leads/download' + (query ? '?' + query : '');
     },

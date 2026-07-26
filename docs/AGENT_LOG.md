@@ -12,6 +12,15 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — feat (feature branch, three-lane dashboard)
+- Split lead browsing and TXT downloads into explicit Google Maps and Sales
+  Navigator lanes, with hiring badges projected onto exact company matches.
+- Added a separate Hiring opportunities tab with live scan status, evidence,
+  recent qualifying roles, score cards, save/dismiss actions, and manual
+  cache-bypassing refresh.
+- Opportunity actions only prepare Maps or Sales Navigator filters and scroll
+  the operator to review them; no run is started automatically.
+
 ## 2026-07-25 — codex — feat (feature branch, safe hiring API + Nova)
 - Added ownership-scoped read, refresh, save/dismiss, and prepare-search
   endpoints. Cross-user run and opportunity access returns 404.

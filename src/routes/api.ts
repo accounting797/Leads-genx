@@ -622,9 +622,16 @@ export function createApiRouter({
     '/leads/download',
     asyncHandler(async (req, res) => {
       const runId = req.query.runId ? Number(req.query.runId) : undefined;
+      const leadSource = typeof req.query.leadSource === 'string' ? req.query.leadSource : undefined;
+      if (leadSource && leadSource !== 'google_maps' && leadSource !== 'sales_navigator') {
+        res.status(400).json({ error: 'Choose Google Maps or Sales Navigator.' });
+        return;
+      }
+      const selectedLeadSource =
+        leadSource === 'google_maps' || leadSource === 'sales_navigator' ? leadSource : undefined;
       const leads = prisma
         ? await prisma.lead.findMany({
-            where: leadScope(res, runId),
+            where: leadScope(res, runId, selectedLeadSource),
             orderBy: { createdAt: 'desc' },
           })
         : [];

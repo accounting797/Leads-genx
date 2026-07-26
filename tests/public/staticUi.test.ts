@@ -48,8 +48,29 @@ describe('static dashboard downloads', () => {
   it('requests the email TXT download format from the UI', () => {
     const appJs = readPublicFile('app.js');
 
-    expect(appJs).toContain("api.downloadLeads($('leadRunFilter').value, 'emails')");
+    expect(appJs).toContain("api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane)");
     expect(appJs).not.toContain("api.downloadLeads($('leadRunFilter').value, 'full')");
+  });
+});
+
+describe('static dashboard hiring lanes', () => {
+  it('keeps Google Maps, Sales Navigator, and Hiring opportunities visibly separate', () => {
+    const html = readPublicFile('index.html');
+
+    expect(html).toContain('data-lead-lane="google_maps"');
+    expect(html).toContain('data-lead-lane="sales_navigator"');
+    expect(html).toContain('data-tab="hiring"');
+    expect(html).toContain('id="hiringOpportunities"');
+  });
+
+  it('prepares hiring searches for review without auto-starting a run', () => {
+    const apiJs = readPublicFile('api.js');
+    const appJs = readPublicFile('app.js');
+
+    expect(apiJs).toContain('prepareHiringSearch');
+    expect(appJs).toContain('Review the prepared filters, then start when you');
+    expect(appJs).toContain('chips.snCompanies.setValues');
+    expect(appJs).toContain('chips.gmSearchTerms.setValues');
   });
 });
 
