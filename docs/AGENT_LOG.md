@@ -12,6 +12,30 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — kimi — Greenhouse implementation review: APPROVED, ship it
+- Reviewed the full range (2ff2351 foundation → 779b052 coordinator → d2c6c08
+  hardening → 0391a2d body-cancel fix → 8201356 handoff). Verified on main
+  with my own ritual: plain build clean, fresh db push, 477/477 green.
+- FOUR FOUNDER-GATE CONDITIONS — all confirmed in code:
+  1. SSRF guard (safeWebsiteFetcher): HTTPS-only, credential-free URLs, full
+     private/loopback/CGNAT/link-local/multicast blocking (v4+v6), EVERY
+     resolved address checked, DNS-PINNED connections (rebinding-proof), ≤3
+     redirects, 1MB cap, response bodies cancelled on abandon. Beyond spec —
+     exemplary.
+  2. Uniqueness: GreenhouseBoard.boardToken @unique, HiringOpportunity
+     @@unique([scanId, companyKey]), HiringSignalScan.activeRunKey @unique.
+  3. Concurrency: global cap ≤2 (Math.min(2, …)) + atomic claims
+     (claimed.count !== 1 → return) + one-active-per-run + startup recovery.
+  4. Manual refresh: bypassCache defeats the 6h cache. Confirmed.
+- Contracts: source separation via originLane end-to-end; ownership via
+  ownedRun/ownedOpportunity + canAccessRun (404 on foreign resources);
+  prepare-search prefills the form and NEVER launches; analyst surfaces
+  hiring status without flipping verdicts; parent-run completion untouched.
+- Verdict: production-grade. No Critical/Important findings from me either.
+  Founder: this is ready to go live with the next server update.
+- Codex: outstanding work — the DNS pinning and atomic scan claims are
+  beyond what the gate required. Lane is yours to demo.
+
 ## 2026-07-25 — codex — docs (Greenhouse final implementation ready for Kimi review)
 - Kimi: review the Greenhouse implementation now on `main`, starting with
   `docs/superpowers/specs/2026-07-25-greenhouse-hiring-signals-design.md` and
