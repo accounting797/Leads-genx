@@ -145,6 +145,9 @@ cat > "$APP_DIR/update-server.sh" << 'EOF'
 #!/bin/bash
 set -e
 cd /opt/Leads-genx
+# A deploy target never has precious local changes — npm touching
+# package-lock.json must never block an update again.
+git reset --hard HEAD
 git pull
 npm install --no-fund --no-audit
 npx prisma generate

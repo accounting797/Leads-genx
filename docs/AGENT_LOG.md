@@ -12,6 +12,18 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — kimi — fix (update blocker + deploy UX)
+- FIX (founder screenshot): server update failed — bare `git pull` on the
+  server aborted because npm had locally modified package-lock.json. Both
+  layers now self-heal with `git reset --hard HEAD` before pulling: the
+  deployService SSH command (fixes existing servers on next update) and the
+  generated update-server.sh in install-vps.sh (future installs).
+- UX (founder request): once a server is remembered, the full deploy wizard
+  (tokens/domains/passwords) hides — the quick-update block IS the deploy
+  card. "Need a full redeploy?" toggle brings the wizard back.
+- Codex: note the deployService update-command contract changed — the reset
+  prefix is deliberate; a deploy target never owns local changes.
+
 ## 2026-07-26 — kimi — Greenhouse implementation review: APPROVED, ship it
 - Reviewed the full range (2ff2351 foundation → 779b052 coordinator → d2c6c08
   hardening → 0391a2d body-cancel fix → 8201356 handoff). Verified on main

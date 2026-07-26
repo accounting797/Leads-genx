@@ -2,6 +2,7 @@
   const api = window.LeadsGenXApi;
   const chips = {};
   let lastShuffleComboId;
+  let showFullDeployWizard = false;
   const maxResultsBySource = {};
   let activeSource = 'google_maps';
   let activeLeadLane = 'google_maps';
@@ -1149,6 +1150,10 @@
     $('testGoogleBtn').addEventListener('click', testGoogleCredentials);
     $('refreshExtensionRuns').addEventListener('click', loadExtensionRuns);
     $('shuffleFiltersBtn').addEventListener('click', shuffleFilters);
+    $('deployFullWizardToggle').addEventListener('click', () => {
+      showFullDeployWizard = true;
+      loadDeployState();
+    });
     $('extensionRunsTable').addEventListener('click', (event) => {
       const target = event.target.closest('[data-enrich-run]');
       if (target) void enrichLinkedInRun(target.dataset.enrichRun, target);
@@ -1521,6 +1526,12 @@
     if (state.savedTarget && state.savedTarget.host && !$('updateHost').value) {
       $('updateHost').value = state.savedTarget.host;
     }
+
+    // Once a server is known, the quick-update block IS the deploy card —
+    // the full wizard (tokens, domains, passwords) hides behind a toggle.
+    const simplified = Boolean(state.savedTarget && state.savedTarget.host) && !showFullDeployWizard;
+    $('deployCard').classList.toggle('deploy-simplified', simplified);
+    $('deployFullWizardToggle').hidden = !simplified;
 
     const consoleEl = $('deployConsole');
     const hasLog = state.log && state.log.length > 0;

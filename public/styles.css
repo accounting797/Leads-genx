@@ -2069,3 +2069,12 @@ tr:last-child td { border-bottom: 0; }
   gap: 7px;
   margin-top: 12px;
 }
+
+/* Deploy card simplified mode: server known → quick update only */
+.deploy-card.deploy-simplified #deployForm,
+.deploy-card.deploy-simplified .deploy-intro {
+  display: none;
+}
+.deploy-full-toggle {
+  margin-bottom: 0.75rem;
+}
