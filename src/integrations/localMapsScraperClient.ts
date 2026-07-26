@@ -186,6 +186,36 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
     }
   }
 
+  private async pollJob(baseUrl: string, jobId: string): Promise<void> {
+    const maxPolls = this.options.maxPolls ?? 120;
+    let consecutivePollErrors = 0;
+
+    for (let poll = 0; poll < maxPolls; poll += 1) {
+      try {
+        const response = await fetch(`${baseUrl}/api/v1/jobs/${jobId}`, {
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!response.ok) throw new Error(`status returned ${response.status}`);
+        const payload = await response.json() as { Status?: string; status?: string };
+        const status = (payload.Status ?? payload.status)?.toLowerCase();
+        consecutivePollErrors = 0;
+        if (status === 'ok') return;
+        if (status === 'failed' || status === 'error') {
+          throw new LocalScraperError('failed', 'Local scraper job failed');
+        }
+      } catch (error) {
+        if (error instanceof LocalScraperError) throw error;
+        consecutivePollErrors += 1;
+        if (consecutivePollErrors >= 3) {
+          throw new LocalScraperError('unavailable', 'Local scraper stopped answering mid-job');
+        }
+      }
+      await wait(this.options.pollIntervalMs ?? 8000);
+    }
+
+    throw new LocalScraperError('timeout', 'Local scraper job reached its polling limit');
+  }
+
   async searchBatch({ batch, proxies = [] }: { batch: LocalDiscoveryBatch; proxies?: string[] }): Promise<LocalBatchResult> {
     if (!batch.lat || !batch.lon) throw new LocalScraperError('unsupported_location', 'Local scraper coordinates are unavailable for this location');
     const baseUrl = this.baseUrl();
@@ -215,30 +245,7 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
     // Polling is resilient: a single stalled status call (scraper busy under
     // load) must never kill a healthy long scrape — only sustained silence
     // (3 consecutive failures) is treated as the lane going down.
-    const maxPolls = this.options.maxPolls ?? 120;
-    let completed = false;
-    let consecutivePollErrors = 0;
-    for (let poll = 0; poll < maxPolls; poll += 1) {
-      let status: string | undefined;
-      try {
-        const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${created.id}`, { signal: AbortSignal.timeout(10_000) });
-        const payload = statusResponse.ok ? await statusResponse.json() as { Status?: string; status?: string } : {};
-        status = (payload.Status ?? payload.status)?.toLowerCase();
-        consecutivePollErrors = 0;
-      } catch {
-        consecutivePollErrors += 1;
-        if (consecutivePollErrors >= 3) throw new LocalScraperError('unavailable', 'Local scraper stopped answering mid-job');
-        await wait(this.options.pollIntervalMs ?? 8000);
-        continue;
-      }
-      if (status === 'ok') {
-        completed = true;
-        break;
-      }
-      if (status === 'failed' || status === 'error') throw new LocalScraperError('failed', 'Local scraper job failed');
-      await wait(this.options.pollIntervalMs ?? 8000);
-    }
-    if (!completed) throw new LocalScraperError('timeout', 'Local scraper job reached its polling limit');
+    await this.pollJob(baseUrl, created.id);
 
     const download = await fetch(`${baseUrl}/api/v1/jobs/${created.id}/download`, { signal: AbortSignal.timeout(60_000) });
     if (!download.ok) throw new LocalScraperError('download', `Local scraper download failed with status ${download.status}`);
@@ -307,31 +314,19 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
       if (!jobId) continue;
       await onEvent?.({ type: 'started', jobId });
 
-      const maxPolls = this.options.maxPolls ?? 120;
-      let completed = false;
-      for (let poll = 0; poll < maxPolls; poll += 1) {
-        const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}`, {
-          signal: AbortSignal.timeout(10_000),
-        });
-        const statusData = statusResponse.ok ? ((await statusResponse.json()) as { Status?: string }) : {};
-        const status = statusData.Status?.toLowerCase();
-        if (status === 'failed' || status === 'error') {
-          await onEvent?.({ type: 'failed', jobId, message: 'Local Google Maps scraper-kit job failed' });
-          completed = false;
-          break;
-        }
-        if (status === 'ok') {
-          completed = true;
-          break;
-        }
-        await wait(this.options.pollIntervalMs ?? 8000);
-      }
-
-      if (!completed) {
+      try {
+        await this.pollJob(baseUrl, jobId);
+      } catch (error) {
+        const localError = error instanceof LocalScraperError ? error : undefined;
         await onEvent?.({
           type: 'failed',
           jobId,
-          message: 'Local Google Maps scraper-kit job did not finish before the polling limit',
+          message:
+            localError?.code === 'timeout'
+              ? 'Local Google Maps scraper-kit job did not finish before the polling limit'
+              : localError?.code === 'failed'
+                ? 'Local Google Maps scraper-kit job failed'
+                : localError?.message ?? 'Local Google Maps scraper-kit stopped answering',
         });
         continue;
       }
