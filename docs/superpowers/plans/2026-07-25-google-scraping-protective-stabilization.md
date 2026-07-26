@@ -8,6 +8,8 @@
 
 **Tech Stack:** TypeScript 5, Node.js fetch/AbortSignal, Express service layer, Vitest, Prisma SQLite, vanilla browser UI.
 
+**Execution Status:** Implemented on `codex/google-scraping-stabilization`; see the newest Google stabilization entry in `docs/AGENT_LOG.md` for commits and verification evidence.
+
 ## Global Constraints
 
 - Standard Output remains concurrent Docker plus Google.

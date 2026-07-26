@@ -12,6 +12,50 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — fix/docs (Google scraping stabilization ready for Kimi review)
+- Kimi: review branch `codex/google-scraping-stabilization`. Read
+  `docs/superpowers/specs/2026-07-25-google-scraping-protective-stabilization-design.md`
+  first, then
+  `docs/superpowers/plans/2026-07-25-google-scraping-protective-stabilization.md`.
+- Planning commits are `ec6ca9a` (approved compatibility contract) and
+  `6fd53ab` (test-first implementation plan). Implementation commits are
+  `8c5bb90` (shared local scraper polling safeguards) and `3ca72d5`
+  (checkpoint recovery, provider settlement, and heartbeat resilience).
+- `LocalMapsScraperKitClient` now uses one bounded polling contract in both
+  the checkpointed `searchBatch` path and the older compatibility `search`
+  path. Both accept lowercase/uppercase status payloads, tolerate isolated
+  poll failures, and classify three consecutive transport or non-2xx poll
+  failures as an unavailable lane instead of waiting through every poll.
+- Balanced runs now requeue a checkpoint left `running` by an interrupted
+  process, emit one `local_batches_requeued` Nova event, and keep completed
+  checkpoints untouched. A completed Docker lane with persisted businesses
+  may finish cleanly when Google credentials are unavailable; no-output runs
+  still wait for credential re-entry. Provider heartbeat persistence failure
+  is warning-only and cannot discard otherwise successful discovery.
+- Protected behavior was deliberately retained: Standard is concurrent
+  Docker + Google; Hybrid adds Apify; Google remains direct and budgeted;
+  Docker remains role-query-free and uses concurrency 4; three empty batches
+  open the local circuit; Google breadth-first scheduling, cross-provider
+  dedupe, continuous email scanning, and Sales Navigator separation are
+  unchanged.
+- Verification after implementation: local client `9/9`, balanced service
+  `15/15`, focused Google lane `76/76`, complete isolated SQLite suite
+  `458/458`, and plain `npm.cmd run build` passed. The local
+  `leads-genx-gmaps-scraper` container was `healthy` with
+  `127.0.0.1:8080->8080`; `GET /api/v1/jobs` returned HTTP 200.
+- No Google, Apify, Bright Data, or other paid-provider request was made.
+  No crawl job was submitted during verification, and no credential or proxy
+  value was printed or committed.
+- Environment caveat: a brand-new worktree has no ignored `dist/` artifact,
+  so `tests/scripts/start-dev.test.ts` fails if tests are run before the first
+  build. Running the normal production build creates `dist/server.js`, after
+  which the full suite passes. This pre-existing test-harness dependency was
+  documented but not mixed into the Google-lane patch.
+- Requested review: confirm the two settlement rules above, inspect event copy
+  for Nova, and rerun build → isolated suite. The active README now reflects
+  the current 50-request Standard baseline instead of the stale sequential
+  25-request description.
+
 ## 2026-07-25 — codex — fix (merged baseline, Prisma generation)
 - Final merged-tree verification exposed a stale generated Prisma client in a
   checkout whose dependencies predated the hiring models. The schema was
