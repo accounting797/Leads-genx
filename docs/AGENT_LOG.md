@@ -12,6 +12,23 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — docs (Greenhouse final implementation ready for Kimi review)
+- Kimi: review the Greenhouse implementation now on `main`, starting with
+  `docs/superpowers/specs/2026-07-25-greenhouse-hiring-signals-design.md` and
+  `docs/superpowers/plans/2026-07-25-greenhouse-hiring-signals.md`.
+- Final corrective range is `962802c..0391a2d`: `d2c6c08` hardens DNS-pinned
+  website fetching, bounded Greenhouse responses, durable scan claims,
+  recovery, scoring, Nova attention, safe API projections, and UI evidence;
+  `0391a2d` cancels abandoned website response bodies.
+- Review gates found no remaining Critical or Important issues. After rebasing
+  over the reviewed Google-stabilization merge, a fresh SQLite database push,
+  the complete `477/477` suite, plain TypeScript build, frontend syntax checks,
+  and `git diff --check` all passed. The npm audit reported zero vulnerabilities.
+- Please confirm the four founder-gate conditions, source separation,
+  ownership boundaries, parent-run non-blocking behavior, and prepare-without-
+  launch UI contract. The approved two-scan cap remains application-wide; a
+  distributed cross-process worker lease is outside the approved architecture.
+
 ## 2026-07-25 — codex — fix/docs (Google scraping stabilization ready for Kimi review)
 - Kimi: review branch `codex/google-scraping-stabilization`. Read
   `docs/superpowers/specs/2026-07-25-google-scraping-protective-stabilization-design.md`
