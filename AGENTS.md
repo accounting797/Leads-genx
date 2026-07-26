@@ -28,6 +28,7 @@ Lead sources & engines:
 | Google Maps via Apify / Google Places / Hybrid | `src/domain/runService.ts` (`runApifyShards`, `runGooglePlaces`) | Streaming Apify ingestion, parallel shards (≤3), race-safe counter. |
 | Sales Navigator via HarvestAPI (SN URL or filters + cookies) | `src/domain/runService.ts` → Apify actor | Needs Apify token + LinkedIn cookies + userAgent. |
 | **Sales Navigator-style filters via Bright Data** | `src/domain/brightDataLinkedInSearch.ts` | No SN account needed. Metadata-driven filter mapping onto the contact-enriched people dataset (`gd_me5ppxjr2ge6icjuh0`); unfilterable groups are skipped with an honest Nova note. Emails ride along when available. |
+| **Greenhouse hiring signals** | `src/domain/hiringSignalService.ts` + `src/routes/hiringSignals.ts` | Supplemental public-data lane. It annotates exact companies in their original Maps/Sales Nav lane and keeps adjacent opportunities in `hiring_opportunity`; it never creates leads, changes parent counts/status, or starts a paid search. |
 | SN Chrome extension (GrowMeOrganic-style) | `extension/` + `src/routes/extension.ts` | MV3, scrapes SN lead searches on the user's own session, auto-paginates politely, streams batches to `POST /api/extension/leads` (Bearer = per-user `User.extensionToken`). Packaged zip: `public/downloads/leadsgenx-sn-extension.zip` — **regenerate it whenever `extension/` changes**. |
 | Bright Data contact enrichment | `src/domain/linkedinEnrichment.ts` + `POST /api/runs/:id/enrich-linkedin` | Fills emails/phones for LinkedIn leads. BYOD key wins over operator key. |
 
@@ -46,6 +47,9 @@ Cross-cutting:
   Apify + cookies + userAgent.
 - **Auth:** sessions via cookie; extension via Bearer token. Usernames are case-insensitive
   (`findUserByUsername`).
+- **Source separation:** `google_maps`, `sales_navigator`, and `hiring_opportunity`
+  are separate API/UI lanes. Hiring scans begin only after eligible parent runs settle,
+  run at most two globally, and may never hold or reopen the parent run.
 
 ## The test ritual (run before EVERY commit)
 
@@ -55,7 +59,7 @@ export DATABASE_URL="file:/tmp/t.db" && rm -f /tmp/t.db \
 npm run build   # plain — never pipe tsc; a masked exit code once nearly shipped a broken build
 ```
 
-Current suite: 410 tests, all must pass. Add tests for every behavioral change
+Current suite: 452 tests, all must pass. Add tests for every behavioral change
 (harness examples: `tests/api/extensionApi.test.ts`, `tests/domain/brightDataLinkedInSearch.test.ts`).
 
 ## Conventions

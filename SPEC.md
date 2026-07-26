@@ -1,4 +1,10 @@
-# SPEC — LinkedIn Sales Navigator Extension Ingestion
+# SPEC — Leads-GenX Supplemental Lanes
+
+The Sales Navigator extension and Greenhouse hiring signals share one rule:
+supplemental work can add evidence and output, but it never holds a parent run
+hostage or silently crosses a source-lane boundary.
+
+## Sales Navigator Extension Ingestion
 
 Three modules, one contract. Implement faithfully; no unilateral changes.
 
@@ -122,3 +128,48 @@ Behavior:
 ## Integration (orchestrator)
 Merge branches → zip extension/ to public/downloads/leadsgenx-sn-extension.zip →
 full build + suite → push.
+
+## Greenhouse hiring-signal contract
+
+### Lane and run isolation
+
+- `HiringSignalScan`, `GreenhouseBoard`, and `HiringOpportunity` are durable,
+  run-owned records. Hiring observations are not `Lead` rows.
+- `HiringOpportunity.originLane` is `google_maps`, `sales_navigator`, or
+  `hiring_opportunity`. Exact matches retain the parent company's original lane;
+  adjacent companies use only `hiring_opportunity`.
+- Automatic scans run only after a `completed` or `partially_completed` run
+  settles and has a company candidate. Scans never change `Run.status`,
+  `Run.leadCount`, or start/reopen a run.
+- At most two scans execute application-wide. Interrupted queued/running scans
+  recover on startup.
+
+### Public discovery and evidence
+
+- Greenhouse Job Board API requests use a 10-second deadline, at most two
+  attempts for transient failures, bounded normalized fields, and a six-hour
+  successful-response cache. A manual refresh bypasses that cache.
+- Website discovery is HTTPS-only, checks DNS for public addresses on every
+  request/redirect, caps redirects at three, accepts HTML only, reads at most
+  1 MiB, identifies the product User-Agent, and times out after eight seconds.
+- A scan evaluates at most 25 boards with three board workers. Website
+  discovery reads at most the homepage and one explicit careers page.
+- Only qualifying leadership, sales, operations, finance, or marketing jobs
+  updated within 30 days count. Nova says "updated recently" and never treats
+  Greenhouse `updated_at` as the original posting date.
+
+### Matching, scoring, and actions
+
+- Company matching is normalized-domain first, then unique normalized name.
+  Existing companies surface at score 70. Adjacent companies require score 80
+  and are capped at five.
+- The score is transparent and capped at 100: roles 35, recency 25, geography
+  20, industry 15, breadth 5.
+- `GET /api/leads` and downloads accept only
+  `leadSource=google_maps|sales_navigator`. Hiring annotations are safe
+  projections on exact latest-scan matches; they do not mutate lead records.
+- All hiring endpoints resolve run ownership before reads or mutations.
+  Prepare-search returns form values for either Maps or Sales Navigator; the
+  frontend fills the form and waits for the operator to start it.
+- Nova's analyst may add the two highest current, non-dismissed hiring notes.
+  Hiring notes never alter the health verdict.

@@ -12,6 +12,16 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — docs (Greenhouse lane ready for Kimi review)
+- Kimi: implementation is on `feat/greenhouse-hiring-signals`. Start with
+  `docs/superpowers/specs/2026-07-25-greenhouse-hiring-signals-design.md`, then
+  review commits `da2fb86..HEAD`.
+- Shared contracts now cover the three source lanes, supplemental-run rule,
+  public request bounds, 70/80 thresholds, five-opportunity cap, ownership-safe
+  APIs, Nova's two-line attention cap, and prepare-without-launch behavior.
+- No extension files changed, so the extension ZIP correctly remains untouched.
+  Final isolated verification and upstream rebase/push follow this docs commit.
+
 ## 2026-07-25 — codex — feat (feature branch, three-lane dashboard)
 - Split lead browsing and TXT downloads into explicit Google Maps and Sales
   Navigator lanes, with hiring badges projected onto exact company matches.
