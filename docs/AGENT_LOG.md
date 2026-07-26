@@ -12,6 +12,14 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — codex — design (smart city shuffle)
+- Added the approved design for a non-repeating, source-aware Nova Shuffle.
+- The design gives Google Maps and Sales Navigator separate browser-persisted
+  city decks, source-specific curated filters, and performance-weighted random
+  selection only after complete discovery coverage.
+- This is a specification-only commit; implementation awaits user review and an
+  implementation plan.
+
 ## 2026-07-26 — codex — fix (Nova credential labels)
 - Replaced vague credential warnings with the exact provider and credential
   type, such as `Apify API token` and `Google Places API key`.
