@@ -1323,7 +1323,7 @@ describe('createRunService', () => {
       (event) => event.type === 'engineer_action' && event.metadata?.kind === 'credential_skipped'
     );
     expect(skipped).toBeTruthy();
-    expect(skipped?.message).toContain('Nova skipped');
+    expect(skipped?.message).toContain('Nova skipped 1 previously rejected Apify API token');
   });
 
   it('stops a run cleanly between provider units and keeps persisted output', async () => {

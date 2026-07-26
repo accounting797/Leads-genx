@@ -12,6 +12,15 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — codex — fix (Nova credential labels)
+- Replaced vague credential warnings with the exact provider and credential
+  type, such as `Apify API token` and `Google Places API key`.
+- Previously rejected credentials are now reported separately per provider
+  instead of as one anonymous total.
+- Added regression coverage for both startup skipping and engineer narration.
+- Verification: fresh Prisma database, 479/479 tests green with one worker to
+  avoid Windows parallel-test contention, and production build clean.
+
 ## 2026-07-26 — codex — fix (Bright Data dataset fallback)
 - Fixed Bright Data LinkedIn filter runs failing immediately with HTTP 404 when
   the contact-enriched Search dataset is unavailable to the account.

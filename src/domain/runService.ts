@@ -1141,7 +1141,7 @@ export function createRunService({
 
     // The engineer's memory: credentials that previously failed authentication
     // are skipped before they can waste a provider shard again.
-    let skippedDeadCredentials = 0;
+    const skippedDeadCredentials = { apify: 0, google: 0 };
     const input = { ...merged };
     if (loadQuarantinedCredentials) {
       const quarantined = await loadQuarantinedCredentials();
@@ -1150,13 +1150,13 @@ export function createRunService({
           const { kept, skipped } = filterQuarantined(input.apifyTokens, quarantined);
           input.apifyTokens = kept.length ? kept : undefined;
           input.apifyToken = kept[0];
-          skippedDeadCredentials += skipped;
+          skippedDeadCredentials.apify += skipped;
         }
         if (input.googleApiKeys?.length) {
           const { kept, skipped } = filterQuarantined(input.googleApiKeys, quarantined);
           input.googleApiKeys = kept.length ? kept : undefined;
           input.googleApiKey = kept[0];
-          skippedDeadCredentials += skipped;
+          skippedDeadCredentials.google += skipped;
         }
       }
     }
@@ -1193,13 +1193,17 @@ export function createRunService({
       leadSource: input.leadSource,
     });
 
-    if (skippedDeadCredentials > 0) {
+    for (const [provider, count] of Object.entries(skippedDeadCredentials) as Array<
+      ['apify' | 'google', number]
+    >) {
+      if (count === 0) continue;
+      const credentialName = provider === 'apify' ? 'Apify API token' : 'Google Places API key';
       await store.addEvent(
         run.id,
         'engineer_action',
-        `Nova skipped ${skippedDeadCredentials} credential${skippedDeadCredentials === 1 ? '' : 's'} that failed before — replace ${skippedDeadCredentials === 1 ? 'it' : 'them'} in Settings when you have a moment.`,
+        `Nova skipped ${count} previously rejected ${credentialName}${count === 1 ? '' : 's'}. Replace ${count === 1 ? 'it' : 'them'} in Settings when you have a moment.`,
         {
-          provider: 'all',
+          provider,
           kind: 'credential_skipped',
           reasoning: 'These credentials were rejected by their provider before; reusing them would only waste a shard.',
         }
