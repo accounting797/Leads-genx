@@ -29,6 +29,14 @@ describe('resolveSearchFields', () => {
     expect(resolved.mapping).toMatchObject({ titles: 'position', industries: 'industry' });
     expect(resolved.skipped).toEqual(['seniorities', 'headcounts']);
   });
+
+  it('prefers the city field for city-targeted searches', () => {
+    const resolved = resolveSearchFields(
+      { geographies: ['Houston, TX'] },
+      [{ name: 'location' }, { name: 'city' }, { name: 'country_code' }]
+    );
+    expect(resolved.mapping.geographies).toBe('city');
+  });
 });
 
 describe('buildSearchFilter', () => {
@@ -54,6 +62,15 @@ describe('buildSearchFilter', () => {
 
   it('returns undefined when nothing can be filtered', () => {
     expect(buildSearchFilter({ titles: ['CEO'] }, { mapping: {}, skipped: ['titles'] })).toBeUndefined();
+  });
+
+  it('uses the exact city name when the UI supplies city and state', () => {
+    expect(
+      buildSearchFilter(
+        { geographies: ['Houston, TX'] },
+        { mapping: { geographies: 'city' }, skipped: [] }
+      )
+    ).toEqual({ name: 'city', operator: 'includes', value: 'Houston' });
   });
 });
 

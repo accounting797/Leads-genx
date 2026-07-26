@@ -430,3 +430,21 @@ Newest entries on top. Format:
 - Bright Data contact enrichment: key management (admin Settings + BYOD),
   contact-enriched dataset client, POST /runs/:id/enrich-linkedin, Enrich
   button on the LinkedIn tab.
+
+## 2026-07-26 — codex — fix (pending push)
+- Bright Data people search now requests stable sorting for real
+  `search_after` pagination, treats documented 422 no-match responses as an
+  empty result, and converts `City, ST` UI geography values to the dataset's
+  city field. Contact-enriched 404 fallback remains honest and automatic.
+- Nova is source-aware: a zero-profile LinkedIn completion is “Needs a look”
+  with exact next steps, never “Excellent”; successful LinkedIn runs describe
+  profiles instead of businesses. Dashboard array boundaries are defensive.
+- Extension 1.0.1 derives cards from actual `/sales/lead/` links, waits for
+  asynchronous results, and gives a precise zero-capture diagnosis. Rebuilt
+  `public/downloads/leadsgenx-sn-extension.zip`.
+- Multi-user authorization audit found no standard-user overlap across run
+  list/detail/events/analyst/stop/delete, leads/downloads, enrichment, or
+  extension ingestion. Admin global visibility remains intentional; run
+  history now labels Owner so preserved runs cannot be mistaken for merging.
+- Release evidence before push: focused red/green regressions, extension JS
+  syntax checks, 489/489 canonical tests, and TypeScript build.

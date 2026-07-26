@@ -30,7 +30,7 @@ const FIELD_CANDIDATES: Record<string, string[]> = {
   titles: ['position', 'title', 'job_title'],
   companies: ['current_company_name', 'company_name', 'company'],
   industries: ['industry', 'company_industry'],
-  geographies: ['location', 'city', 'country', 'country_code'],
+  geographies: ['city', 'location', 'country', 'country_code'],
   seniorities: ['seniority', 'seniority_level'],
   functions: ['function', 'job_function'],
   headcounts: ['company_headcount', 'company_size', 'employees', 'company_employee_count'],
@@ -70,9 +70,13 @@ export function buildSearchFilter(
   resolved: ResolvedSearchFields
 ): Record<string, unknown> | undefined {
   const groups: Array<Record<string, unknown>> = [];
-  const addGroup = (values: string[] | undefined, field?: string) => {
+  const addGroup = (
+    values: string[] | undefined,
+    field?: string,
+    normalize: (value: string) => string = (value) => value
+  ) => {
     if (!values?.length || !field) return;
-    const clean = values.map((value) => value.trim()).filter(Boolean);
+    const clean = values.map((value) => normalize(value.trim())).filter(Boolean);
     if (!clean.length) return;
     groups.push(
       clean.length === 1
@@ -83,7 +87,11 @@ export function buildSearchFilter(
   addGroup(filters.titles, resolved.mapping.titles);
   addGroup(filters.companies, resolved.mapping.companies);
   addGroup(filters.industries, resolved.mapping.industries);
-  addGroup(filters.geographies, resolved.mapping.geographies);
+  addGroup(
+    filters.geographies,
+    resolved.mapping.geographies,
+    resolved.mapping.geographies === 'city' ? (value) => value.split(',')[0].trim() : undefined
+  );
   addGroup(filters.seniorities, resolved.mapping.seniorities);
   addGroup(filters.functions, resolved.mapping.functions);
   addGroup(filters.headcounts, resolved.mapping.headcounts);

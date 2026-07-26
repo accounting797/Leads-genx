@@ -127,6 +127,51 @@ describe('analyzeRun', () => {
     expect(report.headline).toContain('140 qualified emails');
   });
 
+  it('does not celebrate a completed LinkedIn search that returned zero profiles', () => {
+    const report = analyzeRun(
+      baseInput({
+        run: {
+          status: 'completed',
+          leadSource: 'sales_navigator',
+          actorId: 'brightdata_linkedin',
+          leadCount: 0,
+          businessCount: 0,
+          maxResults: 100,
+          apiRequestsUsed: 0,
+          apiRequestBudget: 50,
+        },
+        events: [],
+      })
+    );
+
+    expect(report.verdict).toBe('bad');
+    expect(report.headline).toMatch(/0 LinkedIn profiles/i);
+    expect(report.headline).not.toMatch(/What a session|businesses|qualified emails/i);
+    expect(report.lines.some((line) => /Warming up/i.test(line.text))).toBe(false);
+    expect(report.lines.some((line) => /exact city|broader title/i.test(line.text))).toBe(true);
+  });
+
+  it('describes successful LinkedIn output as profiles instead of businesses', () => {
+    const report = analyzeRun(
+      baseInput({
+        run: {
+          status: 'completed',
+          leadSource: 'sales_navigator',
+          actorId: 'brightdata_linkedin',
+          leadCount: 12,
+          rawContactCount: 9,
+          businessCount: 0,
+          maxResults: 100,
+          apiRequestsUsed: 0,
+          apiRequestBudget: 50,
+        },
+      })
+    );
+
+    expect(report.headline).toMatch(/12 LinkedIn profiles/i);
+    expect(report.headline).not.toMatch(/businesses/i);
+  });
+
   it('adds at most two hiring notes without changing a healthy verdict', () => {
     const report = analyzeRun(
       baseInput({

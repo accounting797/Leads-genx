@@ -465,6 +465,32 @@ describe('static dashboard source-aware progress', () => {
     expect(appJs).toContain('google_places_started');
     expect(appJs).toContain('apify_shard_started');
   });
+
+  it('defends progress rendering against malformed array payloads', () => {
+    const appJs = readPublicFile('app.js');
+    expect(appJs).toContain('Array.isArray(runsPayload)');
+    expect(appJs).toContain('Array.isArray(leadsPayload)');
+    expect(appJs).toContain('Array.isArray(eventsPayload)');
+  });
+});
+
+describe('Sales Navigator extension extraction', () => {
+  it('derives result cards from actual lead links instead of the first generic list on the page', () => {
+    const contentJs = readExtensionFile('content.js');
+    expect(contentJs).toContain("document.querySelectorAll('a[href*=\"/sales/lead/\"]')");
+    expect(contentJs).toContain("anchor.closest('li, [role=\"listitem\"]");
+    expect(contentJs).toContain('waitForLeadCards');
+  });
+
+  it('reports a useful zero-capture diagnosis and stops scraping', () => {
+    const contentJs = readExtensionFile('content.js');
+    const backgroundJs = readExtensionFile('background.js');
+    const popupJs = readExtensionFile('popup.js');
+    expect(contentJs).toContain("type: 'diagnostic'");
+    expect(contentJs).toContain('No Sales Navigator lead cards detected');
+    expect(backgroundJs).toContain("msg.type === 'diagnostic'");
+    expect(popupJs).toContain("startsWith('No Sales Navigator lead cards detected')");
+  });
 });
 
 describe('static dashboard credential entry', () => {
@@ -564,6 +590,12 @@ describe('static dashboard accounts and access control', () => {
     expect(html).toContain('id="adminTabBtn"');
     expect(appJs).toContain("[data-admin-only]");
     expect(appJs).toContain('isAdmin()');
+  });
+
+  it('labels run ownership so admins can distinguish users without mixing their data', () => {
+    const uiJs = readPublicFile('ui.js');
+    expect(uiJs).toContain('<th>Owner</th>');
+    expect(uiJs).toContain('run.user && run.user.username');
   });
 
   it('locks the Hybrid Max card for standard-tier users', () => {

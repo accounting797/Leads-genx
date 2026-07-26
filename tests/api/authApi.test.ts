@@ -236,6 +236,7 @@ describe('run isolation', () => {
     const allRuns = await request(app()).get('/api/runs').set('Cookie', adminCookie).expect(200);
     const adminIds = allRuns.body.data.map((run: { id: number }) => run.id);
     expect(adminIds).toEqual(expect.arrayContaining([janeRun.id, johnRun.id]));
+    expect(allRuns.body.data.find((run: { id: number }) => run.id === johnRun.id).user.username).toBe('client.john');
   });
 
   it('scopes leads to owned runs', async () => {
@@ -255,6 +256,13 @@ describe('run isolation', () => {
     const emails = leads.body.data.map((lead: { email: string }) => lead.email);
     expect(emails).toContain('john@example.com');
     expect(emails).not.toContain('jane@example.com');
+
+    const download = await request(app())
+      .get('/api/leads/download?format=emails')
+      .set('Cookie', johnCookie)
+      .expect(200);
+    expect(download.text).toContain('john@example.com');
+    expect(download.text).not.toContain('jane@example.com');
   });
 });
 

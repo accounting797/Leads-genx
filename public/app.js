@@ -349,7 +349,8 @@
   }
 
   async function loadRuns(preferredRunId) {
-    const runs = await api.listRuns();
+    const runsPayload = await api.listRuns();
+    const runs = Array.isArray(runsPayload) ? runsPayload : [];
     latestRuns = runs;
     const selectedRunId = preferredRunId || $('leadRunFilter').value;
     const selectedHiringRunId = $('hiringRunFilter').value;
@@ -401,7 +402,8 @@
 
   async function loadLeads() {
     const runId = $('leadRunFilter').value;
-    const leads = await api.listLeads(runId, activeLeadLane);
+    const leadsPayload = await api.listLeads(runId, activeLeadLane);
+    const leads = Array.isArray(leadsPayload) ? leadsPayload : [];
     const laneLabel = activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator';
     $('leadSummary').textContent =
       laneLabel + ' · ' + (runId ? 'selected run: ' : 'all runs: ') + leads.length + ' leads';
@@ -941,7 +943,8 @@
     if (!activeRunId) return;
     try {
       const run = await api.getRun(activeRunId);
-      const events = await api.getRunEvents(activeRunId);
+      const eventsPayload = await api.getRunEvents(activeRunId);
+      const events = Array.isArray(eventsPayload) ? eventsPayload : [];
       setAnalystLive(
         ['queued', 'running', 'cooling_down', 'waiting_for_scraper', 'waiting_for_credentials'].includes(run.status)
       );

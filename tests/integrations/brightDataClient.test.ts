@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { BrightDataError, testBrightDataKey, triggerAndCollect } from '../../src/integrations/brightDataClient';
+import {
+  BrightDataError,
+  searchDataset,
+  testBrightDataKey,
+  triggerAndCollect,
+} from '../../src/integrations/brightDataClient';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -100,5 +105,37 @@ describe('testBrightDataKey', () => {
     const result = await testBrightDataKey('bad-key', fetchImpl);
     expect(result.ok).toBe(false);
     expect(result.detail).toContain('rejected');
+  });
+});
+
+describe('searchDataset', () => {
+  it('requests stable sorting so Bright Data returns a pagination cursor', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body));
+      return jsonResponse({ hits: [], total_hits: 0 });
+    }) as unknown as typeof fetch;
+
+    await searchDataset({
+      apiKey: 'bd-key',
+      datasetId: 'gd_test',
+      filter: { name: 'position', operator: 'includes', value: 'VP Sales' },
+      fetchImpl,
+    });
+
+    expect(requestBody).toMatchObject({ mode: 'sync', sort: 'default' });
+  });
+
+  it('treats Bright Data HTTP 422 as an honest zero-match search', async () => {
+    const fetchImpl = (async () => jsonResponse({ error: 'No matching records' }, 422)) as unknown as typeof fetch;
+
+    await expect(
+      searchDataset({
+        apiKey: 'bd-key',
+        datasetId: 'gd_test',
+        filter: { name: 'position', operator: 'includes', value: 'Unfindable' },
+        fetchImpl,
+      })
+    ).resolves.toEqual({ hits: [], totalHits: 0 });
   });
 });

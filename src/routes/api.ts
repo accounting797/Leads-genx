@@ -311,7 +311,10 @@ export function createApiRouter({
         ? await prisma.run.findMany({
             where: scoped,
             orderBy: { createdAt: 'desc' },
-            include: { _count: { select: { leads: true, batches: true } } },
+            include: {
+              _count: { select: { leads: true, batches: true } },
+              user: { select: { username: true } },
+            },
           })
         : [];
       res.json({ data: runs });
@@ -538,6 +541,7 @@ export function createApiRouter({
       const report = analyzeRun({
         run: {
           status: run.status,
+          leadSource: run.leadSource as 'google_maps' | 'sales_navigator',
           leadCount: run.leadCount,
           rawContactCount: run.rawContactCount,
           businessCount: run.businessCount,

@@ -28,7 +28,7 @@
   function renderRuns(runs) {
     if (!runs.length) return empty('No runs yet.');
     return (
-      '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Status</th><th>Source</th><th>Leads</th><th>Created</th><th>Error</th><th>Actions</th></tr></thead><tbody>' +
+      '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Owner</th><th>Status</th><th>Source</th><th>Leads</th><th>Created</th><th>Error</th><th>Actions</th></tr></thead><tbody>' +
       runs
         .map((run) => {
           const count = run._count ? run._count.leads : run.leadCount || 0;
@@ -38,6 +38,8 @@
           return (
             '<tr><td>#' +
             run.id +
+            '</td><td>' +
+            escapeHtml(run.user && run.user.username ? run.user.username : 'Legacy / unassigned') +
             '</td><td>' +
             statusBadge(run.status) +
             '</td><td class="source">' +
