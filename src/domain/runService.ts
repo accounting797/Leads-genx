@@ -78,6 +78,8 @@ export interface RunServiceDeps {
   loadQuarantinedCredentials?: () => Promise<QuarantinedCredential[]>;
   /** Injectable sleeper for engineer backoff (tests). */
   engineerSleep?: (ms: number) => Promise<void>;
+  /** Supplemental work scheduled only after the parent run has settled. */
+  onRunSettled?: (runId: number) => Promise<void>;
 }
 
 export interface StartRunOptions {
@@ -147,6 +149,7 @@ export function createRunService({
   quarantineCredential,
   loadQuarantinedCredentials,
   engineerSleep,
+  onRunSettled,
 }: RunServiceDeps) {
   async function saveEmailLeadsInBatches(
     runId: number,
@@ -1036,6 +1039,19 @@ export function createRunService({
     }
   }
 
+  async function executeAndNotify(run: RunRecord, input: ValidatedRunInput): Promise<void> {
+    try {
+      await executeRun(run, input);
+    } finally {
+      try {
+        await onRunSettled?.(run.id);
+      } catch {
+        // Supplemental discovery must never reopen, fail, or delay the parent
+        // run beyond the small scheduling write.
+      }
+    }
+  }
+
   async function stopRun(id: number) {
     cancelledRunIds.add(id);
     await store.updateRun(id, { status: 'cancelled', errorMessage: 'Stopped by operator.' });
@@ -1086,7 +1102,7 @@ export function createRunService({
     const input = recoveredInput(run, credentials);
     if (input.routeMode === 'proxy' && !input.proxyUrls?.length) throw new Error('Proxy credentials must be re-entered');
     const queued = await store.updateRun(run.id, { status: 'queued', errorMessage: undefined });
-    void executeRun(queued, input);
+    void executeAndNotify(queued, input);
     return { id: run.id, status: 'queued' };
   }
 
@@ -1105,7 +1121,7 @@ export function createRunService({
       for (const batch of batches.filter((candidate) => candidate.status === 'running')) {
         await checkpointStore.upsertBatch(run.id, { ...batch, status: 'retry', errorCode: 'interrupted' });
       }
-      void executeRun(run, input);
+      void executeAndNotify(run, input);
     }
   }
 
@@ -1186,9 +1202,9 @@ export function createRunService({
 
     const runInBackground = options.background ?? true;
     if (runInBackground) {
-      void executeRun(run, input);
+      void executeAndNotify(run, input);
     } else {
-      await executeRun(run, input);
+      await executeAndNotify(run, input);
     }
 
     return queuedRun;
@@ -1197,7 +1213,7 @@ export function createRunService({
   return {
     startRun,
     stopRun,
-    executeRun,
+    executeRun: executeAndNotify,
     resumeRun,
     recoverInterruptedRuns,
     scraperHealth,

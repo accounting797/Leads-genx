@@ -13,6 +13,7 @@ export interface ExtensionDeps {
   prisma: PrismaClient;
   /** Session guard (requireAuth when auth is enabled, pass-through otherwise). */
   guard: (req: Request, res: Response, next: NextFunction) => void;
+  onRunSettled?: (runId: number) => Promise<void>;
 }
 
 interface ExtensionLeadInput {
@@ -49,7 +50,7 @@ function parseSessionId(filterJson: string | null): string | undefined {
   }
 }
 
-export function createExtensionRouter({ prisma, guard }: ExtensionDeps) {
+export function createExtensionRouter({ prisma, guard, onRunSettled }: ExtensionDeps) {
   const router = Router();
 
   /**
@@ -272,6 +273,11 @@ export function createExtensionRouter({ prisma, guard }: ExtensionDeps) {
           message: `Scraping session complete — ${totalLeads} leads collected.`,
         },
       });
+      try {
+        await onRunSettled?.(run.id);
+      } catch {
+        // Hiring signals are supplemental and cannot fail extension completion.
+      }
       res.json({ data: { runId: run.id, totalLeads } });
     })
   );

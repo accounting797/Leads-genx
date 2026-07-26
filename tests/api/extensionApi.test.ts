@@ -271,6 +271,37 @@ describe('extension leads ingestion', () => {
 });
 
 describe('extension finish', () => {
+  it('schedules supplemental hiring signals after completion', async () => {
+    const token = await freshToken();
+    const sessionId = randomUUID();
+    const settled: number[] = [];
+    const hiringSignalService = {
+      async scheduleIfEligible(runId: number) {
+        settled.push(runId);
+        return { scheduled: true, scanId: 1 };
+      },
+    };
+    const testApp = createApp({
+      prisma,
+      runService: fakeRunService as never,
+      hiringSignalService: hiringSignalService as never,
+    });
+
+    const ingest = await request(testApp)
+      .post('/api/extension/leads')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ sessionId, page: 1, leads: [lead()] })
+      .expect(200);
+
+    await request(testApp)
+      .post('/api/extension/finish')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ sessionId })
+      .expect(200);
+
+    expect(settled).toEqual([ingest.body.data.runId]);
+  });
+
   it('completes the run and keeps ingesting late leads without reopening it', async () => {
     const token = await freshToken();
     const sessionId = randomUUID();

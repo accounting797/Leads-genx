@@ -48,6 +48,41 @@ function createStore(): RunStore & {
 }
 
 describe('createRunService', () => {
+  it('notifies the supplemental coordinator once after a foreground run settles', async () => {
+    const store = createStore();
+    const settled: number[] = [];
+    const actorClient: ActorClient = {
+      async startRun() {
+        return { runId: 'settled-run', status: 'SUCCEEDED', datasetId: 'settled-dataset' };
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems() {
+        return [];
+      },
+    };
+    const service = createRunService({
+      store,
+      actorClient,
+      onRunSettled: async (runId) => {
+        settled.push(runId);
+      },
+    });
+
+    const run = await service.startRun(
+      {
+        apifyToken: 'token',
+        leadSource: 'google_maps',
+        maxResults: 10,
+        googleMaps: { provider: 'apify', searchTerms: ['dentist'], locationQuery: 'Austin, TX' },
+      },
+      { background: false }
+    );
+
+    expect(settled).toEqual([run.id]);
+  });
+
   it('exports secret-safe persisted filters for restart recovery', () => {
     const serialized = serializeSafeFilters({
       apifyToken: 'apify-secret',

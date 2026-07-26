@@ -11,10 +11,18 @@ import { ApiDeps, createApiRouter } from './routes/api';
 import { safeErrorMessage } from './domain/errorLogger';
 import { loadOperatorSettings, loadQuarantinedCredentials, quarantineCredential } from './domain/operatorSettings';
 import { createDeployService } from './domain/deployService';
+import { createHiringSignalService } from './domain/hiringSignalService';
+import { GreenhouseClient } from './integrations/greenhouseClient';
 
 export function createApp(deps: ApiDeps = {}) {
   const app = express();
   const runtimePrisma = deps.prisma ?? prisma;
+  const hiringSignalService =
+    deps.hiringSignalService ??
+    createHiringSignalService({
+      prisma: runtimePrisma,
+      greenhouseClient: new GreenhouseClient(),
+    });
   const runService =
     deps.runService ??
     createRunService({
@@ -28,12 +36,18 @@ export function createApp(deps: ApiDeps = {}) {
       loadQuarantinedCredentials: () => loadQuarantinedCredentials(runtimePrisma),
       quarantineCredential: (provider, credential, reason) =>
         quarantineCredential(runtimePrisma, provider, credential, reason),
+      onRunSettled: async (runId) => {
+        await hiringSignalService.scheduleIfEligible(runId);
+      },
     });
 
   if (deps.recoverOnStartup && runService.recoverInterruptedRuns) {
     setImmediate(() => {
       void runService.recoverInterruptedRuns?.().catch((error) => {
         console.error(`Local-first recovery failed: ${safeErrorMessage(error)}`);
+      });
+      void hiringSignalService.recoverInterruptedScans().catch((error) => {
+        console.error(`Hiring-signal recovery failed: ${safeErrorMessage(error)}`);
       });
     });
   }
@@ -48,6 +62,7 @@ export function createApp(deps: ApiDeps = {}) {
       credentialTester: deps.credentialTester,
       authDisabled: deps.authDisabled,
       deployService: deps.deployService ?? createDeployService(),
+      hiringSignalService,
     })
   );
   app.use(

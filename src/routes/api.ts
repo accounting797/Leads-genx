@@ -39,6 +39,7 @@ import { hasUserCredentials, loadUserCredentials } from '../domain/userCredentia
 import { createAuthRouter } from './auth';
 import { createAdminRouter } from './admin';
 import { createExtensionRouter } from './extension';
+import type { HiringSignalService } from '../domain/hiringSignalService';
 
 function parseEventMetadata(metadataJson: string | null): { kind?: string } | undefined {
   if (!metadataJson) return undefined;
@@ -81,6 +82,7 @@ export interface ApiDeps {
   /** Explicitly disable auth enforcement (tests only — production never sets this). */
   authDisabled?: boolean;
   deployService?: import('../domain/deployService').DeployService;
+  hiringSignalService?: HiringSignalService;
 }
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
@@ -110,7 +112,15 @@ function proxyListError(proxies: string[]): string | undefined {
   return undefined;
 }
 
-export function createApiRouter({ prisma, runService, proxyTester, credentialTester, authDisabled, deployService }: ApiDeps = {}) {
+export function createApiRouter({
+  prisma,
+  runService,
+  proxyTester,
+  credentialTester,
+  authDisabled,
+  deployService,
+  hiringSignalService,
+}: ApiDeps = {}) {
   const router = Router();
 
   // Auth is enforced whenever a real user/session store is present and not
@@ -140,7 +150,18 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
   // inside the router) with session auth (token routes via the guard), so the
   // router mounts before the blanket session guard.
   if (prisma?.user) {
-    router.use('/extension', createExtensionRouter({ prisma, guard }));
+    router.use(
+      '/extension',
+      createExtensionRouter({
+        prisma,
+        guard,
+        onRunSettled: hiringSignalService
+          ? async (runId) => {
+              await hiringSignalService.scheduleIfEligible(runId);
+            }
+          : undefined,
+      })
+    );
   }
 
   // Everything below this line requires a signed-in user when auth is enabled.

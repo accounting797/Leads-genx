@@ -12,6 +12,14 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — feat (feature branch, supplemental scheduling)
+- Added one run-settlement wrapper for foreground, background, resumed, and
+  recovered executions. It schedules hiring discovery after the parent has
+  settled and swallows supplemental scheduling faults.
+- Sales Navigator extension completion uses the same scheduling contract.
+  Startup now recovers both interrupted scrape runs and hiring scans, while
+  hiring work remains outside parent status and lead-count accounting.
+
 ## 2026-07-25 — codex — feat (feature branch, durable hiring coordinator)
 - Added the Prisma-backed hiring scan coordinator with eligibility gates,
   application-wide two-scan execution, bounded three-worker board evaluation,
