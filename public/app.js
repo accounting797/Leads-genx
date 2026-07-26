@@ -42,12 +42,19 @@
     return Boolean(currentUser && currentUser.role === 'ADMIN');
   }
 
-  function updatePipelineSummary() {
-    $('pipelineSummary').textContent = 'Google and Docker start together; Google stays inside your request budget.';
+  function hybridUnlocked() {
+    return !currentUser || isAdmin() || currentUser.tier === 'HYBRID';
   }
 
-  function setOutputMode() {
-    selectedOutputMode = 'standard';
+  function updatePipelineSummary() {
+    const hybrid = selectedOutputMode === 'hybrid_max';
+    $('pipelineSummary').textContent = hybrid
+      ? 'Docker, Google, and Apify all start at once and feed one ingestion pipeline — maximum emails per session. Saved Apify and Google keys are required.'
+      : 'Google and Docker start together; Google stays inside your request budget.';
+  }
+
+  function setOutputMode(mode) {
+    selectedOutputMode = mode === 'hybrid_max' ? 'hybrid_max' : 'standard';
     const select = $('outputModeSelect');
     select.dataset.selected = selectedOutputMode;
     select.querySelectorAll('.mode-card').forEach((card) => {
@@ -1113,8 +1120,13 @@
     document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
     document.querySelectorAll('#outputModeSelect .mode-card').forEach((card) =>
       card.addEventListener('click', (event) => {
+        if (card.dataset.mode === 'hybrid_max' && !hybridUnlocked()) {
+          $('hybridLockHint').hidden = false;
+          window.LeadsGenXUi.toast('Hybrid Max Output requires the Hybrid plan — request an upgrade in the Account tab.');
+          return;
+        }
         rippleModeCard(card, event);
-        setOutputMode();
+        setOutputMode(card.dataset.mode);
       })
     );
     setOutputMode('standard');
@@ -1276,6 +1288,14 @@
     const badge = $('userPlanBadge');
     badge.dataset.tier = user.role === 'ADMIN' ? 'ADMIN' : user.tier;
     badge.textContent = user.role === 'ADMIN' ? 'Admin' : user.tier === 'HYBRID' ? 'Hybrid' : 'Standard';
+    if (!hybridUnlocked()) {
+      $('hybridLockHint').hidden = false;
+      $('outputModeSelect').dataset.tierLocked = 'true';
+      setOutputMode('standard');
+    } else {
+      $('hybridLockHint').hidden = true;
+      delete $('outputModeSelect').dataset.tierLocked;
+    }
   }
 
   async function enterApp(user) {
@@ -1329,6 +1349,7 @@
         $('authSetupBtn').disabled = false;
       }
     });
+    $('hybridLockUpgrade').addEventListener('click', () => setTab('account'));
     $('upgradeBtn').addEventListener('click', requestUpgrade);
     $('acctPasswordBtn').addEventListener('click', changeOwnPassword);
     $('byodSaveBtn').addEventListener('click', saveByod);
