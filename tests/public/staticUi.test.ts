@@ -352,27 +352,24 @@ describe('static dashboard chip inputs', () => {
 });
 
 describe('static dashboard Google Maps providers', () => {
-  it('offers an official console-style Standard and Hybrid Max Output mode selector', () => {
+  it('offers Standard Docker and Google output without advertising Hybrid Max', () => {
     const html = readPublicFile('index.html');
     const css = readPublicFile('styles.css');
 
     expect(html).toContain('id="outputModeSelect"');
     expect(html).toContain('data-mode="standard"');
-    expect(html).toContain('data-mode="hybrid_max"');
     expect(html).toContain('Docker + Google');
-    expect(html).toContain('Hybrid Max Output');
+    expect(html).not.toContain('data-mode="hybrid_max"');
     expect(html).toContain('class="mode-glider"');
     expect(html).toContain('class="mode-conduit"');
     expect(html).toContain('class="mode-led"');
     expect(html).toContain('ENGAGED');
     expect(html).toContain('2 engines');
-    expect(html).toContain('3 engines');
     expect(html).not.toContain('value="apify"');
     expect(html).not.toContain('value="google_places"');
     expect(html).toContain('id="gmApiBudget"');
     expect(html).toContain('id="gmProxyUrls"');
     expect(css).toContain('.mode-card.active');
-    expect(css).toContain(".mode-select[data-selected='hybrid_max'] .mode-glider");
     expect(css).toContain('@keyframes engine-ignite');
     expect(css).toContain('@keyframes conduit-flow');
     expect(css).toContain('@keyframes mode-ripple');
@@ -398,12 +395,12 @@ describe('static dashboard Google Maps providers', () => {
     expect(appJs).toContain("routeMode: $('gmUseSavedProxies').checked ? 'proxy' : undefined");
   });
 
-  it('submits Standard by default and switches to Hybrid only when selected', () => {
+  it('submits Standard as the only visible output mode', () => {
     const appJs = readPublicFile('app.js');
 
     expect(appJs).toContain("selectedOutputMode = 'standard'");
-    expect(appJs).toContain("selectedOutputMode === 'hybrid_max'");
-    expect(appJs).toContain("setOutputMode(card.dataset.mode)");
+    expect(appJs).not.toContain("selectedOutputMode === 'hybrid_max'");
+    expect(appJs).toContain('setOutputMode()');
   });
 
   it('renders an AI Analyst live report panel under Live Progress', () => {
@@ -464,6 +461,25 @@ describe('static dashboard source-aware progress', () => {
     expect(appJs).toContain('waiting_for_credentials');
     expect(appJs).toContain('google_places_started');
     expect(appJs).toContain('apify_shard_started');
+  });
+
+  it('keeps Hybrid Max Output retired from the visible run form', () => {
+    const html = readPublicFile('index.html');
+    expect(html).not.toContain('data-mode="hybrid_max"');
+    expect(html).not.toContain('id="hybridLockHint"');
+  });
+
+  it('stores separate Nova decks and applies source-specific filters', () => {
+    const apiJs = readPublicFile('api.js');
+    const appJs = readPublicFile('app.js');
+    expect(apiJs).toContain("requestJson('/shuffle/next', {");
+    expect(apiJs).toContain("method: 'POST'");
+    expect(appJs).toContain("'leadsgenx:nova-shuffle:' + source");
+    expect(appJs).toContain('chips.snTitles.setValues');
+    expect(appJs).toContain('chips.snIndustries.setValues');
+    expect(appJs).toContain('chips.snGeographies.setValues');
+    expect(appJs).toContain('chips.snHeadcounts.setValues');
+    expect(appJs).toContain('localStorage.setItem');
   });
 
   it('defends progress rendering against malformed array payloads', () => {
@@ -598,16 +614,13 @@ describe('static dashboard accounts and access control', () => {
     expect(uiJs).toContain('run.user && run.user.username');
   });
 
-  it('locks the Hybrid Max card for standard-tier users', () => {
+  it('does not expose a Hybrid Max run card to any tier', () => {
     const html = readPublicFile('index.html');
     const appJs = readPublicFile('app.js');
-    const css = readPublicFile('styles.css');
 
-    expect(html).toContain('id="hybridLockHint"');
-    expect(html).toContain('id="hybridLockUpgrade"');
-    expect(appJs).toContain('hybridUnlocked()');
-    expect(appJs).toContain("tierLocked");
-    expect(css).toContain('[data-tier-locked="true"]');
+    expect(html).not.toContain('id="hybridLockHint"');
+    expect(html).not.toContain('data-mode="hybrid_max"');
+    expect(appJs).not.toContain('hybridUnlocked()');
   });
 
   it('ships an admin panel for user management and upgrade approvals', () => {

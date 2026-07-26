@@ -417,13 +417,21 @@ export function createApiRouter({
   // Nova Shuffle: one-click precision filters. One option per filter group,
   // rotating through the curated library — unseen slices first, then the
   // user's own best performers (learning from run outcomes).
-  router.get(
+  router.post(
     '/shuffle/next',
     asyncHandler(async (req, res) => {
       if (!prisma) {
         res.status(503).json({ error: 'Database unavailable' });
         return;
       }
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const source = body.source;
+      if (source !== 'google_maps' && source !== 'sales_navigator') {
+        res.status(400).json({ error: 'source must be google_maps or sales_navigator.' });
+        return;
+      }
+      const stringList = (value: unknown): string[] =>
+        Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
       const user = currentUser(res);
       const runs = await prisma.run.findMany({
         where: user ? { userId: user.id } : {},
@@ -441,7 +449,17 @@ export function createApiRouter({
           // Unparseable filterJson never blocks a shuffle.
         }
       }
-      res.json({ data: pickNextCombo(stats) });
+      res.json({
+        data: pickNextCombo(
+          {
+            source,
+            recentComboIds: stringList(body.recentComboIds),
+            recentCities: stringList(body.recentCities),
+            currentComboId: typeof body.currentComboId === 'string' ? body.currentComboId : undefined,
+          },
+          stats,
+        ),
+      });
     })
   );
 

@@ -42,19 +42,12 @@
     return Boolean(currentUser && currentUser.role === 'ADMIN');
   }
 
-  function hybridUnlocked() {
-    return !currentUser || isAdmin() || currentUser.tier === 'HYBRID';
-  }
-
   function updatePipelineSummary() {
-    const hybrid = selectedOutputMode === 'hybrid_max';
-    $('pipelineSummary').textContent = hybrid
-      ? 'Docker, Google, and Apify all start at once and feed one ingestion pipeline — maximum emails per session. Saved Apify and Google keys are required.'
-      : 'Google and Docker start together; Google stays inside your request budget.';
+    $('pipelineSummary').textContent = 'Google and Docker start together; Google stays inside your request budget.';
   }
 
-  function setOutputMode(mode) {
-    selectedOutputMode = mode === 'hybrid_max' ? 'hybrid_max' : 'standard';
+  function setOutputMode() {
+    selectedOutputMode = 'standard';
     const select = $('outputModeSelect');
     select.dataset.selected = selectedOutputMode;
     select.querySelectorAll('.mode-card').forEach((card) => {
@@ -1024,21 +1017,51 @@
   }
 
 
-  // Nova Shuffle: one click arranges a precision combo — ONE search term,
-  // ONE category, ONE company type, ONE location — rotating through the
-  // library and learning from the user's own results over time.
+  function shuffleStorageKey(source) {
+    return 'leadsgenx:nova-shuffle:' + source;
+  }
+
+  function loadShuffleHistory(source) {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(shuffleStorageKey(source)) || '{}');
+      return {
+        comboIds: Array.isArray(parsed.comboIds) ? parsed.comboIds.filter((value) => typeof value === 'string') : [],
+        cities: Array.isArray(parsed.cities) ? parsed.cities.filter((value) => typeof value === 'string') : [],
+        currentComboId: typeof parsed.currentComboId === 'string' ? parsed.currentComboId : undefined,
+      };
+    } catch {
+      return { comboIds: [], cities: [], currentComboId: undefined };
+    }
+  }
+
   async function shuffleFilters() {
+    const source = activeSource;
+    const history = loadShuffleHistory(source);
     $('shuffleFiltersBtn').disabled = true;
     $('shuffleStatus').textContent = 'Nova is arranging…';
     try {
-      const pick = await api.shuffleNext();
+      const pick = await api.shuffleNext({
+        source,
+        recentComboIds: history.comboIds,
+        recentCities: history.cities,
+        currentComboId: history.currentComboId,
+      });
       const combo = pick.combo;
-      chips.gmSearchTerms.setValues([combo.searchTerm]);
-      chips.gmCategories.setValues([combo.category]);
-      chips.gmCompanyTypes.setValues([combo.companyType]);
-      chips.gmLocations.setValues([combo.location]);
+      if (!combo || !pick.updatedHistory || !pick.filters) throw new Error('Nova returned an incomplete filter set.');
+      if (source === 'google_maps') {
+        chips.gmSearchTerms.setValues(pick.filters.searchTerms);
+        chips.gmCategories.setValues(pick.filters.categoryFilters);
+        chips.gmCompanyTypes.setValues(pick.filters.companyTypes);
+        chips.gmLocations.setValues(pick.filters.locations);
+      } else {
+        chips.snTitles.setValues(pick.filters.titles);
+        chips.snIndustries.setValues(pick.filters.industries);
+        chips.snGeographies.setValues(pick.filters.geographies);
+        chips.snHeadcounts.setValues(pick.filters.headcounts);
+      }
       lastShuffleComboId = combo.id;
-      $('shuffleStatus').textContent = combo.label + ' · ' + (pick.freshTerritory ? 'fresh slice' : 'best performer');
+      localStorage.setItem(shuffleStorageKey(source), JSON.stringify(pick.updatedHistory));
+      $('shuffleStatus').textContent = combo.label + ' · ' + (pick.freshTerritory ? 'fresh slice' : 'learned performer');
       window.LeadsGenXUi.toast('Nova arranged: ' + combo.label + '. ' + pick.note + ' ' + combo.rationale);
     } catch (error) {
       $('shuffleStatus').textContent = '';
@@ -1090,13 +1113,8 @@
     document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
     document.querySelectorAll('#outputModeSelect .mode-card').forEach((card) =>
       card.addEventListener('click', (event) => {
-        if (card.dataset.mode === 'hybrid_max' && !hybridUnlocked()) {
-          $('hybridLockHint').hidden = false;
-          window.LeadsGenXUi.toast('Hybrid Max Output requires the Hybrid plan — request an upgrade in the Account tab.');
-          return;
-        }
         rippleModeCard(card, event);
-        setOutputMode(card.dataset.mode);
+        setOutputMode();
       })
     );
     setOutputMode('standard');
@@ -1258,14 +1276,6 @@
     const badge = $('userPlanBadge');
     badge.dataset.tier = user.role === 'ADMIN' ? 'ADMIN' : user.tier;
     badge.textContent = user.role === 'ADMIN' ? 'Admin' : user.tier === 'HYBRID' ? 'Hybrid' : 'Standard';
-    if (!hybridUnlocked()) {
-      $('hybridLockHint').hidden = false;
-      $('outputModeSelect').dataset.tierLocked = 'true';
-      setOutputMode('standard');
-    } else {
-      $('hybridLockHint').hidden = true;
-      delete $('outputModeSelect').dataset.tierLocked;
-    }
   }
 
   async function enterApp(user) {
@@ -1319,7 +1329,6 @@
         $('authSetupBtn').disabled = false;
       }
     });
-    $('hybridLockUpgrade').addEventListener('click', () => setTab('account'));
     $('upgradeBtn').addEventListener('click', requestUpgrade);
     $('acctPasswordBtn').addEventListener('click', changeOwnPassword);
     $('byodSaveBtn').addEventListener('click', saveByod);

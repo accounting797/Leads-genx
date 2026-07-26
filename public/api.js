@@ -182,7 +182,12 @@
         body: JSON.stringify(body || {}),
       }),
     enrichLinkedIn: (runId) => requestJson('/runs/' + runId + '/enrich-linkedin', { method: 'POST' }),
-    shuffleNext: () => requestJson('/shuffle/next'),
+    shuffleNext: (body) =>
+      requestJson('/shuffle/next', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
     downloadLeads: (runId, format, leadSource) => {
       const params = new URLSearchParams();
       if (runId) params.set('runId', runId);

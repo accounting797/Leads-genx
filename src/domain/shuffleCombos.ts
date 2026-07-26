@@ -1,113 +1,172 @@
-/**
- * Nova's Shuffle — precision filter combos, one option per filter.
- *
- * Research-backed pairing logic (cold-outreach 2026 playbooks): the highest
- * reply odds come from tight ICP slices — ONE role, ONE industry, ONE metro
- * per run — where the role actually answers their own email (owner-led SMBs)
- * or holds budget (C-level at mid-size). Fast-growth SMBs (11–200) with
- * founder/C-level titles convert best; trades and local services are the
- * most owner-reachable industries in the US.
- *
- * The library rotates so consecutive runs explore fresh slices, and once
- * every combo has been tried, Nova re-ranks by which combos actually
- * produced leads for THIS user — learning from outcomes, not vibes.
- */
+export type ShuffleSource = 'google_maps' | 'sales_navigator';
 
 export interface ShuffleCombo {
   id: string;
   label: string;
-  /** One Google-lane role/keyword (from suggestions.googleMaps.searchTemplates). */
-  searchTerm: string;
-  /** One industry (from suggestions.businessCategories). */
-  category: string;
-  /** One company-name suffix keyword (from suggestions.googleMaps.companyTypes). */
-  companyType: string;
-  /** One metro. */
-  location: string;
-  /** One Sales Navigator headcount bucket (for LinkedIn-source runs). */
-  headcount: string;
-  /** Why this pairing wins — shown to the user in plain words. */
+  city: string;
   rationale: string;
+  googleMaps: { searchTerm: string; category: string; companyType: string };
+  salesNavigator: { title: string; industry: string; headcount: string };
 }
-
-export const SHUFFLE_COMBOS: ShuffleCombo[] = [
-  { id: 'owner-roofing-houston', label: 'Roofing owners — Houston', searchTerm: 'Owner', category: 'Roofing', companyType: 'Contractors', location: 'Houston, TX', headcount: '1-10', rationale: 'Owner-led roofers answer their own phone and email — the highest reply odds in local trades.' },
-  { id: 'owner-hvac-phoenix', label: 'HVAC owners — Phoenix', searchTerm: 'Owner', category: 'HVAC', companyType: 'Services', location: 'Phoenix, AZ', headcount: '1-10', rationale: 'Phoenix heat keeps HVAC booked out; owners buy anything that saves them time.' },
-  { id: 'ceo-construction-dallas', label: 'Construction CEOs — Dallas', searchTerm: 'CEO', category: 'Construction', companyType: 'Group', location: 'Dallas, TX', headcount: '11-50', rationale: 'Dallas is the fastest-building metro in the US — growth budgets are open.' },
-  { id: 'owner-dental-tampa', label: 'Dental practice owners — Tampa', searchTerm: 'Owner', category: 'Dental Clinics', companyType: 'Professionals', location: 'Tampa, FL', headcount: '1-10', rationale: 'Practice owners make every purchase decision themselves — no gatekeepers.' },
-  { id: 'manager-vet-denver', label: 'Vet practice managers — Denver', searchTerm: 'Practice Manager', category: 'Veterinary Services', companyType: 'LLC', location: 'Denver, CO', headcount: '11-50', rationale: 'The practice manager runs the business side of every vet clinic — one title, full access.' },
-  { id: 'owner-trucking-atlanta', label: 'Trucking owners — Atlanta', searchTerm: 'Owner', category: 'Trucking', companyType: 'LLC', location: 'Atlanta, GA', headcount: '1-10', rationale: 'Atlanta is the Southeast freight hub; small fleet owners decide fast.' },
-  { id: 'gm-autorepair-nashville', label: 'Auto-repair GMs — Nashville', searchTerm: 'General Manager', category: 'Auto Repair', companyType: 'Services', location: 'Nashville, TN', headcount: '1-10', rationale: 'GMs run the shop day-to-day and sign for tools and services.' },
-  { id: 'owner-landscaping-charlotte', label: 'Landscaping owners — Charlotte', searchTerm: 'Owner', category: 'Landscaping & Lawn Care', companyType: 'Services', location: 'Charlotte, NC', headcount: '1-10', rationale: 'Recurring-revenue trade with owner-operators who answer email personally.' },
-  { id: 'ceo-manufacturing-columbus', label: 'Manufacturing CEOs — Columbus', searchTerm: 'CEO', category: 'Manufacturing', companyType: 'Inc', location: 'Columbus, OH', headcount: '51-200', rationale: 'Mid-size manufacturers have budget and a single decision-maker at the top.' },
-  { id: 'owner-realestate-sacramento', label: 'Real-estate agency owners — Sacramento', searchTerm: 'Owner', category: 'Real Estate Agencies', companyType: 'Group', location: 'Sacramento, CA', headcount: '11-50', rationale: 'Broker-owners buy marketing and software for the whole agency in one yes.' },
-  { id: 'sales-oilgas-houston', label: 'Oil & gas sales leaders — Houston', searchTerm: 'Sales', category: 'Oil & Gas', companyType: 'Corp', location: 'Houston, TX', headcount: '51-200', rationale: 'The energy capital — sales leaders here control vendor spend directly.' },
-  { id: 'purchasing-manufacturing-columbus', label: 'Manufacturing purchasing — Columbus', searchTerm: 'Purchasing', category: 'Manufacturing', companyType: 'Inc', location: 'Columbus, OH', headcount: '51-200', rationale: 'Purchasing is literally paid to talk to vendors — warmest cold audience there is.' },
-  { id: 'owner-restaurants-austin', label: 'Restaurant owners — Austin', searchTerm: 'Owner', category: 'Restaurants & Food Service', companyType: 'LLC', location: 'Austin, TX', headcount: '1-10', rationale: 'Austin’s food scene keeps expanding; independent owners decide on the spot.' },
-  { id: 'office-legal-raleigh', label: 'Law-firm office managers — Raleigh', searchTerm: 'Office Manager', category: 'Legal Services', companyType: 'Firm', location: 'Raleigh, NC', headcount: '11-50', rationale: 'Office managers control every service contract a law firm signs.' },
-  { id: 'owner-plumbing-jacksonville', label: 'Plumbing owners — Jacksonville', searchTerm: 'Owner', category: 'Plumbing', companyType: 'Contractors', location: 'Jacksonville, FL', headcount: '1-10', rationale: 'Emergency-trade owners live on their phones — fast replies, fast deals.' },
-  { id: 'ceo-renewable-denver', label: 'Renewable-energy CEOs — Denver', searchTerm: 'CEO', category: 'Renewable Energy', companyType: 'Corp', location: 'Denver, CO', headcount: '11-50', rationale: 'Funded, fast-growing sector with CEOs actively building their vendor stack.' },
-  { id: 'ops-warehousing-slc', label: 'Warehouse operations — Salt Lake City', searchTerm: 'Operations', category: 'Warehousing & Distribution', companyType: 'LLC', location: 'Salt Lake City, UT', headcount: '51-200', rationale: 'Utah’s logistics boom means ops leaders with open budgets and hiring plans.' },
-  { id: 'owner-accounting-okc', label: 'Accounting-firm owners — Oklahoma City', searchTerm: 'Owner', category: 'Accounting Firms', companyType: 'Firm', location: 'Oklahoma City, OK', headcount: '1-10', rationale: 'Owner-CPAs buy efficiency tools the moment the math makes sense.' },
-  { id: 'marketing-medspa-tampa', label: 'Med-spa marketing leads — Tampa', searchTerm: 'Marketing', category: 'Medical Spas & Aesthetics', companyType: 'LLC', location: 'Tampa, FL', headcount: '11-50', rationale: 'High-margin aesthetics businesses outspend everyone on growth.' },
-  { id: 'owner-electrical-dallas', label: 'Electrical contractors — Dallas', searchTerm: 'Owner', category: 'Electrical Contractors', companyType: 'Contractors', location: 'Dallas, TX', headcount: '1-10', rationale: 'Construction boom + licensed trade = owners too busy to ignore good offers.' },
-  { id: 'hr-staffing-chicago', label: 'Staffing HR leads — Chicago', searchTerm: 'Human Resources', category: 'Staffing & Recruiting', companyType: 'Agency', location: 'Chicago, IL', headcount: '11-50', rationale: 'Recruiters live in their inbox — the most email-responsive role in B2B.' },
-  { id: 'ceo-solar-phoenix', label: 'Solar CEOs — Phoenix', searchTerm: 'CEO', category: 'Solar Energy', companyType: 'Corp', location: 'Phoenix, AZ', headcount: '11-50', rationale: 'The sunniest market in America, led by founders spending growth capital.' },
-  { id: 'owner-insurance-nashville', label: 'Insurance agency owners — Nashville', searchTerm: 'Owner', category: 'Insurance Agencies', companyType: 'Agency', location: 'Nashville, TN', headcount: '1-10', rationale: 'Agency owners personally buy leads and software — and reply in kind.' },
-  { id: 'finance-healthcare-atlanta', label: 'Healthcare finance leads — Atlanta', searchTerm: 'Finance', category: 'Healthcare', companyType: 'Group', location: 'Atlanta, GA', headcount: '51-200', rationale: 'Finance holds the budget keys in every healthcare group — one title, real money.' },
-];
 
 export interface ComboStat {
   runs: number;
   leads: number;
 }
 
+export interface ShuffleRequest {
+  source: ShuffleSource;
+  recentComboIds?: string[];
+  recentCities?: string[];
+  currentComboId?: string;
+}
+
 export interface ShufflePick {
   combo: ShuffleCombo;
-  /** True when this combo has never been tried by the user — fresh territory. */
+  filters: Record<string, string[]>;
   freshTerritory: boolean;
   combosTried: number;
   combosTotal: number;
-  /** Nova's one-liner explaining the pick. */
+  updatedHistory: { comboIds: string[]; cities: string[]; currentComboId: string };
   note: string;
 }
 
-/**
- * Picks the next combo: unseen slices first (stable library order), then —
- * once everything has been tried — the combo with the best leads-per-run
- * for THIS user. Learning from outcomes, not vibes.
- */
-export function pickNextCombo(stats: Record<string, ComboStat>): ShufflePick {
-  const tried = Object.keys(stats).filter((id) => stats[id].runs > 0);
-  const unseen = SHUFFLE_COMBOS.filter((combo) => !(combo.id in stats) || stats[combo.id].runs === 0);
-
-  if (unseen.length > 0) {
-    const combo = unseen[0];
-    return {
-      combo,
-      freshTerritory: true,
-      combosTried: tried.length,
-      combosTotal: SHUFFLE_COMBOS.length,
-      note: `Fresh territory — slice ${tried.length + 1} of ${SHUFFLE_COMBOS.length}. One term, one category, one location: precision mode.`,
-    };
-  }
-
-  let best = SHUFFLE_COMBOS[0];
-  let bestYield = -1;
-  for (const combo of SHUFFLE_COMBOS) {
-    const stat = stats[combo.id];
-    const yieldPerRun = stat ? stat.leads / Math.max(1, stat.runs) : 0;
-    if (yieldPerRun > bestYield) {
-      bestYield = yieldPerRun;
-      best = combo;
-    }
-  }
-  const bestStat = stats[best.id];
+function combo(
+  id: string,
+  label: string,
+  city: string,
+  searchTerm: string,
+  category: string,
+  companyType: string,
+  title: string,
+  industry: string,
+  headcount: string,
+  rationale: string,
+): ShuffleCombo {
   return {
-    combo: best,
-    freshTerritory: false,
-    combosTried: tried.length,
+    id,
+    label,
+    city,
+    rationale,
+    googleMaps: { searchTerm, category, companyType },
+    salesNavigator: { title, industry, headcount },
+  };
+}
+
+export const SHUFFLE_COMBOS: ShuffleCombo[] = [
+  combo('owner-roofing-houston', 'Roofing owners — Houston', 'Houston, TX', 'Owner', 'Roofing', 'Contractors', 'Owner', 'Construction', '1-10', 'Owner-led roofers are reachable decision-makers in a strong local-trade market.'),
+  combo('owner-hvac-phoenix', 'HVAC owners — Phoenix', 'Phoenix, AZ', 'Owner', 'HVAC', 'Services', 'Owner', 'Facilities Services', '1-10', 'Phoenix heat keeps HVAC demand high and owner-led firms buy quickly.'),
+  combo('ceo-construction-dallas', 'Construction CEOs — Dallas', 'Dallas, TX', 'CEO', 'Construction', 'Group', 'CEO', 'Construction', '11-50', 'Dallas construction growth creates active budgets and accessible executives.'),
+  combo('owner-dental-tampa', 'Dental practice owners — Tampa', 'Tampa, FL', 'Owner', 'Dental Clinics', 'Professionals', 'Owner', 'Medical Practices', '1-10', 'Independent practice owners control purchasing without a long approval chain.'),
+  combo('manager-vet-denver', 'Vet practice managers — Denver', 'Denver, CO', 'Practice Manager', 'Veterinary Services', 'LLC', 'Practice Manager', 'Medical Practices', '11-50', 'Practice managers control the operational side of growing veterinary clinics.'),
+  combo('owner-trucking-atlanta', 'Trucking owners — Atlanta', 'Atlanta, GA', 'Owner', 'Trucking', 'LLC', 'Owner', 'Truck Transportation', '1-10', 'Atlanta is a freight hub with many small fleets led directly by owners.'),
+  combo('gm-autorepair-nashville', 'Auto-repair GMs — Nashville', 'Nashville, TN', 'General Manager', 'Auto Repair', 'Services', 'General Manager', 'Automotive', '1-10', 'General managers run daily shop operations and approve practical services.'),
+  combo('owner-landscaping-charlotte', 'Landscaping owners — Charlotte', 'Charlotte, NC', 'Owner', 'Landscaping & Lawn Care', 'Services', 'Owner', 'Facilities Services', '1-10', 'Recurring-revenue landscaping firms provide direct access to owners.'),
+  combo('ceo-manufacturing-columbus', 'Manufacturing CEOs — Columbus', 'Columbus, OH', 'CEO', 'Manufacturing', 'Inc', 'CEO', 'Manufacturing', '51-200', 'Mid-market manufacturers combine real budgets with identifiable executives.'),
+  combo('owner-realestate-sacramento', 'Real-estate owners — Sacramento', 'Sacramento, CA', 'Owner', 'Real Estate Agencies', 'Group', 'Owner', 'Real Estate', '11-50', 'Broker-owners purchase tools and marketing for their entire agency.'),
+  combo('sales-oilgas-houston', 'Oil and gas sales leaders — Houston', 'Houston, TX', 'Sales', 'Oil & Gas', 'Corp', 'Sales Director', 'Oil and Gas', '51-200', 'Houston energy firms concentrate revenue leaders and vendor activity.'),
+  combo('purchasing-manufacturing-columbus', 'Manufacturing purchasing — Columbus', 'Columbus, OH', 'Purchasing', 'Manufacturing', 'Inc', 'Purchasing Manager', 'Manufacturing', '51-200', 'Purchasing leaders are explicitly responsible for evaluating vendors.'),
+  combo('owner-restaurants-austin', 'Restaurant owners — Austin', 'Austin, TX', 'Owner', 'Restaurants & Food Service', 'LLC', 'Owner', 'Hospitality', '1-10', 'Austin has a dense independent restaurant market with direct owner access.'),
+  combo('office-legal-raleigh', 'Law-firm office managers — Raleigh', 'Raleigh, NC', 'Office Manager', 'Legal Services', 'Firm', 'Office Manager', 'Legal Services', '11-50', 'Office managers coordinate the service contracts used by growing firms.'),
+  combo('owner-plumbing-jacksonville', 'Plumbing owners — Jacksonville', 'Jacksonville, FL', 'Owner', 'Plumbing', 'Contractors', 'Owner', 'Construction', '1-10', 'Emergency-trade owners are accessible and make purchasing decisions quickly.'),
+  combo('ceo-renewable-denver', 'Renewable-energy CEOs — Denver', 'Denver, CO', 'CEO', 'Renewable Energy', 'Corp', 'CEO', 'Renewable Energy Power Generation', '11-50', 'Fast-growing renewable firms are actively building vendor relationships.'),
+  combo('ops-warehousing-slc', 'Warehouse operations — Salt Lake City', 'Salt Lake City, UT', 'Operations', 'Warehousing & Distribution', 'LLC', 'Operations Director', 'Warehousing and Storage', '51-200', 'Utah logistics growth creates active operational needs and budgets.'),
+  combo('owner-accounting-okc', 'Accounting-firm owners — Oklahoma City', 'Oklahoma City, OK', 'Owner', 'Accounting Firms', 'Firm', 'Owner', 'Accounting', '1-10', 'Owner-led accounting firms respond well to measurable efficiency offers.'),
+  combo('marketing-medspa-tampa', 'Med-spa marketing leads — Tampa', 'Tampa, FL', 'Marketing', 'Medical Spas & Aesthetics', 'LLC', 'Marketing Director', 'Medical Practices', '11-50', 'High-margin aesthetics businesses maintain active customer-acquisition budgets.'),
+  combo('owner-electrical-dallas', 'Electrical contractors — Dallas', 'Dallas, TX', 'Owner', 'Electrical Contractors', 'Contractors', 'Owner', 'Construction', '1-10', 'Dallas growth keeps licensed electrical owners busy and commercially active.'),
+  combo('hr-staffing-chicago', 'Staffing HR leads — Chicago', 'Chicago, IL', 'Human Resources', 'Staffing & Recruiting', 'Agency', 'HR Director', 'Staffing and Recruiting', '11-50', 'Staffing leaders work in communication-heavy roles and are highly reachable.'),
+  combo('ceo-solar-phoenix', 'Solar CEOs — Phoenix', 'Phoenix, AZ', 'CEO', 'Solar Energy', 'Corp', 'CEO', 'Renewable Energy Power Generation', '11-50', 'Phoenix solar firms pair a strong market with growth-focused executives.'),
+  combo('owner-insurance-nashville', 'Insurance agency owners — Nashville', 'Nashville, TN', 'Owner', 'Insurance Agencies', 'Agency', 'Owner', 'Insurance', '1-10', 'Agency owners personally purchase leads, software, and growth services.'),
+  combo('finance-healthcare-atlanta', 'Healthcare finance leads — Atlanta', 'Atlanta, GA', 'Finance', 'Healthcare', 'Group', 'Finance Director', 'Hospitals and Health Care', '51-200', 'Finance leaders hold purchasing authority across expanding healthcare groups.'),
+];
+
+const comboById = new Map(SHUFFLE_COMBOS.map((entry) => [entry.id, entry]));
+const validCities = new Set(SHUFFLE_COMBOS.map((entry) => entry.city));
+
+function uniqueValid(values: string[] | undefined, valid: Set<string>): string[] {
+  return [...new Set((values ?? []).filter((value) => valid.has(value)))];
+}
+
+function weightedPick(candidates: ShuffleCombo[], stats: Record<string, ComboStat>, random: () => number): ShuffleCombo {
+  const weights = candidates.map((entry) => {
+    const stat = stats[entry.id];
+    return 1 + (stat ? stat.leads / Math.max(1, stat.runs) : 0);
+  });
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  let cursor = Math.min(0.999999999, Math.max(0, random())) * total;
+  for (let index = 0; index < candidates.length; index += 1) {
+    cursor -= weights[index];
+    if (cursor < 0) return candidates[index];
+  }
+  return candidates[candidates.length - 1];
+}
+
+export function pickNextCombo(
+  request: ShuffleRequest,
+  stats: Record<string, ComboStat>,
+  random: () => number = Math.random,
+): ShufflePick {
+  const validIds = new Set(comboById.keys());
+  let comboIds = uniqueValid(request.recentComboIds, validIds);
+  let cities = uniqueValid(request.recentCities, validCities);
+  const current = request.currentComboId ? comboById.get(request.currentComboId) : undefined;
+  let comboReset = false;
+  let cityReset = false;
+
+  let candidates = SHUFFLE_COMBOS.filter((entry) => !comboIds.includes(entry.id));
+  if (!candidates.length) {
+    comboIds = [];
+    cities = [];
+    comboReset = true;
+    cityReset = true;
+    candidates = [...SHUFFLE_COMBOS];
+  }
+
+  let cityCandidates = candidates.filter((entry) => !cities.includes(entry.city));
+  if (!cityCandidates.length) {
+    cities = [];
+    cityReset = true;
+    cityCandidates = candidates;
+  }
+
+  const withoutImmediateRepeat = cityCandidates.filter(
+    (entry) => entry.id !== current?.id && entry.city !== current?.city,
+  );
+  if (withoutImmediateRepeat.length) cityCandidates = withoutImmediateRepeat;
+
+  const allCombosHaveRuns = SHUFFLE_COMBOS.every((entry) => (stats[entry.id]?.runs ?? 0) > 0);
+  const selected = allCombosHaveRuns
+    ? weightedPick(cityCandidates, stats, random)
+    : cityCandidates[Math.min(cityCandidates.length - 1, Math.floor(Math.max(0, random()) * cityCandidates.length))];
+
+  const freshTerritory = (stats[selected.id]?.runs ?? 0) === 0;
+  const filters: Record<string, string[]> = request.source === 'sales_navigator'
+    ? {
+        titles: [selected.salesNavigator.title],
+        industries: [selected.salesNavigator.industry],
+        geographies: [selected.city],
+        headcounts: [selected.salesNavigator.headcount],
+      }
+    : {
+        searchTerms: [selected.googleMaps.searchTerm],
+        categoryFilters: [selected.googleMaps.category],
+        companyTypes: [selected.googleMaps.companyType],
+        locations: [selected.city],
+      };
+
+  const updatedComboIds = [...new Set([...(comboReset ? [] : comboIds), selected.id])];
+  const updatedCities = [...new Set([...(cityReset ? [] : cities), selected.city])];
+  const combosTried = SHUFFLE_COMBOS.filter((entry) => (stats[entry.id]?.runs ?? 0) > 0).length;
+
+  return {
+    combo: selected,
+    filters,
+    freshTerritory,
+    combosTried,
     combosTotal: SHUFFLE_COMBOS.length,
-    note: `Full rotation done — running back your best performer (${bestStat?.leads ?? 0} leads across ${bestStat?.runs ?? 0} runs). Nova learns.`,
+    updatedHistory: { comboIds: updatedComboIds, cities: updatedCities, currentComboId: selected.id },
+    note: allCombosHaveRuns
+      ? `Learned shuffle — ${selected.label} was selected by performance-weighted rotation.`
+      : `Fresh shuffle — ${updatedComboIds.length} of ${SHUFFLE_COMBOS.length} combinations dealt in this cycle.`,
   };
 }

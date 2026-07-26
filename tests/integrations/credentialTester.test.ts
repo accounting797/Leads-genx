@@ -18,13 +18,41 @@ describe('maskKey', () => {
 });
 
 describe('testApifyToken', () => {
-  it('reports a live token with the account username', async () => {
-    const { calls, fetchImpl } = fakeFetch(200, { data: { username: 'operator' } });
+  it('reports the plan usage, remaining credit, and reset date without spending credit', async () => {
+    const calls: string[] = [];
+    const fetchImpl = async (url: string) => {
+      calls.push(url);
+      if (url.endsWith('/users/me')) {
+        return { status: 200, json: async () => ({ data: { username: 'operator', plan: { id: 'FREE', monthlyUsageCreditsUsd: 5 } } }) };
+      }
+      if (url.endsWith('/users/me/limits')) {
+        return { status: 200, json: async () => ({ data: { monthlyUsageCycle: { endAt: '2026-08-13T23:59:59.999Z' }, limits: { maxMonthlyUsageUsd: 5 }, current: { monthlyUsageUsd: 4.25 } } }) };
+      }
+      return { status: 200, json: async () => ({ data: { totalUsageCreditsUsdAfterVolumeDiscount: 4.25 } }) };
+    };
     const result = await testApifyToken('secret-token', fetchImpl as never);
 
     expect(result.ok).toBe(true);
     expect(result.detail).toContain('operator');
-    expect(calls[0]).toContain('token=secret-token');
+    expect(result.detail).toContain('$0.75 remaining');
+    expect(result.detail).toContain('resets Aug 13, 2026');
+    expect(calls).toHaveLength(3);
+    expect(JSON.stringify(calls)).not.toContain('secret-token');
+  });
+
+  it('reports a valid but exhausted free account honestly', async () => {
+    const fetchImpl = async (url: string) => {
+      if (url.endsWith('/users/me')) {
+        return { status: 200, json: async () => ({ data: { username: 'operator', plan: { id: 'FREE', monthlyUsageCreditsUsd: 5 } } }) };
+      }
+      if (url.endsWith('/users/me/limits')) {
+        return { status: 200, json: async () => ({ data: { monthlyUsageCycle: { endAt: '2026-08-13T23:59:59.999Z' }, limits: { maxMonthlyUsageUsd: 5 }, current: { monthlyUsageUsd: 5 } } }) };
+      }
+      return { status: 200, json: async () => ({ data: { totalUsageCreditsUsdAfterVolumeDiscount: 5 } }) };
+    };
+    const result = await testApifyToken('secret-token', fetchImpl as never);
+    expect(result).toMatchObject({ ok: true });
+    expect(result.detail).toContain('EXHAUSTED');
   });
 
   it('reports rejected tokens without echoing the token', async () => {

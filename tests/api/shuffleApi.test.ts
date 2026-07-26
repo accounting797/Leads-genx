@@ -6,11 +6,7 @@ import { SHUFFLE_COMBOS } from '../../src/domain/shuffleCombos';
 function appWithRuns(runs: Array<{ filterJson: string; leadCount: number }>) {
   const prismaStub = {
     appSetting: { async findMany() { return []; } },
-    run: {
-      async findMany() {
-        return runs;
-      },
-    },
+    run: { async findMany() { return runs; } },
   };
   return createApp({
     authDisabled: true,
@@ -19,38 +15,46 @@ function appWithRuns(runs: Array<{ filterJson: string; leadCount: number }>) {
   });
 }
 
-describe('GET /api/shuffle/next', () => {
-  it('deals the first combo to a brand-new user', async () => {
-    const res = await request(appWithRuns([])).get('/api/shuffle/next');
-    expect(res.status).toBe(200);
-    expect(res.body.data.combo.id).toBe(SHUFFLE_COMBOS[0].id);
-    expect(res.body.data.freshTerritory).toBe(true);
-    expect(res.body.data.combosTried).toBe(0);
-  });
-
-  it('skips combos the user already ran and counts their leads', async () => {
-    const res = await request(
-      appWithRuns([
-        { filterJson: JSON.stringify({ comboId: SHUFFLE_COMBOS[0].id }), leadCount: 44 },
-        { filterJson: JSON.stringify({ comboId: SHUFFLE_COMBOS[0].id }), leadCount: 21 },
-        { filterJson: JSON.stringify({ googleMaps: {} }), leadCount: 5 }, // no combo — ignored
-        { filterJson: 'not-json', leadCount: 5 }, // unparseable — ignored
-      ])
-    ).get('/api/shuffle/next');
+describe('POST /api/shuffle/next', () => {
+  it('returns a different Google Maps combination and exact filters', async () => {
+    const first = SHUFFLE_COMBOS[0];
+    const res = await request(appWithRuns([])).post('/api/shuffle/next').send({
+      source: 'google_maps',
+      recentComboIds: [first.id],
+      recentCities: [first.city],
+      currentComboId: first.id,
+    });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.combo.id).toBe(SHUFFLE_COMBOS[1].id);
-    expect(res.body.data.combosTried).toBe(1);
+    expect(res.body.data.combo.id).not.toBe(first.id);
+    expect(res.body.data.combo.city).not.toBe(first.city);
+    expect(res.body.data.filters).toEqual({
+      searchTerms: [res.body.data.combo.googleMaps.searchTerm],
+      categoryFilters: [res.body.data.combo.googleMaps.category],
+      companyTypes: [res.body.data.combo.googleMaps.companyType],
+      locations: [res.body.data.combo.city],
+    });
   });
 
-  it('after a full rotation, replays the best-yield combo', async () => {
-    const runs = SHUFFLE_COMBOS.map((combo) => ({
-      filterJson: JSON.stringify({ comboId: combo.id }),
-      leadCount: 3,
-    }));
-    runs[3].leadCount = 150;
-    const res = await request(appWithRuns(runs)).get('/api/shuffle/next');
-    expect(res.body.data.combo.id).toBe(SHUFFLE_COMBOS[3].id);
-    expect(res.body.data.freshTerritory).toBe(false);
+  it('returns exact Sales Navigator filters', async () => {
+    const res = await request(appWithRuns([])).post('/api/shuffle/next').send({ source: 'sales_navigator' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.filters).toEqual({
+      titles: [res.body.data.combo.salesNavigator.title],
+      industries: [res.body.data.combo.salesNavigator.industry],
+      geographies: [res.body.data.combo.city],
+      headcounts: [res.body.data.combo.salesNavigator.headcount],
+    });
+  });
+
+  it('rejects invalid sources and safely ignores stale history', async () => {
+    await request(appWithRuns([])).post('/api/shuffle/next').send({ source: 'wrong' }).expect(400);
+    const res = await request(appWithRuns([])).post('/api/shuffle/next').send({
+      source: 'google_maps',
+      recentComboIds: ['removed-combo'],
+      recentCities: ['Unknown'],
+    });
+    expect(res.status).toBe(200);
+    expect(SHUFFLE_COMBOS.some((combo) => combo.id === res.body.data.combo.id)).toBe(true);
   });
 });
