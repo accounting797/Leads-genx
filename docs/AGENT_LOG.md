@@ -12,6 +12,15 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — codex — fix (Bright Data dataset fallback)
+- Fixed Bright Data LinkedIn filter runs failing immediately with HTTP 404 when
+  the contact-enriched Search dataset is unavailable to the account.
+- Search now retries the standard LinkedIn people dataset on a contact-dataset
+  404 and gives Nova an honest fallback note; enrichment can add emails later.
+- Added regression coverage for the fallback.
+- Verification: fresh Prisma database push, 479/479 tests green, and production
+  build clean.
+
 ## 2026-07-26 — codex — fix (Bright Data start routing + extension package)
 - Fixed Sales Navigator filter runs with a saved Bright Data key failing before
   execution with `Apify token is required to build actor input`. Initial run
