@@ -436,16 +436,38 @@
     try {
       const result = await api.getHiringSignals(runId);
       const scan = result.scan;
+      const observationStatus =
+        scan && scan.lastSuccessfulObservationAt
+          ? ' · Last successful observation ' +
+            new Date(scan.lastSuccessfulObservationAt).toLocaleString()
+          : '';
+      const cacheStatus =
+        scan && scan.cacheFreshness
+          ? ' · ' +
+            (scan.cacheFreshness === 'cached'
+              ? 'Cached board data'
+              : scan.cacheFreshness === 'mixed'
+                ? 'Mix of cached and fresh board data'
+                : scan.cacheFreshness === 'fresh'
+                  ? 'Fresh board data'
+                  : 'No board data')
+          : '';
       $('hiringStatus').textContent = scan
         ? scan.status === 'queued' || scan.status === 'running'
-          ? 'Nova is checking public Greenhouse boards now · ' + scan.inspectedCount + ' inspected.'
+          ? 'Nova is checking public Greenhouse boards now · ' +
+            scan.inspectedCount +
+            ' inspected.' +
+            observationStatus +
+            cacheStatus
           : 'Latest scan ' +
             scan.status.replace(/_/g, ' ') +
             ' · ' +
             scan.matchedCount +
             ' existing matches · ' +
             scan.opportunityCount +
-            ' adjacent opportunities.'
+            ' adjacent opportunities.' +
+            observationStatus +
+            cacheStatus
         : 'No hiring scan yet for this run. Refresh signals when you’re ready.';
       const rendered = window.LeadsGenXUi.renderHiringSignals(result);
       $('hiringMatches').innerHTML = rendered.matches;

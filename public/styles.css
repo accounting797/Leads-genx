@@ -2017,6 +2017,31 @@ tr:last-child td { border-bottom: 0; }
   line-height: 1.45;
 }
 
+.hiring-components {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hiring-components span {
+  padding: 4px 7px;
+  border: 1px solid rgba(189, 149, 81, 0.18);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.hiring-components b {
+  color: #d8c7a8;
+}
+
+.hiring-card > .hiring-observed {
+  min-height: 0;
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .hiring-jobs {
   display: grid;
   gap: 7px;

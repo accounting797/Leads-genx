@@ -56,6 +56,22 @@ Newest entries on top. Format:
   the current 50-request Standard baseline instead of the stale sequential
   25-request description.
 
+## 2026-07-25 — codex — fix (pending commit, Greenhouse final review)
+- Closed the Greenhouse final-review defects with DNS-to-socket pinning,
+  streaming response caps, a durable active-per-run scan key plus atomic claim,
+  stale-only recovery, cache-freshness projections, and unchanged-event
+  suppression.
+- Hiring relevance now rejects blank geography and misleading titles, uses
+  departments only for compatible leadership titles, and scores explicit
+  exact/curated-adjacent/none industry evidence instead of forced matches.
+- Nova prioritizes existing-company signals, keeps partial/failed checks
+  informational within the two-line cap, and the dashboard shows escaped score
+  components plus last successful observation/cache state. No search action was
+  made automatic and no parent run/lead accounting contract changed.
+- The approved single-application queue still owns the two-scan cap. A durable
+  cross-process global worker lease is intentionally not invented without an
+  approved multi-instance lease/recovery design; details are in the final-fix
+  report.
 ## 2026-07-25 — codex — fix (merged baseline, Prisma generation)
 - Final merged-tree verification exposed a stale generated Prisma client in a
   checkout whose dependencies predated the hiring models. The schema was

@@ -8,6 +8,15 @@
       .replace(/'/g, '&#039;');
   }
 
+  function safeHttpsUrl(value) {
+    try {
+      const url = new URL(String(value || ''));
+      return url.protocol === 'https:' ? url.toString() : '#';
+    } catch {
+      return '#';
+    }
+  }
+
   function statusBadge(status) {
     return '<span class="badge ' + escapeHtml(status) + '">' + escapeHtml(status) + '</span>';
   }
@@ -69,7 +78,7 @@
           const signal = lead.hiringSignal;
           const signalBadge = signal
             ? '<a class="hiring-badge" href="' +
-              escapeHtml(signal.evidenceUrl) +
+              escapeHtml(safeHttpsUrl(signal.evidenceUrl)) +
               '" target="_blank" rel="noreferrer" title="' +
               escapeHtml(signal.explanation) +
               '">Hiring ' +
@@ -113,6 +122,28 @@
     const opportunities = result.opportunities || [];
 
     function card(item, adjacent) {
+      const components = item.components || {};
+      const componentScores = [
+        ['Roles', components.roles],
+        ['Recency', components.recency],
+        ['Geography', components.geography],
+        ['Industry', components.industry],
+        ['Breadth', components.breadth],
+      ]
+        .map(
+          (component) =>
+            '<span><b>' +
+            escapeHtml(component[0]) +
+            '</b> ' +
+            escapeHtml(component[1] ?? 0) +
+            '</span>'
+        )
+        .join('');
+      const observed = item.observedAt
+        ? '<p class="hiring-observed">Observed ' +
+          escapeHtml(new Date(item.observedAt).toLocaleString()) +
+          '</p>'
+        : '';
       const jobs = (item.jobs || [])
         .slice(0, 3)
         .map(
@@ -137,10 +168,14 @@
         escapeHtml(item.score) +
         '</strong></div><p>' +
         escapeHtml(item.explanation) +
-        '</p><ul class="hiring-jobs">' +
+        '</p><div class="hiring-components" aria-label="Score components">' +
+        componentScores +
+        '</div>' +
+        observed +
+        '<ul class="hiring-jobs">' +
         jobs +
         '</ul><div class="hiring-actions"><a class="ghost-btn" href="' +
-        escapeHtml(item.evidenceUrl) +
+        escapeHtml(safeHttpsUrl(item.evidenceUrl)) +
         '" target="_blank" rel="noreferrer">View evidence</a>' +
         (adjacent
           ? '<button class="ghost-btn" type="button" data-prepare-hiring="' +

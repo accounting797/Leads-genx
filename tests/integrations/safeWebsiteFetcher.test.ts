@@ -36,6 +36,53 @@ describe('safe careers-page fetcher', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('pins each request to a validated address while preserving the hostname for TLS', async () => {
+    const connections: Array<{ address: string; family: number; servername: string }> = [];
+    const lookup = vi.fn(async (hostname: string) => [
+      {
+        address: hostname === 'example.com' ? '93.184.216.34' : '151.101.1.195',
+        family: 4 as const,
+      },
+    ]);
+    const fetchImpl = vi
+      .fn()
+      .mockImplementationOnce(
+        async (
+          _url: string | URL | Request,
+          _init?: RequestInit,
+          connection?: { address: string; family: number; servername: string }
+        ) => {
+          if (connection) connections.push(connection);
+          return new Response(null, {
+            status: 302,
+            headers: { location: 'https://careers.example.net/jobs' },
+          });
+        }
+      )
+      .mockImplementationOnce(
+        async (
+          _url: string | URL | Request,
+          _init?: RequestInit,
+          connection?: { address: string; family: number; servername: string }
+        ) => {
+          if (connection) connections.push(connection);
+          return new Response('<p>Jobs</p>', {
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+          });
+        }
+      );
+
+    await safeFetchWebsite('https://example.com/careers', { fetchImpl, lookup });
+
+    expect(lookup).toHaveBeenNthCalledWith(1, 'example.com');
+    expect(lookup).toHaveBeenNthCalledWith(2, 'careers.example.net');
+    expect(connections).toEqual([
+      { address: '93.184.216.34', family: 4, servername: 'example.com' },
+      { address: '151.101.1.195', family: 4, servername: 'careers.example.net' },
+    ]);
+  });
+
   it('requires HTML, sends the bot identity, and uses a hard timeout', async () => {
     const requests: RequestInit[] = [];
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

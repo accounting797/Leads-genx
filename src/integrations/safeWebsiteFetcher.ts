@@ -1,5 +1,7 @@
 import { lookup as dnsLookup } from 'dns/promises';
+import { request as httpsRequest } from 'https';
 import { isIP } from 'net';
+import { Readable } from 'stream';
 
 export class SafeWebsiteError extends Error {
   constructor(
@@ -16,8 +18,18 @@ interface LookupAddress {
   family: number;
 }
 
+export interface PinnedWebsiteConnection {
+  address: string;
+  family: 4 | 6;
+  servername: string;
+}
+
 export interface SafeWebsiteFetcherOptions {
-  fetchImpl?: typeof fetch;
+  fetchImpl?: (
+    input: string | URL | Request,
+    init?: RequestInit,
+    connection?: PinnedWebsiteConnection
+  ) => Promise<Response>;
   lookup?: (hostname: string) => Promise<LookupAddress[]>;
   maxBytes?: number;
 }
@@ -87,17 +99,75 @@ function parseSafeHttpsUrl(rawUrl: string): URL {
 async function validateResolution(
   url: URL,
   lookup: (hostname: string) => Promise<LookupAddress[]>
-): Promise<void> {
+): Promise<Omit<PinnedWebsiteConnection, 'servername'>> {
   const literal = url.hostname.replace(/^\[|\]$/g, '');
-  const addresses = isIP(literal) ? [{ address: literal, family: isIP(literal) }] : await lookup(url.hostname);
+  const literalFamily = isIP(literal);
+  const addresses: LookupAddress[] = literalFamily
+    ? [{ address: literal, family: literalFamily as 4 | 6 }]
+    : await lookup(url.hostname);
   if (!addresses.length || addresses.some((entry) => isUnsafeAddress(entry.address))) {
     throw new SafeWebsiteError('Website hostname resolves to a private address.', 'unsafe_website_url');
   }
+  const selected = addresses[0];
+  return { address: selected.address, family: isIP(selected.address) as 4 | 6 };
+}
+
+async function pinnedHttpsFetch(
+  input: string | URL | Request,
+  init: RequestInit | undefined,
+  connection: PinnedWebsiteConnection
+): Promise<Response> {
+  const url = input instanceof Request ? new URL(input.url) : new URL(input.toString());
+  const headers = Object.fromEntries(new Headers(init?.headers).entries());
+  return new Promise<Response>((resolve, reject) => {
+    const request = httpsRequest(
+      {
+        protocol: 'https:',
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: `${url.pathname}${url.search}`,
+        method: init?.method ?? 'GET',
+        headers,
+        signal: init?.signal ?? undefined,
+        servername: connection.servername,
+        family: connection.family,
+        lookup: (_hostname, _options, callback) => {
+          callback(null, connection.address, connection.family);
+        },
+      },
+      (incoming) => {
+        const responseHeaders = new Headers();
+        for (const [name, value] of Object.entries(incoming.headers)) {
+          if (Array.isArray(value)) {
+            for (const item of value) responseHeaders.append(name, item);
+          } else if (value !== undefined) {
+            responseHeaders.set(name, value);
+          }
+        }
+        const status = incoming.statusCode ?? 500;
+        const bodyAllowed = status !== 204 && status !== 205 && status !== 304;
+        if (!bodyAllowed) incoming.resume();
+        resolve(
+          new Response(
+            bodyAllowed ? (Readable.toWeb(incoming) as unknown as BodyInit) : null,
+            {
+              status,
+              statusText: incoming.statusMessage,
+              headers: responseHeaders,
+            }
+          )
+        );
+      }
+    );
+    request.once('error', reject);
+    request.end();
+  });
 }
 
 async function readBoundedBody(response: Response, maxBytes: number): Promise<string> {
   const declaredLength = Number(response.headers.get('content-length') ?? 0);
   if (declaredLength > maxBytes) {
+    await response.body?.cancel();
     throw new SafeWebsiteError('Website response is too large.', 'response_too_large');
   }
   if (!response.body) return '';
@@ -127,21 +197,28 @@ export async function safeFetchWebsite(
   rawUrl: string,
   options: SafeWebsiteFetcherOptions = {}
 ): Promise<{ finalUrl: string; html: string }> {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? pinnedHttpsFetch;
   const lookup = options.lookup ?? ((hostname) => dnsLookup(hostname, { all: true }));
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   let current = parseSafeHttpsUrl(rawUrl);
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    await validateResolution(current, lookup);
-    const response = await fetchImpl(current, {
-      redirect: 'manual',
-      headers: {
-        Accept: 'text/html,application/xhtml+xml',
-        'User-Agent': 'Leads-GenX-Hiring-Signals/1.0',
+    const pinnedAddress = await validateResolution(current, lookup);
+    const response = await fetchImpl(
+      current,
+      {
+        redirect: 'manual',
+        headers: {
+          Accept: 'text/html,application/xhtml+xml',
+          'User-Agent': 'Leads-GenX-Hiring-Signals/1.0',
+        },
+        signal: AbortSignal.timeout(8_000),
       },
-      signal: AbortSignal.timeout(8_000),
-    });
+      {
+        ...pinnedAddress,
+        servername: current.hostname,
+      }
+    );
 
     if (REDIRECT_STATUSES.has(response.status)) {
       const location = response.headers.get('location');

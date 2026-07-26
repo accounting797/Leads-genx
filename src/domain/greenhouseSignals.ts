@@ -37,6 +37,18 @@ const ROLE_PATTERNS: Array<[HiringRoleGroup, RegExp]> = [
   ['finance', /\b(finance|financial|accounting|controller|treasury)\b/i],
   ['marketing', /\b(marketing|growth|demand generation|brand)\b/i],
 ];
+const MISLEADING_TITLE_PATTERNS = [
+  /\boperations research\b/i,
+  /\b(growth|marketing|financial)\s+(software\s+)?(engineer|developer|scientist)\b/i,
+];
+const DEPARTMENT_SUPPLEMENT_TITLE =
+  /\b(director|manager|lead|leader|head|chief|president|vice president|vp|general manager)\b/i;
+const DEPARTMENT_PATTERNS: Array<[Exclude<HiringRoleGroup, 'leadership'>, RegExp]> = [
+  ['sales', /\b(sales|revenue|business development)\b/i],
+  ['operations', /\b(operations|supply chain|logistics|procurement)\b/i],
+  ['finance', /\b(finance|financial|accounting|treasury)\b/i],
+  ['marketing', /\b(marketing|growth|demand generation|brand)\b/i],
+];
 
 const LEGAL_SUFFIXES = /\b(incorporated|inc|limited|ltd|llc|pllc|corp|corporation|company|co)\b/g;
 
@@ -51,9 +63,18 @@ function normalizedWords(value: string): string {
     .replace(/\s+/g, ' ');
 }
 
-export function classifyHiringJob(job: Pick<GreenhouseJob, 'title'>): HiringRoleGroup | undefined {
+export function classifyHiringJob(
+  job: Pick<GreenhouseJob, 'title'> & Partial<Pick<GreenhouseJob, 'departments'>>
+): HiringRoleGroup | undefined {
+  if (MISLEADING_TITLE_PATTERNS.some((pattern) => pattern.test(job.title))) return undefined;
   for (const [group, pattern] of ROLE_PATTERNS) {
     if (pattern.test(job.title)) return group;
+  }
+  if (DEPARTMENT_SUPPLEMENT_TITLE.test(job.title)) {
+    const departments = job.departments?.join(' ') ?? '';
+    for (const [group, pattern] of DEPARTMENT_PATTERNS) {
+      if (pattern.test(departments)) return group;
+    }
   }
   return undefined;
 }
@@ -61,7 +82,7 @@ export function classifyHiringJob(job: Pick<GreenhouseJob, 'title'>): HiringRole
 function geographyPoints(jobs: ScoredHiringJob[], requested: string[]): number {
   const requestedNormalized = requested.map(normalizedWords).filter(Boolean);
   if (!requestedNormalized.length) return 0;
-  const locations = jobs.map((job) => normalizedWords(job.location));
+  const locations = jobs.map((job) => normalizedWords(job.location)).filter(Boolean);
   const exact = locations.some((location) =>
     requestedNormalized.some((target) => location === target || location.includes(target) || target.includes(location))
   );

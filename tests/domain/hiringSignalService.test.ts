@@ -85,6 +85,16 @@ async function waitForTerminalScan(runId: number) {
   );
 }
 
+async function waitForScan(scanId: number) {
+  await vi.waitFor(
+    async () => {
+      const scan = await prisma.hiringSignalScan.findUnique({ where: { id: scanId } });
+      expect(scan?.status).toMatch(/completed|partially_completed|failed/);
+    },
+    { timeout: 5_000 }
+  );
+}
+
 describe('hiring signal persistence', () => {
   beforeEach(async () => {
     await prisma.hiringOpportunity.deleteMany();
@@ -158,6 +168,19 @@ describe('hiring signal persistence', () => {
 
     await prisma.hiringOpportunity.create({ data });
     await expect(prisma.hiringOpportunity.create({ data })).rejects.toThrow();
+  });
+
+  it('enforces one durable active scan key per run', async () => {
+    const run = await companyRun();
+    await prisma.hiringSignalScan.create({
+      data: { runId: run.id, status: 'queued', activeRunKey: run.id },
+    });
+
+    await expect(
+      prisma.hiringSignalScan.create({
+        data: { runId: run.id, status: 'queued', activeRunKey: run.id },
+      })
+    ).rejects.toThrow();
   });
 
   it.each(['failed', 'cancelled', 'paused', 'waiting_for_credentials'])(
@@ -245,10 +268,77 @@ describe('hiring signal persistence', () => {
     await service.scheduleIfEligible(run.id);
     await waitForTerminalScan(run.id);
     expect(listJobs).not.toHaveBeenCalled();
+    const cachedResult = await service.getRunSignals(run.id);
+    expect(cachedResult.scan).toMatchObject({
+      cachedBoardCount: 1,
+      cacheFreshness: 'cached',
+      lastSuccessfulObservationAt: '2026-07-25T01:00:00.000Z',
+    });
 
-    await service.refresh(run.id);
+    const refreshed = await service.refresh(run.id);
     await vi.waitFor(() => expect(listJobs).toHaveBeenCalledTimes(1), { timeout: 5_000 });
-    await waitForTerminalScan(run.id);
+    await waitForScan(refreshed.scanId);
+  });
+
+  it('does not enqueue or execute a running scan again during refresh', async () => {
+    const run = await companyRun();
+    await prisma.greenhouseBoard.create({
+      data: {
+        boardToken: 'acme',
+        companyKey: 'domain:acme.test',
+        companyName: 'Acme Logistics',
+        companyDomain: 'acme.test',
+        industry: 'Logistics',
+        geographiesJson: '["Dallas, TX"]',
+        evidenceUrl: 'https://boards.greenhouse.io/acme',
+        discoverySource: 'website',
+      },
+    });
+    const listJobs = vi.fn(
+      () => new Promise<GreenhouseJob[]>((resolve) => setTimeout(() => resolve(recentJobs), 150))
+    );
+    const service = createHiringSignalService({
+      prisma,
+      greenhouseClient: { listJobs },
+      starterBoards: [],
+      now: () => new Date('2026-07-25T00:00:00Z'),
+    });
+
+    const first = await service.refresh(run.id);
+    await vi.waitFor(() => expect(listJobs).toHaveBeenCalledTimes(1));
+    const second = await service.refresh(run.id);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(second).toEqual({ scheduled: false, scanId: first.scanId });
+    expect(listJobs).toHaveBeenCalledTimes(1);
+    await waitForScan(first.scanId);
+  });
+
+  it('lets two service instances schedule only one durable active scan for a run', async () => {
+    const run = await companyRun();
+    const greenhouseClient = {
+      listJobs: vi.fn(
+        () => new Promise<GreenhouseJob[]>((resolve) => setTimeout(() => resolve(recentJobs), 100))
+      ),
+    };
+    const options = {
+      prisma,
+      greenhouseClient,
+      starterBoards: [starter(1)],
+      now: () => new Date('2026-07-25T00:00:00Z'),
+    };
+    const firstService = createHiringSignalService(options);
+    const secondService = createHiringSignalService(options);
+
+    const results = await Promise.all([firstService.refresh(run.id), secondService.refresh(run.id)]);
+
+    expect(new Set(results.map((result) => result.scanId)).size).toBe(1);
+    expect(
+      await prisma.hiringSignalScan.count({
+        where: { runId: run.id, status: { in: ['queued', 'running'] } },
+      })
+    ).toBe(1);
+    await waitForScan(results[0].scanId);
   });
 
   it('runs at most two scans across the application', async () => {
@@ -308,5 +398,129 @@ describe('hiring signal persistence', () => {
         where: { status: { in: ['queued', 'running'] } },
       })
     ).toBe(0);
+  });
+
+  it('does not recover a running scan with a fresh heartbeat from another instance', async () => {
+    const run = await companyRun();
+    const scan = await prisma.hiringSignalScan.create({
+      data: {
+        runId: run.id,
+        status: 'running',
+        heartbeatAt: new Date('2026-07-25T00:00:00Z'),
+        activeRunKey: run.id,
+      },
+    });
+    const listJobs = vi.fn(async () => recentJobs);
+    const service = createHiringSignalService({
+      prisma,
+      greenhouseClient: { listJobs },
+      starterBoards: [starter(1)],
+      now: () => new Date('2026-07-25T00:00:10Z'),
+    });
+
+    await service.recoverInterruptedScans();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(await prisma.hiringSignalScan.findUniqueOrThrow({ where: { id: scan.id } })).toMatchObject({
+      status: 'running',
+    });
+    expect(listJobs).not.toHaveBeenCalled();
+  });
+
+  it('scores an existing company from its actual industry evidence', async () => {
+    const run = await companyRun();
+    await prisma.discoveredBusiness.updateMany({
+      where: { runId: run.id },
+      data: { categoryName: 'Software' },
+    });
+    await prisma.greenhouseBoard.create({
+      data: {
+        boardToken: 'acme',
+        companyKey: 'domain:acme.test',
+        companyName: 'Acme Logistics',
+        companyDomain: 'acme.test',
+        industry: 'Software',
+        geographiesJson: '["Dallas, TX"]',
+        evidenceUrl: 'https://boards.greenhouse.io/acme',
+        discoverySource: 'website',
+      },
+    });
+    const service = createHiringSignalService({
+      prisma,
+      greenhouseClient: { listJobs: vi.fn(async () => recentJobs) },
+      starterBoards: [],
+      now: () => new Date('2026-07-25T00:00:00Z'),
+    });
+
+    const result = await service.refresh(run.id);
+    await waitForScan(result.scanId);
+    const signals = await service.getRunSignals(run.id);
+
+    expect(signals.matches.google_maps[0].components.industry).toBe(0);
+  });
+
+  it('awards only curated-adjacent industry credit to an existing company', async () => {
+    const run = await companyRun();
+    await prisma.discoveredBusiness.updateMany({
+      where: { runId: run.id },
+      data: { categoryName: 'Transportation' },
+    });
+    await prisma.greenhouseBoard.create({
+      data: {
+        boardToken: 'acme',
+        companyKey: 'domain:acme.test',
+        companyName: 'Acme Logistics',
+        companyDomain: 'acme.test',
+        industry: 'Transportation',
+        geographiesJson: '["Dallas, TX"]',
+        evidenceUrl: 'https://boards.greenhouse.io/acme',
+        discoverySource: 'website',
+      },
+    });
+    const service = createHiringSignalService({
+      prisma,
+      greenhouseClient: { listJobs: vi.fn(async () => recentJobs) },
+      starterBoards: [],
+      now: () => new Date('2026-07-25T00:00:00Z'),
+    });
+
+    const result = await service.refresh(run.id);
+    await waitForScan(result.scanId);
+    const signals = await service.getRunSignals(run.id);
+
+    expect(signals.matches.google_maps[0].components.industry).toBe(8);
+  });
+
+  it('does not repeat the completion event when a rescan finds unchanged evidence', async () => {
+    const run = await companyRun();
+    await prisma.greenhouseBoard.create({
+      data: {
+        boardToken: 'acme',
+        companyKey: 'domain:acme.test',
+        companyName: 'Acme Logistics',
+        companyDomain: 'acme.test',
+        industry: 'Logistics',
+        geographiesJson: '["Dallas, TX"]',
+        evidenceUrl: 'https://boards.greenhouse.io/acme',
+        discoverySource: 'website',
+      },
+    });
+    const service = createHiringSignalService({
+      prisma,
+      greenhouseClient: { listJobs: vi.fn(async () => recentJobs) },
+      starterBoards: [],
+      now: () => new Date('2026-07-25T00:00:00Z'),
+    });
+
+    const first = await service.refresh(run.id);
+    await waitForScan(first.scanId);
+    const second = await service.refresh(run.id);
+    await waitForScan(second.scanId);
+
+    expect(
+      await prisma.runEvent.count({
+        where: { runId: run.id, type: 'hiring_signal_scan_completed' },
+      })
+    ).toBe(1);
   });
 });

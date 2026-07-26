@@ -61,6 +61,35 @@ function normalizedJob(raw: unknown): GreenhouseJob | undefined {
   return { id, title, location, departments, updatedAt, absoluteUrl };
 }
 
+async function readBoundedBody(response: Response): Promise<string> {
+  const declaredLength = Number(response.headers.get('content-length') ?? 0);
+  if (declaredLength > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel();
+    throw new GreenhouseError('Greenhouse response was too large.', 'response_too_large', false);
+  }
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw new GreenhouseError('Greenhouse response was too large.', 'response_too_large', false);
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder('utf-8', { fatal: false }).decode(body);
+}
+
 export function extractGreenhouseBoardTokens(value: string): string[] {
   const found = new Set<string>();
   for (const pattern of BOARD_PATTERNS) {
@@ -120,14 +149,7 @@ export class GreenhouseClient {
             response.status
           );
         }
-        const declaredLength = Number(response.headers.get('content-length') ?? 0);
-        if (declaredLength > MAX_RESPONSE_BYTES) {
-          throw new GreenhouseError('Greenhouse response was too large.', 'response_too_large', false);
-        }
-        const text = await response.text();
-        if (Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BYTES) {
-          throw new GreenhouseError('Greenhouse response was too large.', 'response_too_large', false);
-        }
+        const text = await readBoundedBody(response);
         let payload: unknown;
         try {
           payload = JSON.parse(text);

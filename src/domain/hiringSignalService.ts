@@ -81,10 +81,13 @@ export interface RunHiringSignals {
     manualRefresh: boolean;
     candidateCount: number;
     inspectedCount: number;
+    cachedBoardCount: number;
+    cacheFreshness: 'none' | 'fresh' | 'cached' | 'mixed';
     matchedCount: number;
     opportunityCount: number;
     heartbeatAt?: string;
     completedAt?: string;
+    lastSuccessfulObservationAt?: string;
     errorMessage?: string;
   } | null;
   matches: {
@@ -129,6 +132,7 @@ export interface HiringSignalServiceOptions {
 const ELIGIBLE_RUN_STATUSES = new Set(['completed', 'partially_completed']);
 const ACTIVE_SCAN_STATUSES = ['queued', 'running'];
 const CACHE_MS = 6 * 60 * 60 * 1_000;
+const STALE_SCAN_MS = 45_000;
 const MAX_BOARDS_PER_SCAN = 25;
 const MAX_ADJACENT = 5;
 
@@ -158,6 +162,24 @@ function safeError(error: unknown): string {
   if (error instanceof GreenhouseError) return error.message;
   if (error instanceof Error) return error.message.slice(0, 500);
   return 'Hiring signal scan could not finish.';
+}
+
+function safeHttpsUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.toString() : '';
+  } catch {
+    return '';
+  }
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'P2002'
+  );
 }
 
 function candidateFrom(
@@ -199,13 +221,65 @@ function extractRunFilters(filterJson: string | null): RunFilters {
   };
 }
 
-function boardIndustryRelationship(boardIndustry: string | null, filters: RunFilters): IndustryRelationship {
-  if (!filters.industries.length) return 'adjacent';
-  const board = normalizedPhrase(boardIndustry ?? '');
-  const exact = filters.industries
-    .map(normalizedPhrase)
-    .some((industry) => industry && board && (industry.includes(board) || board.includes(industry)));
-  return exact ? 'exact' : 'adjacent';
+const INDUSTRY_GROUPS: Record<string, string[]> = {
+  logistics: ['logistics', 'logistics and supply chain'],
+  transportation: ['transportation', 'trucking', 'railroad'],
+  supply_chain: ['supply chain', 'warehousing'],
+  software: ['software', 'software development', 'computer software', 'saas'],
+  technology: ['technology', 'information technology', 'internet'],
+  financial_services: ['financial services', 'fintech', 'payments'],
+  banking: ['banking'],
+  insurance: ['insurance'],
+  construction: ['construction', 'building materials'],
+  real_estate: ['real estate'],
+  healthcare: ['healthcare', 'hospital and health care', 'medical practice'],
+  biotechnology: ['biotechnology', 'pharmaceuticals'],
+  energy: ['energy', 'oil and gas', 'renewables'],
+  utilities: ['utilities'],
+  retail: ['retail'],
+  ecommerce: ['ecommerce', 'e commerce'],
+  human_resources: ['human resources', 'staffing and recruiting'],
+  hr_software: ['human resources software'],
+};
+const ADJACENT_INDUSTRY_PAIRS = new Set([
+  'logistics:transportation',
+  'logistics:supply_chain',
+  'supply_chain:transportation',
+  'software:technology',
+  'hr_software:software',
+  'hr_software:human_resources',
+  'banking:financial_services',
+  'financial_services:insurance',
+  'construction:real_estate',
+  'biotechnology:healthcare',
+  'energy:utilities',
+  'ecommerce:retail',
+]);
+
+function industryGroup(value: string): string | undefined {
+  const normalized = normalizedPhrase(value);
+  return Object.entries(INDUSTRY_GROUPS).find(([, aliases]) => aliases.includes(normalized))?.[0];
+}
+
+function boardIndustryRelationship(
+  evidenceIndustry: string | null | undefined,
+  filters: RunFilters
+): IndustryRelationship {
+  const evidence = normalizedPhrase(evidenceIndustry ?? '');
+  if (!evidence || !filters.industries.length) return 'none';
+  const evidenceGroup = industryGroup(evidence);
+  for (const requestedValue of filters.industries) {
+    const requested = normalizedPhrase(requestedValue);
+    if (!requested) continue;
+    if (requested === evidence) return 'exact';
+    const requestedGroup = industryGroup(requested);
+    if (requestedGroup && evidenceGroup && requestedGroup === evidenceGroup) return 'exact';
+    if (requestedGroup && evidenceGroup) {
+      const pair = [requestedGroup, evidenceGroup].sort().join(':');
+      if (ADJACENT_INDUSTRY_PAIRS.has(pair)) return 'adjacent';
+    }
+  }
+  return 'none';
 }
 
 function boardRelatedToFilters(
@@ -214,7 +288,7 @@ function boardRelatedToFilters(
 ): boolean {
   if (!filters.industries.length && !filters.geographies.length) return false;
   const industry = boardIndustryRelationship(board.industry, filters);
-  if (industry === 'exact') return true;
+  if (industry !== 'none') return true;
   const boardGeographies = parseJson<string[]>(board.geographiesJson, []).map(normalizedPhrase);
   return filters.geographies
     .map(normalizedPhrase)
@@ -296,7 +370,7 @@ function safeOpportunity(record: {
       breadth: 0,
     }),
     jobs: parseJson(record.jobsJson, []),
-    evidenceUrl: record.evidenceUrl,
+    evidenceUrl: safeHttpsUrl(record.evidenceUrl),
     evidenceFingerprint: record.evidenceFingerprint,
     relationship: record.relationship,
     explanation: record.explanation ?? '',
@@ -316,6 +390,7 @@ export function createHiringSignalService({
 }: HiringSignalServiceOptions): HiringSignalService {
   const pendingScanIds: number[] = [];
   const queuedScanIds = new Set<number>();
+  const runningScanIds = new Set<number>();
   const schedulingRunIds = new Set<number>();
   let activeScans = 0;
 
@@ -476,13 +551,13 @@ export function createHiringSignalService({
       fetchedAt: Date | null;
     },
     bypassCache: boolean
-  ): Promise<GreenhouseJob[]> {
+  ): Promise<{ jobs: GreenhouseJob[]; usedCache: boolean }> {
     const cacheFresh =
       !bypassCache &&
       board.jobsJson &&
       board.fetchedAt &&
       now().getTime() - board.fetchedAt.getTime() <= CACHE_MS;
-    if (cacheFresh) return parseJson(board.jobsJson, []);
+    if (cacheFresh) return { jobs: parseJson(board.jobsJson, []), usedCache: true };
     try {
       const jobs = await greenhouseClient.listJobs(board.boardToken);
       await prisma.greenhouseBoard.update({
@@ -494,7 +569,7 @@ export function createHiringSignalService({
           invalidAt: null,
         },
       });
-      return jobs;
+      return { jobs, usedCache: false };
     } catch (error) {
       if (error instanceof GreenhouseError && error.code === 'board_not_found') {
         await prisma.greenhouseBoard.update({
@@ -504,6 +579,42 @@ export function createHiringSignalService({
       }
       throw error;
     }
+  }
+
+  async function observationsUnchanged(scanId: number, runId: number): Promise<boolean> {
+    const previousScan = await prisma.hiringSignalScan.findFirst({
+      where: {
+        runId,
+        id: { lt: scanId },
+        status: { in: ['completed', 'partially_completed'] },
+      },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    });
+    if (!previousScan) return false;
+    const [current, previous] = await Promise.all([
+      prisma.hiringOpportunity.findMany({
+        where: { scanId },
+        orderBy: [{ companyKey: 'asc' }, { originLane: 'asc' }],
+        select: {
+          companyKey: true,
+          originLane: true,
+          score: true,
+          evidenceFingerprint: true,
+        },
+      }),
+      prisma.hiringOpportunity.findMany({
+        where: { scanId: previousScan.id },
+        orderBy: [{ companyKey: 'asc' }, { originLane: 'asc' }],
+        select: {
+          companyKey: true,
+          originLane: true,
+          score: true,
+          evidenceFingerprint: true,
+        },
+      }),
+    ]);
+    return JSON.stringify(current) === JSON.stringify(previous);
   }
 
   async function persistObservation(scanId: number, runId: number, observation: PendingObservation): Promise<void> {
@@ -553,38 +664,51 @@ export function createHiringSignalService({
   }
 
   async function runScan(scanId: number): Promise<void> {
-    const scan = await prisma.hiringSignalScan.findUnique({ where: { id: scanId } });
-    if (!scan) return;
-    const context = await candidatesForRun(scan.runId);
-    if (!context) return;
-    const filters = extractRunFilters(context.run.filterJson);
-    await prisma.hiringSignalScan.update({
-      where: { id: scanId },
+    const claimed = await prisma.hiringSignalScan.updateMany({
+      where: { id: scanId, status: 'queued' },
       data: {
         status: 'running',
-        candidateCount: context.candidates.length,
         startedAt: now(),
         heartbeatAt: now(),
         errorMessage: null,
       },
     });
-    await prisma.runEvent.create({
-      data: {
-        runId: scan.runId,
-        type: 'hiring_signal_scan_started',
-        message: 'Nova is checking public hiring signals — your completed run stays safely finished.',
-      },
-    });
-    const heartbeat = setInterval(() => {
-      void prisma.hiringSignalScan
-        .update({ where: { id: scanId }, data: { heartbeatAt: now() } })
-        .catch(() => {});
-    }, 15_000);
-    heartbeat.unref?.();
-
-    let inspectedCount = 0;
-    let errorCount = 0;
+    if (claimed.count !== 1) return;
+    const scan = await prisma.hiringSignalScan.findUnique({ where: { id: scanId } });
+    if (!scan) return;
+    runningScanIds.add(scanId);
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
     try {
+      const context = await candidatesForRun(scan.runId);
+      if (!context) throw new Error('Parent run was not found.');
+      const filters = extractRunFilters(context.run.filterJson);
+      await prisma.hiringSignalScan.update({
+        where: { id: scanId },
+        data: {
+          status: 'running',
+          candidateCount: context.candidates.length,
+          startedAt: now(),
+          heartbeatAt: now(),
+          errorMessage: null,
+        },
+      });
+      await prisma.runEvent.create({
+        data: {
+          runId: scan.runId,
+          type: 'hiring_signal_scan_started',
+          message: 'Nova is checking public hiring signals — your completed run stays safely finished.',
+        },
+      });
+      heartbeat = setInterval(() => {
+        void prisma.hiringSignalScan
+          .update({ where: { id: scanId }, data: { heartbeatAt: now() } })
+          .catch(() => {});
+      }, 15_000);
+      heartbeat.unref?.();
+
+      let inspectedCount = 0;
+      let cachedBoardCount = 0;
+      let errorCount = 0;
       await seedRegistry();
       await discoverBoards(context.candidates);
       const allBoards = await prisma.greenhouseBoard.findMany({
@@ -602,16 +726,19 @@ export function createHiringSignalService({
       const observations: PendingObservation[] = [];
       for (const board of selectedBoards) {
         try {
-          const jobs = await jobsForBoard(board, scan.manualRefresh);
+          const boardResult = await jobsForBoard(board, scan.manualRefresh);
+          const jobs = boardResult.jobs;
           inspectedCount += 1;
+          if (boardResult.usedCache) cachedBoardCount += 1;
           const candidate = matchingCandidate(board, context.candidates);
           const relationship: HiringRelationship = candidate ? 'exact' : 'adjacent';
           const score = scoreHiringSignal({
             jobs,
             requestedGeographies: filters.geographies,
-            industryRelationship: candidate
-              ? 'exact'
-              : boardIndustryRelationship(board.industry, filters),
+            industryRelationship: boardIndustryRelationship(
+              candidate?.industry ?? board.industry,
+              filters
+            ),
             now: now(),
           });
           const threshold = candidate ? 70 : 80;
@@ -641,7 +768,7 @@ export function createHiringSignalService({
         } finally {
           await prisma.hiringSignalScan.update({
             where: { id: scanId },
-            data: { inspectedCount, heartbeatAt: now() },
+            data: { inspectedCount, cachedBoardCount, heartbeatAt: now() },
           });
         }
       }
@@ -663,6 +790,7 @@ export function createHiringSignalService({
       for (const observation of [...existing, ...adjacent]) {
         await persistObservation(scanId, scan.runId, observation);
       }
+      const unchanged = await observationsUnchanged(scanId, scan.runId);
 
       const status = errorCount > 0 ? 'partially_completed' : 'completed';
       const errorMessage =
@@ -674,29 +802,33 @@ export function createHiringSignalService({
         data: {
           status,
           inspectedCount,
+          cachedBoardCount,
           matchedCount: existing.length,
           opportunityCount: adjacent.length,
           heartbeatAt: now(),
           completedAt: now(),
           errorMessage,
+          activeRunKey: null,
         },
       });
-      await prisma.runEvent.create({
-        data: {
-          runId: scan.runId,
-          type: 'hiring_signal_scan_completed',
-          message:
-            existing.length || adjacent.length
-              ? `Nova found ${existing.length} hiring signal${existing.length === 1 ? '' : 's'} on your companies and ${adjacent.length} nearby opportunit${adjacent.length === 1 ? 'y' : 'ies'}.`
-              : 'Nova checked public hiring signals; nothing strong enough to interrupt you this time.',
-          metadataJson: JSON.stringify({
-            matchedCount: existing.length,
-            opportunityCount: adjacent.length,
-            inspectedCount,
-            partial: errorCount > 0,
-          }),
-        },
-      });
+      if (!unchanged) {
+        await prisma.runEvent.create({
+          data: {
+            runId: scan.runId,
+            type: 'hiring_signal_scan_completed',
+            message:
+              existing.length || adjacent.length
+                ? `Nova found ${existing.length} hiring signal${existing.length === 1 ? '' : 's'} on your companies and ${adjacent.length} nearby opportunit${adjacent.length === 1 ? 'y' : 'ies'}.`
+                : 'Nova checked public hiring signals; nothing strong enough to interrupt you this time.',
+            metadataJson: JSON.stringify({
+              matchedCount: existing.length,
+              opportunityCount: adjacent.length,
+              inspectedCount,
+              partial: errorCount > 0,
+            }),
+          },
+        });
+      }
     } catch (error) {
       const message = safeError(error);
       await prisma.hiringSignalScan
@@ -707,6 +839,7 @@ export function createHiringSignalService({
             heartbeatAt: now(),
             completedAt: now(),
             errorMessage: message,
+            activeRunKey: null,
           },
         })
         .catch(() => {});
@@ -720,7 +853,8 @@ export function createHiringSignalService({
         })
         .catch(() => {});
     } finally {
-      clearInterval(heartbeat);
+      if (heartbeat) clearInterval(heartbeat);
+      runningScanIds.delete(scanId);
     }
   }
 
@@ -737,7 +871,7 @@ export function createHiringSignalService({
   }
 
   function enqueue(scanId: number): void {
-    if (queuedScanIds.has(scanId)) return;
+    if (queuedScanIds.has(scanId) || runningScanIds.has(scanId)) return;
     queuedScanIds.add(scanId);
     pendingScanIds.push(scanId);
     drainQueue();
@@ -761,7 +895,27 @@ export function createHiringSignalService({
         orderBy: { id: 'desc' },
       });
       if (active) {
-        enqueue(active.id);
+        if (active.status === 'queued') {
+          enqueue(active.id);
+        } else {
+          const heartbeatTime = active.heartbeatAt?.getTime() ?? 0;
+          const stale = now().getTime() - heartbeatTime > STALE_SCAN_MS;
+          if (stale) {
+            const recovered = await prisma.hiringSignalScan.updateMany({
+              where: {
+                id: active.id,
+                status: 'running',
+                heartbeatAt: active.heartbeatAt,
+              },
+              data: {
+                status: 'queued',
+                heartbeatAt: now(),
+                activeRunKey: runId,
+              },
+            });
+            if (recovered.count === 1) enqueue(active.id);
+          }
+        }
         return { scheduled: false, scanId: active.id, reason: 'already_active' };
       }
       if (!manualRefresh) {
@@ -770,9 +924,31 @@ export function createHiringSignalService({
         });
         if (completed) return { scheduled: false, scanId: completed.id, reason: 'already_scanned' };
       }
-      const scan = await prisma.hiringSignalScan.create({
-        data: { runId, status: 'queued', manualRefresh, heartbeatAt: now() },
-      });
+      let scan: { id: number };
+      try {
+        scan = await prisma.hiringSignalScan.create({
+          data: {
+            runId,
+            activeRunKey: runId,
+            status: 'queued',
+            manualRefresh,
+            heartbeatAt: now(),
+          },
+        });
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+        const durableActive = await prisma.hiringSignalScan.findFirst({
+          where: { activeRunKey: runId, status: { in: ACTIVE_SCAN_STATUSES } },
+          orderBy: { id: 'desc' },
+        });
+        if (!durableActive) throw error;
+        if (durableActive.status === 'queued') enqueue(durableActive.id);
+        return {
+          scheduled: false,
+          scanId: durableActive.id,
+          reason: 'already_active',
+        };
+      }
       enqueue(scan.id);
       return { scheduled: true, scanId: scan.id };
     } finally {
@@ -797,16 +973,40 @@ export function createHiringSignalService({
   }
 
   async function recoverInterruptedScans(): Promise<void> {
+    const staleBefore = new Date(now().getTime() - STALE_SCAN_MS);
     const interrupted = await prisma.hiringSignalScan.findMany({
-      where: { status: { in: ACTIVE_SCAN_STATUSES } },
+      where: {
+        OR: [
+          { status: 'queued' },
+          { status: 'running', heartbeatAt: null },
+          { status: 'running', heartbeatAt: { lt: staleBefore } },
+        ],
+      },
       orderBy: { id: 'asc' },
     });
     for (const scan of interrupted) {
-      await prisma.hiringSignalScan.update({
-        where: { id: scan.id },
-        data: { status: 'queued', heartbeatAt: now() },
-      });
-      enqueue(scan.id);
+      try {
+        await prisma.hiringSignalScan.update({
+          where: { id: scan.id },
+          data: {
+            status: 'queued',
+            heartbeatAt: now(),
+            activeRunKey: scan.runId,
+          },
+        });
+        enqueue(scan.id);
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+        await prisma.hiringSignalScan.update({
+          where: { id: scan.id },
+          data: {
+            status: 'failed',
+            activeRunKey: null,
+            completedAt: now(),
+            errorMessage: 'A newer active hiring scan superseded this interrupted scan.',
+          },
+        });
+      }
     }
   }
 
@@ -822,11 +1022,30 @@ export function createHiringSignalService({
         opportunities: [],
       };
     }
-    const records = await prisma.hiringOpportunity.findMany({
-      where: { scanId: scan.id, dismissed: false },
-      orderBy: [{ score: 'desc' }, { companyName: 'asc' }],
-    });
+    const [records, latestSuccessful] = await Promise.all([
+      prisma.hiringOpportunity.findMany({
+        where: { scanId: scan.id, dismissed: false },
+        orderBy: [{ score: 'desc' }, { companyName: 'asc' }],
+      }),
+      prisma.hiringSignalScan.findFirst({
+        where: {
+          runId,
+          status: { in: ['completed', 'partially_completed'] },
+          completedAt: { not: null },
+        },
+        orderBy: { completedAt: 'desc' },
+        select: { completedAt: true },
+      }),
+    ]);
     const safe = records.map(safeOpportunity);
+    const cacheFreshness =
+      scan.inspectedCount === 0
+        ? 'none'
+        : scan.cachedBoardCount === 0
+          ? 'fresh'
+          : scan.cachedBoardCount === scan.inspectedCount
+            ? 'cached'
+            : 'mixed';
     return {
       scan: {
         id: scan.id,
@@ -834,10 +1053,15 @@ export function createHiringSignalService({
         manualRefresh: scan.manualRefresh,
         candidateCount: scan.candidateCount,
         inspectedCount: scan.inspectedCount,
+        cachedBoardCount: scan.cachedBoardCount,
+        cacheFreshness,
         matchedCount: scan.matchedCount,
         opportunityCount: scan.opportunityCount,
         ...(scan.heartbeatAt ? { heartbeatAt: scan.heartbeatAt.toISOString() } : {}),
         ...(scan.completedAt ? { completedAt: scan.completedAt.toISOString() } : {}),
+        ...(latestSuccessful?.completedAt
+          ? { lastSuccessfulObservationAt: latestSuccessful.completedAt.toISOString() }
+          : {}),
         ...(scan.errorMessage ? { errorMessage: scan.errorMessage } : {}),
       },
       matches: {

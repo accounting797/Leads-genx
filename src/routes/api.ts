@@ -41,7 +41,7 @@ import { createAdminRouter } from './admin';
 import { createExtensionRouter } from './extension';
 import type { HiringSignalService } from '../domain/hiringSignalService';
 import { createHiringSignalsRouter } from './hiringSignals';
-import { companyIdentity } from '../domain/greenhouseSignals';
+import { companyIdentity, HiringScoreComponents } from '../domain/greenhouseSignals';
 
 function parseEventMetadata(metadataJson: string | null): { kind?: string } | undefined {
   if (!metadataJson) return undefined;
@@ -50,6 +50,30 @@ function parseEventMetadata(metadataJson: string | null): { kind?: string } | un
     return parsed && typeof parsed === 'object' ? parsed : undefined;
   } catch {
     return undefined;
+  }
+}
+
+function parseHiringComponents(scoreJson: string): HiringScoreComponents {
+  const empty = { roles: 0, recency: 0, geography: 0, industry: 0, breadth: 0 };
+  try {
+    const value = JSON.parse(scoreJson) as Partial<Record<keyof HiringScoreComponents, unknown>>;
+    return Object.fromEntries(
+      Object.keys(empty).map((key) => {
+        const valueAtKey = value[key as keyof HiringScoreComponents];
+        return [key, typeof valueAtKey === 'number' && Number.isFinite(valueAtKey) ? valueAtKey : 0];
+      })
+    ) as unknown as HiringScoreComponents;
+  } catch {
+    return empty;
+  }
+}
+
+function safeHttpsUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.toString() : '';
+  } catch {
+    return '';
   }
 }
 
@@ -496,7 +520,7 @@ export function createApiRouter({
       const latestHiringScan = await prisma.hiringSignalScan.findFirst({
         where: { runId },
         orderBy: { id: 'desc' },
-        select: { id: true },
+        select: { id: true, status: true, errorMessage: true },
       });
       const [events, providerStates, errorLogs, hiringSignals] = await Promise.all([
         prisma.runEvent.findMany({ where: { runId }, orderBy: { createdAt: 'asc' }, take: 200 }),
@@ -506,8 +530,8 @@ export function createApiRouter({
           ? prisma.hiringOpportunity.findMany({
               where: { scanId: latestHiringScan.id, dismissed: false },
               orderBy: [{ score: 'desc' }, { companyName: 'asc' }],
-              take: 2,
-              select: { companyName: true, score: true, explanation: true },
+              take: 10,
+              select: { companyName: true, score: true, explanation: true, originLane: true },
             })
           : Promise.resolve([]),
       ]);
@@ -535,7 +559,14 @@ export function createApiRouter({
           companyName: signal.companyName,
           score: signal.score,
           explanation: signal.explanation ?? '',
+          originLane: signal.originLane as 'google_maps' | 'sales_navigator' | 'hiring_opportunity',
         })),
+        hiringScan: latestHiringScan
+          ? {
+              status: latestHiringScan.status,
+              errorMessage: latestHiringScan.errorMessage,
+            }
+          : null,
       });
       res.json({ data: report });
     })
@@ -602,8 +633,9 @@ export function createApiRouter({
           {
             id: signal.id,
             score: signal.score,
+            components: parseHiringComponents(signal.scoreJson),
             explanation: signal.explanation ?? '',
-            evidenceUrl: signal.evidenceUrl,
+            evidenceUrl: safeHttpsUrl(signal.evidenceUrl),
             observedAt: signal.observedAt.toISOString(),
           },
         ])

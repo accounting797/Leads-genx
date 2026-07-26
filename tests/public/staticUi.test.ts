@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 const projectRoot = path.join(__dirname, '..', '..');
@@ -71,6 +72,58 @@ describe('static dashboard hiring lanes', () => {
     expect(appJs).toContain('Review the prepared filters, then start when you');
     expect(appJs).toContain('chips.snCompanies.setValues');
     expect(appJs).toContain('chips.gmSearchTerms.setValues');
+  });
+
+  it('shows transparent score components, observation time, and cache freshness', () => {
+    const uiJs = readPublicFile('ui.js');
+    const appJs = readPublicFile('app.js');
+
+    for (const label of ['Roles', 'Recency', 'Geography', 'Industry', 'Breadth']) {
+      expect(uiJs).toContain(label);
+    }
+    expect(uiJs).toContain('item.observedAt');
+    expect(appJs).toContain('lastSuccessfulObservationAt');
+    expect(appJs).toContain('cacheFreshness');
+  });
+
+  it('escapes evidence-derived hiring text in every card detail', () => {
+    const context = vm.createContext({ window: {} });
+    vm.runInContext(readPublicFile('ui.js'), context);
+    const ui = (context.window as {
+      LeadsGenXUi: {
+        renderHiringSignals(result: unknown): { matches: string; opportunities: string };
+      };
+    }).LeadsGenXUi;
+    const rendered = ui.renderHiringSignals({
+      matches: { google_maps: [], sales_navigator: [] },
+      opportunities: [
+        {
+          id: 1,
+          companyName: '<img src=x onerror=alert(1)>',
+          originLane: 'hiring_opportunity',
+          score: 88,
+          components: { roles: 35, recency: 25, geography: 20, industry: 8, breadth: 0 },
+          explanation: '<script>alert(1)</script>',
+          evidenceUrl: 'javascript:alert(1)',
+          observedAt: '2026-07-25T00:00:00Z',
+          jobs: [
+            {
+              title: '<svg onload=alert(1)>',
+              location: '<b>Dallas</b>',
+              updatedAt: '2026-07-24T00:00:00Z',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(rendered.opportunities).not.toContain('<script>');
+    expect(rendered.opportunities).not.toContain('<img src=x');
+    expect(rendered.opportunities).not.toContain('<svg onload');
+    expect(rendered.opportunities).not.toContain('javascript:');
+    expect(rendered.opportunities).toContain('href="#"');
+    expect(rendered.opportunities).toContain('&lt;script&gt;');
+    expect(rendered.opportunities).toContain('&lt;b&gt;Dallas&lt;/b&gt;');
   });
 });
 

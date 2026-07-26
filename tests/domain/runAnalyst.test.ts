@@ -21,6 +21,7 @@ function baseInput(overrides: Partial<AnalystInput> = {}): AnalystInput {
     providerStates: overrides.providerStates ?? [],
     errorLogs: overrides.errorLogs ?? [],
     hiringSignals: overrides.hiringSignals ?? [],
+    hiringScan: overrides.hiringScan ?? null,
     now: NOW,
   };
 }
@@ -150,6 +151,71 @@ describe('analyzeRun', () => {
     expect(hiringLines).toHaveLength(2);
     expect(hiringLines[0].text).toContain('Acme');
     expect(hiringLines[1].text).toContain('Beta');
+  });
+
+  it('prioritizes existing-company signals and keeps one partial-scan note informational', () => {
+    const report = analyzeRun(
+      baseInput({
+        run: {
+          status: 'completed',
+          leadCount: 20,
+          businessCount: 40,
+          maxResults: 40,
+          apiRequestsUsed: 0,
+          apiRequestBudget: 0,
+        },
+        hiringSignals: [
+          {
+            companyName: 'Adjacent Co',
+            score: 99,
+            explanation: 'An adjacent opening was updated recently.',
+            originLane: 'hiring_opportunity',
+          },
+          {
+            companyName: 'Existing Co',
+            score: 75,
+            explanation: 'A role on an existing company was updated recently.',
+            originLane: 'google_maps',
+          },
+        ],
+        hiringScan: {
+          status: 'partially_completed',
+          errorMessage: 'One public board could not be checked.',
+        },
+      })
+    );
+
+    expect(report.verdict).toBe('perfect');
+    const hiringLines = report.lines.filter((line) => line.text.startsWith('Hiring '));
+    expect(hiringLines).toHaveLength(2);
+    expect(hiringLines[0].text).toContain('Existing Co');
+    expect(hiringLines[1]).toMatchObject({ tone: 'info' });
+    expect(hiringLines[1].text).toContain('Some public hiring boards');
+    expect(hiringLines.some((line) => line.text.includes('Adjacent Co'))).toBe(false);
+  });
+
+  it('keeps a failed optional hiring scan to one informational line', () => {
+    const report = analyzeRun(
+      baseInput({
+        run: {
+          status: 'completed',
+          leadCount: 20,
+          businessCount: 40,
+          maxResults: 40,
+          apiRequestsUsed: 0,
+          apiRequestBudget: 0,
+        },
+        hiringScan: {
+          status: 'failed',
+          errorMessage: 'Public board request failed.',
+        },
+      })
+    );
+
+    expect(report.verdict).toBe('perfect');
+    expect(report.lines.filter((line) => line.text.startsWith('Hiring '))).toEqual([
+      expect.objectContaining({ tone: 'info' }),
+    ]);
   });
 
   it('keeps partial output visible when a provider fails after persisting leads', () => {

@@ -132,7 +132,7 @@ describe('hiring signal API', () => {
         companyDomain: 'acme.test',
         originLane: 'hiring_opportunity',
         score: 90,
-        scoreJson: '{}',
+        scoreJson: '{"roles":27,"recency":25,"geography":20,"industry":5,"breadth":5}',
         jobsJson: '[]',
         evidenceUrl: 'https://boards.greenhouse.io/acme',
         evidenceFingerprint: 'acme',
@@ -188,7 +188,7 @@ describe('hiring signal API', () => {
         companyDomain: 'map.test',
         originLane: 'google_maps',
         score: 82,
-        scoreJson: '{}',
+        scoreJson: '{"roles":27,"recency":25,"geography":20,"industry":5,"breadth":5}',
         jobsJson: '[]',
         explanation: 'A sales leadership role was updated recently.',
         evidenceUrl: 'https://boards.greenhouse.io/mapco',
@@ -203,7 +203,85 @@ describe('hiring signal API', () => {
       .expect(200);
     expect(maps.body.data).toHaveLength(1);
     expect(maps.body.data[0].leadSource).toBe('google_maps');
-    expect(maps.body.data[0].hiringSignal).toMatchObject({ score: 82 });
+    expect(maps.body.data[0].hiringSignal).toMatchObject({
+      score: 82,
+      components: {
+        roles: 27,
+        recency: 25,
+        geography: 20,
+        industry: 5,
+        breadth: 5,
+      },
+    });
     await request(app()).get('/api/leads?leadSource=unknown').set('Cookie', ownerCookie).expect(400);
+  });
+
+  it('prioritizes an existing-company signal and adds at most one partial-scan note', async () => {
+    const owner = await prisma.user.findFirstOrThrow({ orderBy: { id: 'asc' } });
+    const run = await prisma.run.create({
+      data: {
+        userId: owner.id,
+        status: 'completed',
+        leadSource: 'google_maps',
+        actorId: 'test',
+        maxResults: 10,
+        leadCount: 2,
+        businessCount: 2,
+      },
+    });
+    const scan = await prisma.hiringSignalScan.create({
+      data: {
+        runId: run.id,
+        status: 'partially_completed',
+        completedAt: new Date(),
+        errorMessage: 'One public board could not be checked.',
+      },
+    });
+    const baseOpportunity = {
+      scanId: scan.id,
+      runId: run.id,
+      companyDomain: null,
+      scoreJson: '{}',
+      jobsJson: '[]',
+      evidenceUrl: 'https://boards.greenhouse.io/acme',
+      relationship: 'adjacent',
+    };
+    await prisma.hiringOpportunity.createMany({
+      data: [
+        {
+          ...baseOpportunity,
+          companyKey: 'name:adjacent',
+          companyName: 'Adjacent Co',
+          originLane: 'hiring_opportunity',
+          score: 99,
+          evidenceFingerprint: 'adjacent',
+          explanation: 'An adjacent role was updated recently.',
+        },
+        {
+          ...baseOpportunity,
+          companyKey: 'name:existing',
+          companyName: 'Existing Co',
+          originLane: 'google_maps',
+          score: 75,
+          evidenceFingerprint: 'existing',
+          explanation: 'An existing-company role was updated recently.',
+          relationship: 'exact',
+        },
+      ],
+    });
+
+    const response = await request(app())
+      .get(`/api/runs/${run.id}/analyst`)
+      .set('Cookie', ownerCookie)
+      .expect(200);
+    const hiringLines = response.body.data.lines.filter((line: { text: string }) =>
+      line.text.startsWith('Hiring ')
+    );
+
+    expect(response.body.data.verdict).toBe('perfect');
+    expect(hiringLines).toHaveLength(2);
+    expect(hiringLines[0].text).toContain('Existing Co');
+    expect(hiringLines[1]).toMatchObject({ tone: 'info' });
+    expect(hiringLines[1].text).toContain('Some public hiring boards');
   });
 });

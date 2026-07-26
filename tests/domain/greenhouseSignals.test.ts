@@ -40,6 +40,21 @@ describe('Greenhouse hiring-signal domain', () => {
     expect(classifyHiringJob(job('Senior Software Engineer', '2026-07-24T00:00:00Z'))).toBeUndefined();
   });
 
+  it('excludes misleading keyword titles and only uses departments for compatible leadership titles', () => {
+    expect(
+      classifyHiringJob(job('Operations Research Scientist', '2026-07-24T00:00:00Z', 'Dallas, TX', 'Operations'))
+    ).toBeUndefined();
+    expect(
+      classifyHiringJob(job('Growth Engineer', '2026-07-24T00:00:00Z', 'Dallas, TX', 'Marketing'))
+    ).toBeUndefined();
+    expect(
+      classifyHiringJob(job('Regional Director', '2026-07-24T00:00:00Z', 'Dallas, TX', 'Sales'))
+    ).toBe('sales');
+    expect(
+      classifyHiringJob(job('Software Engineer', '2026-07-24T00:00:00Z', 'Dallas, TX', 'Sales'))
+    ).toBeUndefined();
+  });
+
   it('scores a fresh exact-match multi-department signal transparently', () => {
     const result = scoreHiringSignal({
       jobs: [
@@ -75,6 +90,17 @@ describe('Greenhouse hiring-signal domain', () => {
 
     expect(result.qualifyingJobs).toEqual([]);
     expect(result.total).toBe(0);
+  });
+
+  it('does not award exact-geography credit for a blank job location', () => {
+    const result = scoreHiringSignal({
+      jobs: [job('VP of Sales', '2026-07-24T00:00:00Z', '')],
+      requestedGeographies: ['Dallas, TX'],
+      industryRelationship: 'exact',
+      now: new Date('2026-07-25T00:00:00Z'),
+    });
+
+    expect(result.components.geography).toBe(0);
   });
 
   it('normalizes domains before company names and strips common legal suffixes', () => {

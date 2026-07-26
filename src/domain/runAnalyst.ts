@@ -55,6 +55,12 @@ export interface AnalystHiringSignal {
   companyName: string;
   score: number;
   explanation: string;
+  originLane?: 'google_maps' | 'sales_navigator' | 'hiring_opportunity';
+}
+
+export interface AnalystHiringScan {
+  status: string;
+  errorMessage?: string | null;
 }
 
 export interface AnalystInput {
@@ -63,6 +69,7 @@ export interface AnalystInput {
   providerStates: AnalystProviderState[];
   errorLogs: AnalystErrorLog[];
   hiringSignals?: AnalystHiringSignal[];
+  hiringScan?: AnalystHiringScan | null;
   now?: Date;
 }
 
@@ -113,6 +120,7 @@ export function analyzeRun({
   providerStates,
   errorLogs,
   hiringSignals = [],
+  hiringScan,
   now = new Date(),
 }: AnalystInput): AnalystReport {
   const lines: AnalystLine[] = [];
@@ -190,11 +198,26 @@ export function analyzeRun({
     });
   }
 
-  for (const signal of hiringSignals.slice(0, 2)) {
+  const hiringStatusLine =
+    hiringScan?.status === 'partially_completed'
+      ? 'Hiring check: Some public hiring boards did not answer, but the evidence Nova saved is still available.'
+      : hiringScan?.status === 'failed'
+        ? 'Hiring check: The optional public-board check could not finish; your lead run and saved output are unchanged.'
+        : undefined;
+  const prioritizedHiringSignals = [...hiringSignals].sort((left, right) => {
+    const leftAdjacent = left.originLane === 'hiring_opportunity' ? 1 : 0;
+    const rightAdjacent = right.originLane === 'hiring_opportunity' ? 1 : 0;
+    return leftAdjacent - rightAdjacent || right.score - left.score || left.companyName.localeCompare(right.companyName);
+  });
+  const signalLimit = hiringStatusLine ? 1 : 2;
+  for (const signal of prioritizedHiringSignals.slice(0, signalLimit)) {
     lines.push({
       tone: signal.score >= 90 ? 'ok' : 'info',
       text: `Hiring signal ${signal.score}/100 for ${signal.companyName}: ${signal.explanation}`,
     });
+  }
+  if (hiringStatusLine) {
+    lines.push({ tone: 'info', text: hiringStatusLine });
   }
 
   // --- Errors --------------------------------------------------------------

@@ -216,10 +216,12 @@ model ErrorLog {
 model HiringSignalScan {
   id               Int       @id @default(autoincrement())
   runId            Int
+  activeRunKey     Int?      @unique
   status           String    @default("queued")
   manualRefresh    Boolean   @default(false)
   candidateCount   Int       @default(0)
   inspectedCount   Int       @default(0)
+  cachedBoardCount Int       @default(0)
   matchedCount     Int       @default(0)
   opportunityCount Int       @default(0)
   heartbeatAt      DateTime?

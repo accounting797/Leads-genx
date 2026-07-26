@@ -80,4 +80,27 @@ describe('Greenhouse public board client', () => {
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it('cancels an oversized response while streaming it', async () => {
+    const cancel = vi.fn();
+    let reads = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        reads += 1;
+        controller.enqueue(new Uint8Array(3 * 1024 * 1024));
+      },
+      cancel,
+    });
+    const fetchImpl = vi.fn(async () =>
+      new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+
+    await expect(new GreenhouseClient({ fetchImpl }).listJobs('acme')).rejects.toMatchObject({
+      code: 'response_too_large',
+    });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
 });
