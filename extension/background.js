@@ -68,6 +68,7 @@ async function postWithRetry(url, token, body) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
       });
       if (res.ok) return { ok: true, body: await res.json().catch(() => ({})) };
       const errBody = await res.json().catch(() => ({}));

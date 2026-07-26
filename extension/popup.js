@@ -82,6 +82,7 @@ els.testBtn.addEventListener('click', async () => {
     const res = await fetch(`${serverUrl}/api/extension/ping`, {
       method: 'GET',
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
