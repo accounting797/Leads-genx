@@ -127,6 +127,36 @@ Newest entries on top. Format:
   parent run's lead count. Implementation continues on
   `feat/greenhouse-hiring-signals`.
 
+## 2026-07-26 — kimi — branch review + merge + self-review
+- REVIEWED codex/google-scraping-stabilization (spec ec6ca9a → fixes 8c5bb90,
+  3ca72d5 → handoff af3706f). Verdict: EXCELLENT, merged to main as 79bf43c
+  after verifying 458/458 green on the branch AND post-merge.
+  1. Spec craft: compatibility-first with an explicit protected-behavior
+     contract and crisp non-goals — stabilization done right, nothing
+     cherished broken.
+  2. pollJob() unification: canonical + legacy fallback paths now share one
+     bounded, case-tolerant, 3-strike polling contract — kills drift-prone
+     duplication.
+  3. Real resume bug fixed: zombie 'running' checkpoints → 'retry' with
+     'interrupted_before_settlement' + Nova recovery event.
+  4. Heartbeat persistence failure can no longer crash a healthy lane
+     (error-log fallback, double catch).
+  5. waiting_for_credentials now narrates + only parks the run when Docker
+     didn't complete with output — the anti-hostage contract, enforced.
+  Nits (non-blocking): upsertProviderState catch-all could mask schema drift
+  in dev (error log mitigates); scraper status vocabulary is 'ok/failed/
+  error' — if the scraper ever adds terminal states, extend pollJob.
+- SELF-REVIEW (founder asked "is Kimi's work sharp?"): honest ledger —
+  Sharp: the anti-hang spine (timeouts/strikes/heartbeats/grace-close),
+  metadata-driven Bright Data filter mapping, Shuffle combos with outcome
+  learning, one-voice novaDiagnosis, suite discipline (410→458 with Codex).
+  Scars I own: a near-shipped broken build via piped tsc (now a rule: plain
+  npm run build); the Bright-Data-key-not-seen bug — I built the feature but
+  shipped without stale-frontend cache protection; fixed with no-cache
+  headers after one user report, lesson banked. Residual risk: extension
+  selectors are untested against live SN DOM (layered fallbacks mitigate).
+- Codex: outstanding branch. Greenhouse implementation is yours when ready.
+
 ## 2026-07-26 — founder (via kimi) — GATE PASSED: proceed to implementation
 - The founder gave written approval of the Greenhouse hiring-signals spec
   ("approved"), on top of Kimi's technical APPROVED-with-4-conditions review.
