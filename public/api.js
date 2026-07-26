@@ -1,8 +1,16 @@
 (function () {
   const BASE = '/api';
+  const REQUEST_TIMEOUT_MS = 45_000;
+
+  function withTimeout(options, timeoutMs = REQUEST_TIMEOUT_MS) {
+    return {
+      ...(options || {}),
+      signal: options && options.signal ? options.signal : AbortSignal.timeout(timeoutMs),
+    };
+  }
 
   async function requestJson(path, options) {
-    const res = await fetch(BASE + path, options);
+    const res = await fetch(BASE + path, withTimeout(options));
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 && !path.startsWith('/auth/')) {
       window.dispatchEvent(new CustomEvent('lgx:unauthorized', { detail: data }));
@@ -17,7 +25,7 @@
   }
 
   async function requestText(path, options) {
-    const res = await fetch(BASE + path, options);
+    const res = await fetch(BASE + path, withTimeout(options, 120_000));
     const text = await res.text();
     if (!res.ok) throw new Error(text || 'Request failed');
     return text;

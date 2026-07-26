@@ -224,17 +224,25 @@ describe('API', () => {
   });
 
   it('returns safe operator settings', async () => {
-    const app = createApp({ authDisabled: true });
+    const app = createApp({
+      authDisabled: true,
+      prisma: {
+        appSetting: {
+          async findMany() {
+            return [];
+          },
+        },
+      } as never,
+    });
 
     const res = await request(app).get('/api/settings').expect(200);
 
     expect(res.body).toEqual({
       data: {
         defaultGoogleMapsActorId: 'compass/google-maps-extractor',
-        defaultSalesNavigatorActorId: 'harvestapi/linkedin-profile-search',
+        defaultSalesNavigatorActorId: 'harvestapi/linkedin-sales-navigator-lead-search-cookie',
         hasSavedApifyToken: false,
         hasSavedBrightDataKey: false,
-        brightDataKeyPreview: undefined,
         hasSavedGoogleApiKeys: false,
         googleApiKeyCount: 0,
         proxyCount: 0,

@@ -7,7 +7,7 @@ describe('LocalMapsScraperClient', () => {
   });
 
   it('creates a scraper-kit job, polls it, downloads CSV, and expands email rows', async () => {
-    const requests: Array<{ url: string; method?: string; body?: unknown }> = [];
+    const requests: Array<{ url: string; method?: string; body?: unknown; hasTimeoutSignal: boolean }> = [];
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
@@ -15,6 +15,7 @@ describe('LocalMapsScraperClient', () => {
           url,
           method: init?.method,
           body: init?.body ? JSON.parse(String(init.body)) : undefined,
+          hasTimeoutSignal: init?.signal instanceof AbortSignal,
         });
 
         if (url.endsWith('/api/v1/jobs') && !init?.method) {
@@ -71,6 +72,7 @@ describe('LocalMapsScraperClient', () => {
     );
     expect(events).toContainEqual(expect.objectContaining({ type: 'started', jobId: 'job-1' }));
     expect(events).toContainEqual(expect.objectContaining({ type: 'completed', itemCount: 2 }));
+    expect(requests.every((request) => request.hasTimeoutSignal)).toBe(true);
   });
 
   it('returns no items when the scraper-kit API is not running', async () => {

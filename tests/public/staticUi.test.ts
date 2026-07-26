@@ -8,6 +8,18 @@ function readPublicFile(fileName: string): string {
   return fs.readFileSync(path.join(projectRoot, 'public', fileName), 'utf8');
 }
 
+function readExtensionFile(fileName: string): string {
+  return fs.readFileSync(path.join(projectRoot, 'extension', fileName), 'utf8');
+}
+
+describe('network timeout guardrails', () => {
+  it('puts hard deadlines on dashboard and extension requests', () => {
+    expect(readPublicFile('api.js')).toContain('AbortSignal.timeout');
+    expect(readExtensionFile('background.js')).toContain('AbortSignal.timeout');
+    expect(readExtensionFile('popup.js')).toContain('AbortSignal.timeout');
+  });
+});
+
 describe('static dashboard downloads', () => {
   it('makes the top leads metric open the all-runs leads view', () => {
     const html = readPublicFile('index.html');

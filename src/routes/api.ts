@@ -85,7 +85,9 @@ export interface ApiDeps {
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
   process.env.DEFAULT_GOOGLE_MAPS_ACTOR_ID || 'compass/google-maps-extractor';
 const DEFAULT_SALES_NAVIGATOR_ACTOR_ID =
-  process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID || 'harvestapi/linkedin-profile-search';
+  process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID === 'harvestapi/linkedin-profile-search'
+    ? 'harvestapi/linkedin-sales-navigator-lead-search-cookie'
+    : process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID || 'harvestapi/linkedin-sales-navigator-lead-search-cookie';
 
 function asListInput(value: unknown): string[] | undefined {
   if (value === undefined) return undefined;

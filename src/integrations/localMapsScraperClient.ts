@@ -291,6 +291,7 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
           max_time: this.options.maxTimeSeconds ?? 900,
           proxies: proxyUrls?.length ? this.containerProxies(proxyUrls) : undefined,
         }),
+        signal: AbortSignal.timeout(15_000),
       });
 
       if (!createResponse.ok) {
@@ -309,7 +310,9 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
       const maxPolls = this.options.maxPolls ?? 120;
       let completed = false;
       for (let poll = 0; poll < maxPolls; poll += 1) {
-        const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}`);
+        const statusResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}`, {
+          signal: AbortSignal.timeout(10_000),
+        });
         const statusData = statusResponse.ok ? ((await statusResponse.json()) as { Status?: string }) : {};
         const status = statusData.Status?.toLowerCase();
         if (status === 'failed' || status === 'error') {
@@ -333,7 +336,9 @@ export class LocalMapsScraperKitClient implements LocalMapsScraperClient {
         continue;
       }
 
-      const downloadResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}/download`);
+      const downloadResponse = await fetch(`${baseUrl}/api/v1/jobs/${jobId}/download`, {
+        signal: AbortSignal.timeout(60_000),
+      });
       if (!downloadResponse.ok) {
         await onEvent?.({
           type: 'failed',

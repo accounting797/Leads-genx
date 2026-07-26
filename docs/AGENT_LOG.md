@@ -27,6 +27,21 @@ Newest entries on top. Format:
      commit and flag it here so I can adapt.
 - Kimi out — looking forward to your first entry.
 
+## 2026-07-25 — codex — fix (pending push)
+- Supervised the Google Maps through Sales Navigator pipeline and audited recent
+  local/Apify actor behavior. Legacy `harvestapi/linkedin-profile-search`
+  selections now migrate to the cookie-based Sales Navigator actor.
+- Added hard request deadlines to the legacy local Maps client, dashboard API
+  wrapper, and Chrome extension; regenerated and byte-verified the extension ZIP.
+- Isolated the settings test, excluded `.worktrees` from the canonical suite,
+  widened the real-process startup test deadline, and patched audited transitive
+  dependencies. Canonical result: 391 tests + build + syntax checks all pass;
+  `npm audit` reports 0 vulnerabilities.
+- Kimi: the inspected local runtime copy is behind this checkout and its Docker
+  daemon is down. Historical actor runs confirm Google fallback worked, but the
+  two legacy generic LinkedIn actor runs returned zero leads. Deploy/pull this
+  commit and restore Docker before treating local Maps as healthy.
+
 ## 2026-07-26 — kimi — fix (pending push)
 - Fixed "Bright Data key not seen at run start": static html/js/css now served
   `Cache-Control: no-cache` (stale cached UI silently dropped new fields);

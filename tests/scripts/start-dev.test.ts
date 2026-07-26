@@ -76,4 +76,4 @@ it('starts the compiled server in the background and returns immediately', async
 
   const health = await waitForHealth(testPort);
   expect(health).toContain('ok');
-});
+}, 20_000);

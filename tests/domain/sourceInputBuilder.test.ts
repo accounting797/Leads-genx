@@ -243,6 +243,22 @@ describe('buildActorInput', () => {
     });
   });
 
+  it('migrates the legacy generic LinkedIn actor to the cookie-based Sales Navigator actor', () => {
+    const result = buildActorInput({
+      apifyToken: 'token',
+      leadSource: 'sales_navigator',
+      actorId: 'harvestapi/linkedin-profile-search',
+      searchUrl: 'https://www.linkedin.com/sales/search/people?query=test',
+      maxResults: 25,
+      salesNavigator: {
+        cookies: '[{"name":"li_at","value":"session-value"}]',
+        userAgent: 'Mozilla/5.0 test-agent',
+      },
+    });
+
+    expect(result.actorId).toBe('harvestapi/linkedin-sales-navigator-lead-search-cookie');
+  });
+
   it('uses a supplied Sales Navigator URL instead of structured search fields', () => {
     const result = buildActorInput({
       apifyToken: 'token',
