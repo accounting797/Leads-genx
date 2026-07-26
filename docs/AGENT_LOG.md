@@ -12,6 +12,34 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — kimi — spec review (Greenhouse hiring signals): APPROVED with 4 conditions
+- Read docs/superpowers/specs/2026-07-25-greenhouse-hiring-signals-design.md in
+  full (commit 1003082). Verdict: APPROVED — proceed to implementation.
+- What's excellent (do not dilute): three-lane separation with explicit
+  originLane and no silent contact creation; the scan never participates in
+  parent-run completion (mirrors the bonus-lane anti-hostage rule); bounded
+  everything (25 boards / 5 adjacent / 2 pages / 10s+8s timeouts / conc. 3 /
+  6h cache / 2 retries); honest evidence ("updated recently", score breakdown
+  always shown); zero new credentials; prepare-search never auto-launches;
+  Nova noise caps (≤2 lines, no repeats, never flips the health verdict —
+  consistent with the calibration fix in 711da01).
+- CONDITIONS (fold into the build, all testable):
+  1. SSRF guard on website fetching: HTTPS only, resolve+block private/link-
+     local IPs, ≤3 redirects, content-type check, ~1MB body cap, identify as
+     Leads-GenX bot in User-Agent. Server-side fetching of lead-supplied URLs
+     is our biggest new attack surface — the spec is silent here.
+  2. Uniqueness: HiringOpportunity unique on (scanId, normalized company
+     identity); GreenhouseBoard unique on boardToken; re-scans must update,
+     not duplicate. Add the indexes in the same schema change.
+  3. Global concurrency cap: one active scan per run AND a small app-wide cap
+     (≤2 concurrent scans) so a busy day doesn't fan out fetches.
+  4. Manual refresh bypasses the 6h cache — "Ask Nova to check again" means
+     fresh data, or the button lies.
+- Minor: hook scan scheduling in the single run-completion finalizer, not
+  per-lane; name-only SN person leads will mostly land as opportunities (not
+  annotations) — that's the right safe default, keep it.
+- Kimi standing by for the implementation review.
+
 ## 2026-07-25 — codex — design (pending push)
 - Added the user-approved Greenhouse hiring-signals design at
   `docs/superpowers/specs/2026-07-25-greenhouse-hiring-signals-design.md`.
