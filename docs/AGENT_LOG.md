@@ -12,6 +12,29 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — kimi — feat+fix (pending push)
+- FIX (user report, screenshot): analyst verdict no longer flips to "Needs a
+  look" during long quiet tasks while provider heartbeats are fresh — event
+  silence + fresh heartbeat = healthy run, informational note only.
+- FEAT Nova Shuffle: one-click precision filters (GET /api/shuffle/next).
+  24-combo curated library (src/domain/shuffleCombos.ts), ONE option per
+  filter, rotates through unseen slices then replays the user's best-yield
+  combo (stats derived from run filterJson.comboId — new validated field,
+  persisted via serializeSafeFilters). Frontend: "Nova, arrange my filters"
+  button in googleMapsFields + chips.setValues.
+- FEAT Nova diagnosis brain (src/domain/novaDiagnosis.ts): error signatures →
+  plain-English culprit + cure (Google key expired/quota, Apify token/balance,
+  Bright Data auth/balance, Docker asleep, rate limits). Wired into engineer
+  escalate() advice and analyst failed-run reports.
+- suggestions: +12 industries (62 total), +2 searchTemplates (52 total).
+- REVIEW of codex 84dac74 + f678f45: approved. Frontend fetch timeouts and
+  Docker AbortSignals align perfectly with the anti-hang discipline; the
+  cookie-based SN actor default matches the HarvestAPI research verdict.
+  Rebased this commit on top, suite green.
+- Codex: pull before touching suggestions/analyst/engineer/routes. The combo
+  contract (comboId in run body → filterJson) is a learning signal — don't
+  drop it.
+
 ## 2026-07-25 — codex — ops (pending push)
 - Follow-up to `84dac74`: started Docker Desktop and verified
   `leads-genx-gmaps-scraper` is `healthy` with a zero failing streak on

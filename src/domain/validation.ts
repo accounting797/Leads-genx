@@ -360,6 +360,7 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
   return {
     apifyToken,
     brightDataApiKey,
+    comboId: asString(obj.comboId),
     apifyTokens: apifyTokens.length ? apifyTokens : undefined,
     googleApiKey,
     googleApiKeys: googleApiKeys.length ? googleApiKeys : undefined,

@@ -1,6 +1,7 @@
 (function () {
   const api = window.LeadsGenXApi;
   const chips = {};
+  let lastShuffleComboId;
   const maxResultsBySource = {};
   let activeSource = 'google_maps';
   let activeRunId = null;
@@ -285,6 +286,7 @@
       leadSource: activeSource,
       actorId: $('actorId').value.trim() || undefined,
       maxResults: numberValue('maxResults') || 100,
+      comboId: lastShuffleComboId,
     };
 
     if (activeSource === 'google_maps') {
@@ -851,6 +853,31 @@
     }
   }
 
+
+  // Nova Shuffle: one click arranges a precision combo — ONE search term,
+  // ONE category, ONE company type, ONE location — rotating through the
+  // library and learning from the user's own results over time.
+  async function shuffleFilters() {
+    $('shuffleFiltersBtn').disabled = true;
+    $('shuffleStatus').textContent = 'Nova is arranging…';
+    try {
+      const pick = await api.shuffleNext();
+      const combo = pick.combo;
+      chips.gmSearchTerms.setValues([combo.searchTerm]);
+      chips.gmCategories.setValues([combo.category]);
+      chips.gmCompanyTypes.setValues([combo.companyType]);
+      chips.gmLocations.setValues([combo.location]);
+      lastShuffleComboId = combo.id;
+      $('shuffleStatus').textContent = combo.label + ' · ' + (pick.freshTerritory ? 'fresh slice' : 'best performer');
+      window.LeadsGenXUi.toast('Nova arranged: ' + combo.label + '. ' + pick.note + ' ' + combo.rationale);
+    } catch (error) {
+      $('shuffleStatus').textContent = '';
+      window.LeadsGenXUi.toast(error.message);
+    } finally {
+      $('shuffleFiltersBtn').disabled = false;
+    }
+  }
+
   async function init() {
     const suggestions = await api.getSuggestions();
     chips.gmSearchTerms = window.LeadsGenXChips.createChipInput($('gmSearchTerms'), {
@@ -947,6 +974,7 @@
     $('testApifyBtn').addEventListener('click', testApifyCredential);
     $('testGoogleBtn').addEventListener('click', testGoogleCredentials);
     $('refreshExtensionRuns').addEventListener('click', loadExtensionRuns);
+    $('shuffleFiltersBtn').addEventListener('click', shuffleFilters);
     $('extensionRunsTable').addEventListener('click', (event) => {
       const target = event.target.closest('[data-enrich-run]');
       if (target) void enrichLinkedInRun(target.dataset.enrichRun, target);

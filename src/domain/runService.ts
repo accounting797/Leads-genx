@@ -106,6 +106,7 @@ export function serializeSafeFilters(input: ValidatedRunInput): string {
     salesNavigator: input.salesNavigator ? safeSalesNavigator : undefined,
     routeMode: input.routeMode ?? 'direct',
     outputMode: input.outputMode ?? (input.googleMaps?.provider === 'hybrid' ? 'hybrid_max' : 'standard'),
+    comboId: input.comboId,
   });
 }
 

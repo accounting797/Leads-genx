@@ -19,6 +19,8 @@ export const suggestions = {
     // "Engineering Houston TX") that surfaces businesses built around that
     // function — every result is a company worth pitching.
     searchTemplates: [
+      'Office Manager',
+      'Practice Manager',
       // Revenue & growth
       'Sales',
       'Business Development',
@@ -113,6 +115,18 @@ export const suggestions = {
       'Moving Services',
       // Health & life sciences
       'Healthcare',
+      'Dental Clinics',
+      'Veterinary Services',
+      'Auto Repair',
+      'Landscaping & Lawn Care',
+      'Real Estate Agencies',
+      'Warehousing & Distribution',
+      'Accounting Firms',
+      'Medical Spas & Aesthetics',
+      'Electrical Contractors',
+      'Staffing & Recruiting',
+      'Restaurants & Food Service',
+      'Insurance Agencies',
       'Hospitals',
       'Home Health Care',
       'Dental',
@@ -289,6 +303,7 @@ export const suggestions = {
       'Director of Real Estate',
       'Facilities Manager',
       'Office Manager',
+      'Practice Manager',
     ],
     // The operator's industry picks first, extended across LinkedIn's
     // 13-sector taxonomy for full B2B coverage.

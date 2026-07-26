@@ -1,3 +1,5 @@
+import { novaSays } from './novaDiagnosis';
+
 export type AnalystVerdict = 'perfect' | 'good' | 'bad' | 'needs_attention';
 
 export interface AnalystLine {
@@ -187,14 +189,34 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
   }
 
   // --- Heartbeat -------------------------------------------------------------
+  // A sparse EVENT feed is not a problem by itself: long honest tasks (a
+  // 15-minute Docker crawl, a big Apify ingest) produce heartbeats without
+  // new events. Only raise the alarm when NOTHING shows signs of life —
+  // a fresh provider heartbeat means the run is healthy, full stop.
   const lastEvent = events[events.length - 1];
   const eventAge = ageMs(now, lastEvent?.createdAt);
+  const anyFreshProvider = providerStates.some((state) => {
+    if (state.status !== 'running') return false;
+    const beatAge = ageMs(now, state.heartbeatAt);
+    return beatAge !== null && beatAge <= PROVIDER_STALE_MS;
+  });
   if (['queued', 'running', 'cooling_down'].includes(run.status) && eventAge !== null && eventAge > STALE_HEARTBEAT_MS) {
-    escalate('bad');
-    lines.push({
-      tone: 'warn',
-      text: `It's been quiet for ${seconds(eventAge)} — providers may be waiting on the network or Docker. I'm keeping watch.`,
-    });
+    if (anyFreshProvider) {
+      if (eventAge > 5 * 60_000) {
+        lines.push({
+          tone: 'info',
+          text: `Providers are heads-down on a long task — last milestone ${seconds(
+            eventAge
+          )} ago, but heartbeats are steady. All is well.`,
+        });
+      }
+    } else {
+      escalate('bad');
+      lines.push({
+        tone: 'warn',
+        text: `It's been quiet for ${seconds(eventAge)} with no provider heartbeat — providers may be waiting on the network or Docker. I'm keeping watch.`,
+      });
+    }
   }
 
   // --- Terminal states ---------------------------------------------------------
@@ -202,7 +224,10 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
   if (run.status === 'failed') {
     verdict = 'needs_attention';
     headline = "I'm sorry — this run failed. Everything we gathered is safe; the error below explains what happened.";
-    if (run.errorMessage) lines.unshift({ tone: 'error', text: `What went wrong: ${run.errorMessage}` });
+    if (run.errorMessage) {
+      lines.unshift({ tone: 'warn', text: novaSays(run.errorMessage) });
+      lines.unshift({ tone: 'error', text: `What went wrong: ${run.errorMessage}` });
+    }
   } else if (run.status === 'waiting_for_scraper') {
     escalate('bad');
     headline = "I've paused things gently — the Docker scraper isn't answering. All progress is safely stored.";

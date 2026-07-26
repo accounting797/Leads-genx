@@ -19,6 +19,7 @@ import {
 import { testProxies, ProxyTestResult } from '../integrations/proxyTester';
 import { testBrightDataKey } from '../integrations/brightDataClient';
 import { enrichRunLinkedInLeads } from '../domain/linkedinEnrichment';
+import { pickNextCombo, ComboStat } from '../domain/shuffleCombos';
 import {
   testApifyToken,
   testGoogleApiKey,
@@ -356,6 +357,37 @@ export function createApiRouter({ prisma, runService, proxyTester, credentialTes
           message: `Nova is enriching ${pending} LinkedIn profiles with Bright Data — watch the run feed.`,
         },
       });
+    })
+  );
+
+  // Nova Shuffle: one-click precision filters. One option per filter group,
+  // rotating through the curated library — unseen slices first, then the
+  // user's own best performers (learning from run outcomes).
+  router.get(
+    '/shuffle/next',
+    asyncHandler(async (req, res) => {
+      if (!prisma) {
+        res.status(503).json({ error: 'Database unavailable' });
+        return;
+      }
+      const user = currentUser(res);
+      const runs = await prisma.run.findMany({
+        where: user ? { userId: user.id } : {},
+        select: { filterJson: true, leadCount: true },
+      });
+      const stats: Record<string, ComboStat> = {};
+      for (const run of runs) {
+        try {
+          const parsed = JSON.parse(run.filterJson ?? '{}') as { comboId?: string };
+          if (!parsed.comboId) continue;
+          const stat = (stats[parsed.comboId] = stats[parsed.comboId] ?? { runs: 0, leads: 0 });
+          stat.runs += 1;
+          stat.leads += run.leadCount ?? 0;
+        } catch {
+          // Unparseable filterJson never blocks a shuffle.
+        }
+      }
+      res.json({ data: pickNextCombo(stats) });
     })
   );
 

@@ -241,4 +241,42 @@ describe('analyzeRun', () => {
     expect(report.headline).toMatch(/isn't answering/);
     expect(report.lines.some((line) => line.text.includes('resume'))).toBe(true);
   });
+
+  it('stays All good during a long quiet task while provider heartbeats are fresh', () => {
+    const report = analyzeRun(
+      baseInput({
+        events: [
+          { type: 'google_completed', message: 'Google finished.', createdAt: new Date(NOW.getTime() - 6 * 60_000) },
+        ],
+        providerStates: [
+          {
+            provider: 'docker',
+            status: 'running',
+            operation: 'Discovery batch 1/4',
+            yieldCount: 0,
+            heartbeatAt: new Date(NOW.getTime() - 5000),
+          },
+        ],
+      })
+    );
+
+    // The screenshot bug: this exact situation used to read "Needs a look".
+    expect(report.verdict).toBe('good');
+    expect(report.lines.some((line) => line.tone === 'info' && /heads-down on a long task/.test(line.text))).toBe(true);
+    expect(report.lines.some((line) => /no provider heartbeat/.test(line.text))).toBe(false);
+  });
+
+  it('escalates when events are stale AND no provider shows signs of life', () => {
+    const report = analyzeRun(
+      baseInput({
+        events: [
+          { type: 'google_completed', message: 'Google finished.', createdAt: new Date(NOW.getTime() - 6 * 60_000) },
+        ],
+        providerStates: [],
+      })
+    );
+
+    expect(report.verdict).toBe('bad');
+    expect(report.lines.some((line) => /no provider heartbeat/.test(line.text))).toBe(true);
+  });
 });
