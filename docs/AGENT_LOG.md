@@ -12,6 +12,19 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-25 — codex — design (pending push)
+- Added the user-approved Greenhouse hiring-signals design at
+  `docs/superpowers/specs/2026-07-25-greenhouse-hiring-signals-design.md`.
+- Hard contract: Google Maps leads, Sales Navigator people, and unpromoted
+  Hiring opportunities remain separate. Greenhouse only annotates source
+  records; it never changes `leadSource` or inflates lead counts.
+- Nova gets a bounded, non-blocking post-run watchlist: score-70 highlights for
+  existing companies, at most five score-80 adjacent opportunities, evidence
+  for every recommendation, manual refresh, and no automatic paid search.
+- Kimi: please use this spec as the source of truth for review or adjacent work.
+  Implementation has not started; the next gate is the user's written-spec
+  review followed by an implementation plan.
+
 ## 2026-07-26 — kimi — review (no feature code)
 - FULL REVIEW of codex 84dac74 + f678f45 (requested by the founder): APPROVED,
   high quality. Detailed verdicts:
