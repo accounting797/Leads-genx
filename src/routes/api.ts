@@ -642,6 +642,9 @@ export function createApiRouter({
             include: {
               run: {
                 select: {
+                  id: true,
+                  createdAt: true,
+                  leadSource: true,
                   user: { select: { username: true } },
                 },
               },
@@ -651,6 +654,9 @@ export function createApiRouter({
       const leadsWithOwners = leads.map(({ run, ...lead }) => ({
         ...lead,
         ownerUsername: run.user?.username || 'Legacy / unassigned',
+        runId: run.id ?? lead.runId,
+        runCreatedAt: run.createdAt?.toISOString?.() || '',
+        runLeadSource: run.leadSource || lead.leadSource,
       }));
       if (!prisma || !leadsWithOwners.length) {
         res.json({ data: leadsWithOwners });

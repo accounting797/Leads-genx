@@ -364,6 +364,10 @@
     return base + ' · ' + owner;
   }
 
+  function datedRunOptionLabel(run) {
+    return runOptionLabel(run) + ' · ' + new Date(run.createdAt).toLocaleString();
+  }
+
   function renderRunsData(runs, preferredRunId) {
     latestRuns = runs;
     const selectedRunId =
@@ -384,7 +388,7 @@
       laneRuns
         .map(
           (run) =>
-            '<option value="' + run.id + '">' + escapeHtml(runOptionLabel(run)) + '</option>'
+            '<option value="' + run.id + '">' + escapeHtml(datedRunOptionLabel(run)) + '</option>'
         )
         .join('');
     if (selectedRunId && laneRuns.some((run) => String(run.id) === String(selectedRunId))) {
@@ -400,7 +404,7 @@
             run.id +
             '">' +
             escapeHtml(
-              runOptionLabel(run) +
+              datedRunOptionLabel(run) +
                 ' · ' +
                 (run.leadSource === 'google_maps' ? 'Google Maps' : 'Sales Navigator')
             ) +
@@ -502,7 +506,7 @@
       laneRuns
         .map(
           (run) =>
-            '<option value="' + run.id + '">' + escapeHtml(runOptionLabel(run)) + '</option>'
+            '<option value="' + run.id + '">' + escapeHtml(datedRunOptionLabel(run)) + '</option>'
         )
         .join('');
     await loadLeads();
@@ -1272,6 +1276,9 @@
     $('hiringOpportunities').addEventListener('click', (event) => void handleHiringAction(event));
     $('downloadEmails').addEventListener('click', () =>
       api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane, dataScope)
+    );
+    $('downloadFullLeads').addEventListener('click', () =>
+      api.downloadLeads($('leadRunFilter').value, 'full', activeLeadLane, dataScope)
     );
     $('saveSettingsBtn').addEventListener('click', () => saveSettings());
     $('clearApifyBtn').addEventListener('click', () => saveSettings({ apifyToken: '' }));

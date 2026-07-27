@@ -39,20 +39,22 @@ describe('static dashboard downloads', () => {
     expect(appJs).toContain("$('leadSummary').textContent");
   });
 
-  it('exposes an email-only TXT download control', () => {
+  it('exposes email-only and traceable full-lead download controls', () => {
     const html = readPublicFile('index.html');
 
     expect(html).toContain('id="downloadEmails"');
-    expect(html).not.toContain('id="downloadFullLeads"');
+    expect(html).toContain('id="downloadFullLeads"');
   });
 
-  it('requests the email TXT download format from the UI', () => {
+  it('requests the selected run and full-lead TXT download format from the UI', () => {
     const appJs = readPublicFile('app.js');
 
     expect(appJs).toContain(
       "api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane, dataScope)"
     );
-    expect(appJs).not.toContain("api.downloadLeads($('leadRunFilter').value, 'full')");
+    expect(appJs).toContain(
+      "api.downloadLeads($('leadRunFilter').value, 'full', activeLeadLane, dataScope)"
+    );
   });
 });
 
