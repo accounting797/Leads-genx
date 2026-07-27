@@ -198,6 +198,7 @@
                 <label>
                   <span>Google Request Budget</span>
                   <input id="gmApiBudget" type="number" min="1" max="500" value="50">
+                  <small class="settings-hint">Google requests are capped at 500 and stop cleanly on quota or rate limits; this is separate from your results cap.</small>
                 </label>
                 <label>
                   <span>Optional Proxy URLs (request-scoped)</span>
@@ -420,7 +421,7 @@
               <h3>Plan</h3>
               <div class="account-plan">
                 <span class="plan-badge large" id="accountPlanBadge" data-tier="STANDARD">Standard</span>
-                <p id="accountPlanDesc">Standard plan: Docker + Google output, up to 500 results per run, 5 runs per day.</p>
+                <p id="accountPlanDesc">Standard plan: Docker + Google output, up to 1,000 results per run, 5 runs per day.</p>
               </div>
               <div id="upgradeSection">
                 <button id="upgradeBtn" type="button" class="primary-btn">Request Hybrid Upgrade</button>

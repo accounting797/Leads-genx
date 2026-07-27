@@ -221,6 +221,16 @@ describe('static dashboard live progress', () => {
     expect(appJs).toContain('refreshLiveProgressTables');
     expect(appJs).toContain('await refreshLiveProgressTables(run.id)');
   });
+
+  it('animates radar progress from the previous value to the latest value', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('function animateRadarProgress(target)');
+    expect(appJs).toContain('requestAnimationFrame');
+    expect(appJs).toContain('cancelAnimationFrame');
+    expect(appJs).toContain('animateRadarProgress(clamped)');
+    expect(appJs).toContain('radarProgressValue = 0');
+  });
 });
 
 describe('static dashboard command radar', () => {

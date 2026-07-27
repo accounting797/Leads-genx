@@ -164,12 +164,17 @@ describe('tier gating and quotas', () => {
 
   it('enforces the results-per-run plan cap', async () => {
     const janeCookie = await login('client.jane', 'jane-password-1');
+    await request(app())
+      .post('/api/runs')
+      .set('Cookie', janeCookie)
+      .send({ leadSource: 'google_maps', maxResults: 1000, googleApiKey: 'test-google-key', googleMaps: { searchTerms: ['dentist'] } })
+      .expect(202);
     const res = await request(app())
       .post('/api/runs')
       .set('Cookie', janeCookie)
-      .send({ leadSource: 'google_maps', maxResults: 600, googleApiKey: 'test-google-key', googleMaps: { searchTerms: ['dentist'] } })
+      .send({ leadSource: 'google_maps', maxResults: 1001, googleApiKey: 'test-google-key', googleMaps: { searchTerms: ['dentist'] } })
       .expect(400);
-    expect(res.body.error).toMatch(/500/);
+    expect(res.body.error).toMatch(/1000/);
   });
 
   it('stamps runs with the owner and lets admins run hybrid', async () => {

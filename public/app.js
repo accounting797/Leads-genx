@@ -14,6 +14,8 @@
   let lastEventKey = null;
   let lastEventChangeAt = null;
   let knownBusinessCount = 0;
+  let radarProgressValue = 0;
+  let radarAnimationFrame = null;
 
   const RING_CIRCUMFERENCE = 326.7;
 
@@ -85,7 +87,13 @@
       if (Number(maxResults.value || 0) > 2500) maxResults.value = '2500';
       return;
     }
-    maxResults.removeAttribute('max');
+    const cap = isAdmin() ? null : (currentUser && currentUser.tier === 'HYBRID' ? 5000 : 1000);
+    if (cap) {
+      maxResults.max = String(cap);
+      if (Number(maxResults.value || 0) > cap) maxResults.value = String(cap);
+    } else {
+      maxResults.removeAttribute('max');
+    }
   }
 
   function setSource(source) {
@@ -837,6 +845,34 @@
     while (layer.children.length > 24) layer.firstChild.remove();
   }
 
+  function renderRadarProgress(fraction) {
+    $('radarRingFill').style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - fraction));
+    $('radarPercent').textContent = Math.round(fraction * 100) + '%';
+  }
+
+  function animateRadarProgress(target) {
+    const clampedTarget = Math.min(1, Math.max(0, target));
+    if (radarAnimationFrame !== null) cancelAnimationFrame(radarAnimationFrame);
+    const start = radarProgressValue;
+    const delta = clampedTarget - start;
+    if (Math.abs(delta) < 0.001) {
+      radarProgressValue = clampedTarget;
+      renderRadarProgress(clampedTarget);
+      radarAnimationFrame = null;
+      return;
+    }
+    const duration = Math.max(400, Math.min(1800, Math.abs(delta) * 1800));
+    const startedAt = performance.now();
+    const step = (now) => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      radarProgressValue = start + delta * progress;
+      renderRadarProgress(radarProgressValue);
+      if (progress < 1) radarAnimationFrame = requestAnimationFrame(step);
+      else radarAnimationFrame = null;
+    };
+    radarAnimationFrame = requestAnimationFrame(step);
+  }
+
   function updateRadar(run, events, fraction, elapsed) {
     const shell = $('radarShell');
     const newestEventAt = events.length ? new Date(events[events.length - 1].createdAt).getTime() : 0;
@@ -870,8 +906,7 @@
     knownBusinessCount = Math.max(knownBusinessCount, businesses);
 
     const clamped = Math.min(1, Math.max(0, fraction));
-    $('radarRingFill').style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - clamped));
-    $('radarPercent').textContent = Math.round(clamped * 100) + '%';
+    animateRadarProgress(clamped);
 
     const eta = state === 'active' ? estimateEtaRange(businesses, Math.max(1, run.maxResults || 1), elapsed) : null;
     $('radarEta').textContent = eta
@@ -895,14 +930,16 @@
   }
 
   function resetRadar() {
+    if (radarAnimationFrame !== null) cancelAnimationFrame(radarAnimationFrame);
+    radarAnimationFrame = null;
+    radarProgressValue = 0;
     lastEventKey = null;
     lastEventChangeAt = Date.now();
     knownBusinessCount = 0;
     $('radarBlips').innerHTML = '';
     $('radarShell').dataset.state = 'active';
     $('radarHeartbeat').textContent = 'Live heartbeat';
-    $('radarRingFill').style.strokeDashoffset = String(RING_CIRCUMFERENCE);
-    $('radarPercent').textContent = '0%';
+    renderRadarProgress(0);
     $('radarEta').textContent = 'ETA —';
     setOrbit('orbitDocker', null);
     setOrbit('orbitGoogle', null);
@@ -1356,6 +1393,7 @@
   function applyRoleUI(user) {
     currentUser = user;
     dataScope = 'mine';
+    applySourceLimits(activeSource);
     applyDataScopeUI();
     document.querySelectorAll('[data-admin-only]').forEach((el) => {
       el.hidden = !isAdmin();
@@ -1473,7 +1511,7 @@
     badge.textContent = currentUser.role === 'ADMIN' ? 'Admin' : hybrid ? 'Hybrid' : 'Standard';
     $('accountPlanDesc').textContent = hybrid
       ? 'Hybrid plan: Docker + Google + Apify output, up to 5,000 results per run, 25 runs per day.'
-      : 'Standard plan: Docker + Google output, up to 500 results per run, 5 runs per day.';
+      : 'Standard plan: Docker + Google output, up to 1,000 results per run, 5 runs per day.';
     $('upgradeSection').style.display = hybrid ? 'none' : '';
     $('accountSummary').textContent = 'Signed in as ' + currentUser.username + '.';
     void loadByodStatus();
