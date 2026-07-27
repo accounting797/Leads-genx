@@ -87,7 +87,8 @@ function parseDataScope(req: Request): DataScope {
 }
 
 function runOwnerWhere(res: Response, scope: DataScope): { userId: number } | undefined {
-  const user = currentUser(res)!;
+  const user = currentUser(res);
+  if (!user) return undefined;
   return scope === 'all' && user.role === 'ADMIN' ? undefined : { userId: user.id };
 }
 
