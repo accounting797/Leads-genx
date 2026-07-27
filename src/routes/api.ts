@@ -77,6 +77,20 @@ function safeHttpsUrl(value: string): string {
   }
 }
 
+type DataScope = 'mine' | 'all';
+
+function parseDataScope(req: Request): DataScope {
+  const value = req.query.scope;
+  if (value === undefined || value === 'mine') return 'mine';
+  if (value === 'all') return 'all';
+  throw new ValidationError('scope must be mine or all.');
+}
+
+function runOwnerWhere(res: Response, scope: DataScope): { userId: number } | undefined {
+  const user = currentUser(res)!;
+  return scope === 'all' && user.role === 'ADMIN' ? undefined : { userId: user.id };
+}
+
 export interface ApiRunService {
   startRun(input: ReturnType<typeof validateCreateRunInput>, options?: { userId?: number }): Promise<{
     id: number;
@@ -304,12 +318,11 @@ export function createApiRouter({
 
   router.get(
     '/runs',
-    asyncHandler(async (_req, res) => {
-      const user = currentUser(res);
-      const scoped = user && user.role !== 'ADMIN' ? { userId: user.id } : undefined;
+    asyncHandler(async (req, res) => {
+      const scope = parseDataScope(req);
       const runs = prisma
         ? await prisma.run.findMany({
-            where: scoped,
+            where: runOwnerWhere(res, scope),
             orderBy: { createdAt: 'desc' },
             include: {
               _count: { select: { leads: true, batches: true } },
@@ -596,21 +609,23 @@ export function createApiRouter({
 
   function leadScope(
     res: Response,
+    scope: DataScope,
     runId?: number,
     leadSource?: 'google_maps' | 'sales_navigator'
   ): Record<string, unknown> | undefined {
-    const user = currentUser(res);
     if (!prisma) return undefined;
     const where: Record<string, unknown> = {};
     if (runId) where.runId = runId;
     if (leadSource) where.leadSource = leadSource;
-    if (user && user.role !== 'ADMIN') where.run = { userId: user.id };
+    const ownerWhere = runOwnerWhere(res, scope);
+    if (ownerWhere) where.run = ownerWhere;
     return Object.keys(where).length ? where : undefined;
   }
 
   router.get(
     '/leads',
     asyncHandler(async (req, res) => {
+      const scope = parseDataScope(req);
       const runId = req.query.runId ? Number(req.query.runId) : undefined;
       const leadSource = typeof req.query.leadSource === 'string' ? req.query.leadSource : undefined;
       if (leadSource && leadSource !== 'google_maps' && leadSource !== 'sales_navigator') {
@@ -621,15 +636,26 @@ export function createApiRouter({
         leadSource === 'google_maps' || leadSource === 'sales_navigator' ? leadSource : undefined;
       const leads = prisma
         ? await prisma.lead.findMany({
-            where: leadScope(res, runId, selectedLeadSource),
+            where: leadScope(res, scope, runId, selectedLeadSource),
             orderBy: { createdAt: 'desc' },
+            include: {
+              run: {
+                select: {
+                  user: { select: { username: true } },
+                },
+              },
+            },
           })
         : [];
-      if (!prisma || !leads.length) {
-        res.json({ data: leads });
+      const leadsWithOwners = leads.map(({ run, ...lead }) => ({
+        ...lead,
+        ownerUsername: run.user?.username || 'Legacy / unassigned',
+      }));
+      if (!prisma || !leadsWithOwners.length) {
+        res.json({ data: leadsWithOwners });
         return;
       }
-      const runIds = [...new Set(leads.map((lead) => lead.runId))];
+      const runIds = [...new Set(leadsWithOwners.map((lead) => lead.runId))];
       const scans = await prisma.hiringSignalScan.findMany({
         where: { runId: { in: runIds } },
         orderBy: { id: 'desc' },
@@ -663,7 +689,7 @@ export function createApiRouter({
         ])
       );
       res.json({
-        data: leads.map((lead) => {
+        data: leadsWithOwners.map((lead) => {
           const identity = companyIdentity({ companyName: lead.companyName, website: lead.website });
           const hiringSignal = signalByIdentity.get(`${lead.runId}:${identity.companyKey}`);
           return hiringSignal ? { ...lead, hiringSignal } : lead;
@@ -675,6 +701,7 @@ export function createApiRouter({
   router.get(
     '/leads/download',
     asyncHandler(async (req, res) => {
+      const scope = parseDataScope(req);
       const runId = req.query.runId ? Number(req.query.runId) : undefined;
       const leadSource = typeof req.query.leadSource === 'string' ? req.query.leadSource : undefined;
       if (leadSource && leadSource !== 'google_maps' && leadSource !== 'sales_navigator') {
@@ -685,7 +712,7 @@ export function createApiRouter({
         leadSource === 'google_maps' || leadSource === 'sales_navigator' ? leadSource : undefined;
       const leads = prisma
         ? await prisma.lead.findMany({
-            where: leadScope(res, runId, selectedLeadSource),
+            where: leadScope(res, scope, runId, selectedLeadSource),
             orderBy: { createdAt: 'desc' },
           })
         : [];

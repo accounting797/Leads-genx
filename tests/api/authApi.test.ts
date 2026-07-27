@@ -208,8 +208,9 @@ describe('tier gating and quotas', () => {
 });
 
 describe('run isolation', () => {
-  it('users see only their own runs; admins see all', async () => {
+  it('defaults every user to their own runs and lets only admins request all users', async () => {
     const jane = await prisma.user.findUnique({ where: { username: 'client.jane' } });
+    const admin = await prisma.user.findUniqueOrThrow({ where: { username: 'owner' } });
     await prisma.user.deleteMany({ where: { username: 'client.john' } });
     const john = await prisma.user.create({
       data: { username: 'client.john', passwordHash: await hashPassword('john-password-1'), tier: 'STANDARD' },
@@ -219,6 +220,9 @@ describe('run isolation', () => {
     });
     const johnRun = await prisma.run.create({
       data: { actorId: 'test', leadSource: 'google_maps', status: 'completed', maxResults: 10, userId: john.id },
+    });
+    const adminRun = await prisma.run.create({
+      data: { actorId: 'test', leadSource: 'google_maps', status: 'completed', maxResults: 10, userId: admin.id },
     });
 
     const johnCookie = await login('client.john', 'john-password-1');
@@ -233,22 +237,46 @@ describe('run isolation', () => {
     await request(app()).post(`/api/runs/${janeRun.id}/stop`).set('Cookie', johnCookie).expect(404);
 
     const adminCookie = await login('owner', 'owner-password-1');
-    const allRuns = await request(app()).get('/api/runs').set('Cookie', adminCookie).expect(200);
+    const adminMine = await request(app()).get('/api/runs').set('Cookie', adminCookie).expect(200);
+    const mineIds = adminMine.body.data.map((run: { id: number }) => run.id);
+    expect(mineIds).toContain(adminRun.id);
+    expect(mineIds).not.toContain(janeRun.id);
+    expect(mineIds).not.toContain(johnRun.id);
+
+    const allRuns = await request(app()).get('/api/runs?scope=all').set('Cookie', adminCookie).expect(200);
     const adminIds = allRuns.body.data.map((run: { id: number }) => run.id);
-    expect(adminIds).toEqual(expect.arrayContaining([janeRun.id, johnRun.id]));
+    expect(adminIds).toEqual(expect.arrayContaining([adminRun.id, janeRun.id, johnRun.id]));
     expect(allRuns.body.data.find((run: { id: number }) => run.id === johnRun.id).user.username).toBe('client.john');
+
+    const forcedMine = await request(app()).get('/api/runs?scope=all').set('Cookie', johnCookie).expect(200);
+    const forcedMineIds = forcedMine.body.data.map((run: { id: number }) => run.id);
+    expect(forcedMineIds).toContain(johnRun.id);
+    expect(forcedMineIds).not.toContain(janeRun.id);
+
+    const invalidScope = await request(app())
+      .get('/api/runs?scope=team')
+      .set('Cookie', adminCookie)
+      .expect(400);
+    expect(invalidScope.body.error).toBe('scope must be mine or all.');
   });
 
-  it('scopes leads to owned runs', async () => {
+  it('applies the same explicit scope to lead lists and downloads', async () => {
     const jane = await prisma.user.findUnique({ where: { username: 'client.jane' } });
     const john = await prisma.user.findUnique({ where: { username: 'client.john' } });
+    const admin = await prisma.user.findUniqueOrThrow({ where: { username: 'owner' } });
     const janeRun = await prisma.run.findFirst({ where: { userId: jane!.id } });
     const johnRun = await prisma.run.findFirst({ where: { userId: john!.id } });
+    const adminRun = await prisma.run.create({
+      data: { actorId: 'test', leadSource: 'google_maps', status: 'completed', maxResults: 10, userId: admin.id },
+    });
     await prisma.lead.create({
       data: { runId: janeRun!.id, leadSource: 'google_maps', leadType: 'business', email: 'jane@example.com', normalizedEmail: 'jane@example.com' },
     });
     await prisma.lead.create({
       data: { runId: johnRun!.id, leadSource: 'google_maps', leadType: 'business', email: 'john@example.com', normalizedEmail: 'john@example.com' },
+    });
+    await prisma.lead.create({
+      data: { runId: adminRun.id, leadSource: 'google_maps', leadType: 'business', email: 'owner@example.com', normalizedEmail: 'owner@example.com' },
     });
 
     const johnCookie = await login('client.john', 'john-password-1');
@@ -263,6 +291,52 @@ describe('run isolation', () => {
       .expect(200);
     expect(download.text).toContain('john@example.com');
     expect(download.text).not.toContain('jane@example.com');
+
+    const adminCookie = await login('owner', 'owner-password-1');
+    const adminMine = await request(app()).get('/api/leads').set('Cookie', adminCookie).expect(200);
+    const adminMineEmails = adminMine.body.data.map((lead: { email: string }) => lead.email);
+    expect(adminMineEmails).toContain('owner@example.com');
+    expect(adminMineEmails).not.toContain('john@example.com');
+
+    const adminAll = await request(app()).get('/api/leads?scope=all').set('Cookie', adminCookie).expect(200);
+    expect(adminAll.body.data.map((lead: { email: string }) => lead.email)).toEqual(
+      expect.arrayContaining(['owner@example.com', 'jane@example.com', 'john@example.com'])
+    );
+    expect(
+      adminAll.body.data.find((lead: { email: string }) => lead.email === 'john@example.com').ownerUsername
+    ).toBe('client.john');
+
+    const adminMineDownload = await request(app())
+      .get('/api/leads/download?format=emails')
+      .set('Cookie', adminCookie)
+      .expect(200);
+    expect(adminMineDownload.text).toContain('owner@example.com');
+    expect(adminMineDownload.text).not.toContain('john@example.com');
+
+    const adminAllDownload = await request(app())
+      .get('/api/leads/download?format=emails&scope=all')
+      .set('Cookie', adminCookie)
+      .expect(200);
+    expect(adminAllDownload.text).toContain('owner@example.com');
+    expect(adminAllDownload.text).toContain('john@example.com');
+
+    const userCannotBroaden = await request(app())
+      .get('/api/leads/download?format=emails&scope=all')
+      .set('Cookie', johnCookie)
+      .expect(200);
+    expect(userCannotBroaden.text).toContain('john@example.com');
+    expect(userCannotBroaden.text).not.toContain('jane@example.com');
+
+    const invalidListScope = await request(app())
+      .get('/api/leads?scope=team')
+      .set('Cookie', adminCookie)
+      .expect(400);
+    expect(invalidListScope.body.error).toBe('scope must be mine or all.');
+    const invalidDownloadScope = await request(app())
+      .get('/api/leads/download?format=emails&scope=team')
+      .set('Cookie', adminCookie)
+      .expect(400);
+    expect(invalidDownloadScope.body.error).toBe('scope must be mine or all.');
   });
 });
 
