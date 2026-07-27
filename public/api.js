@@ -31,6 +31,15 @@
     return text;
   }
 
+  function queryPath(path, values) {
+    const params = new URLSearchParams();
+    Object.entries(values).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    const query = params.toString();
+    return path + (query ? '?' + query : '');
+  }
+
   window.LeadsGenXApi = {
     getHealth: () => requestJson('/health'),
     getMe: () => requestJson('/auth/me'),
@@ -117,19 +126,14 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
-    listRuns: () => requestJson('/runs'),
+    listRuns: (scope) => requestJson(queryPath('/runs', { scope })),
     getRun: (id) => requestJson('/runs/' + id),
     deleteRun: (id) => requestJson('/runs/' + id, { method: 'DELETE' }),
     stopRun: (id) => requestJson('/runs/' + id + '/stop', { method: 'POST' }),
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
     getRunAnalyst: (id) => requestJson('/runs/' + id + '/analyst'),
-    listLeads: (runId, leadSource) => {
-      const params = new URLSearchParams();
-      if (runId) params.set('runId', runId);
-      if (leadSource) params.set('leadSource', leadSource);
-      const query = params.toString();
-      return requestJson('/leads' + (query ? '?' + query : ''));
-    },
+    listLeads: (runId, leadSource, scope) =>
+      requestJson(queryPath('/leads', { runId, leadSource, scope })),
     getHiringSignals: (runId) => requestJson('/runs/' + runId + '/hiring-signals'),
     refreshHiringSignals: (runId) =>
       requestJson('/runs/' + runId + '/hiring-signals/refresh', { method: 'POST' }),
@@ -145,8 +149,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetLane }),
       }),
-    getLeadEmailsTxt: (runId) =>
-      requestText('/leads/download?format=emails' + (runId ? '&runId=' + runId : '')),
+    getLeadEmailsTxt: (runId, scope) =>
+      requestText(queryPath('/leads/download', { format: 'emails', runId, scope })),
     listErrors: () => requestJson('/errors'),
     getExtensionToken: () => requestJson('/extension/token'),
     regenerateExtensionToken: () => requestJson('/extension/token/regenerate', { method: 'POST' }),
@@ -188,13 +192,9 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
-    downloadLeads: (runId, format, leadSource) => {
-      const params = new URLSearchParams();
-      if (runId) params.set('runId', runId);
-      if (format) params.set('format', format);
-      if (leadSource) params.set('leadSource', leadSource);
-      const query = params.toString();
-      window.location.href = BASE + '/leads/download' + (query ? '?' + query : '');
+    downloadLeads: (runId, format, leadSource, scope) => {
+      window.location.href =
+        BASE + queryPath('/leads/download', { runId, format, leadSource, scope });
     },
   };
 })();

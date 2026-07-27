@@ -54,6 +54,19 @@ describe('static dashboard downloads', () => {
   });
 });
 
+describe('static dashboard data scope', () => {
+  it('passes the selected scope through every runs and leads request', () => {
+    const apiJs = readPublicFile('api.js');
+
+    expect(apiJs).toContain('function queryPath(path, values)');
+    expect(apiJs).toContain("if (value) params.set(key, value)");
+    expect(apiJs).toContain('listRuns: (scope)');
+    expect(apiJs).toContain('listLeads: (runId, leadSource, scope)');
+    expect(apiJs).toContain('getLeadEmailsTxt: (runId, scope)');
+    expect(apiJs).toContain('downloadLeads: (runId, format, leadSource, scope)');
+  });
+});
+
 describe('static dashboard hiring lanes', () => {
   it('keeps Google Maps, Sales Navigator, and Hiring opportunities visibly separate', () => {
     const html = readPublicFile('index.html');
