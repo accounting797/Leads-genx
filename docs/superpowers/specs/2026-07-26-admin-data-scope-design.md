@@ -1,6 +1,6 @@
 # Admin Data Scope Design
 
-**Date:** 2026-07-26  
+**Date:** 2026-07-26
 **Status:** Approved for planning
 
 ## Objective
