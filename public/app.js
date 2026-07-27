@@ -37,6 +37,7 @@
 
   let selectedOutputMode = 'standard';
   let currentUser = null;
+  let dataScope = 'mine';
 
   function isAdmin() {
     return Boolean(currentUser && currentUser.role === 'ADMIN');
@@ -348,11 +349,17 @@
     }
   }
 
-  async function loadRuns(preferredRunId) {
-    const runsPayload = await api.listRuns();
-    const runs = Array.isArray(runsPayload) ? runsPayload : [];
+  function runOptionLabel(run) {
+    const base = 'Run #' + run.id;
+    if (dataScope !== 'all') return base;
+    const owner = run.user && run.user.username ? run.user.username : 'Legacy / unassigned';
+    return base + ' · ' + owner;
+  }
+
+  function renderRunsData(runs, preferredRunId) {
     latestRuns = runs;
-    const selectedRunId = preferredRunId || $('leadRunFilter').value;
+    const selectedRunId =
+      preferredRunId === undefined ? $('leadRunFilter').value : preferredRunId;
     const selectedHiringRunId = $('hiringRunFilter').value;
     $('runsTable').innerHTML = window.LeadsGenXUi.renderRuns(runs);
     $('metricRuns').textContent = runs.length;
@@ -366,7 +373,12 @@
       '<option value="">All ' +
       (activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator') +
       ' runs</option>' +
-      laneRuns.map((run) => '<option value="' + run.id + '">Run #' + run.id + '</option>').join('');
+      laneRuns
+        .map(
+          (run) =>
+            '<option value="' + run.id + '">' + escapeHtml(runOptionLabel(run)) + '</option>'
+        )
+        .join('');
     if (selectedRunId && laneRuns.some((run) => String(run.id) === String(selectedRunId))) {
       $('leadRunFilter').value = selectedRunId;
     }
@@ -378,10 +390,12 @@
           (run) =>
             '<option value="' +
             run.id +
-            '">Run #' +
-            run.id +
-            ' · ' +
-            (run.leadSource === 'google_maps' ? 'Google Maps' : 'Sales Navigator') +
+            '">' +
+            escapeHtml(
+              runOptionLabel(run) +
+                ' · ' +
+                (run.leadSource === 'google_maps' ? 'Google Maps' : 'Sales Navigator')
+            ) +
             '</option>'
         )
         .join('');
@@ -400,14 +414,71 @@
     return runs;
   }
 
+  async function loadRuns(preferredRunId) {
+    const runsPayload = await api.listRuns(dataScope);
+    const runs = Array.isArray(runsPayload) ? runsPayload : [];
+    return renderRunsData(runs, preferredRunId);
+  }
+
+  function renderLeadsData(leads, runId) {
+    const laneLabel = activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator';
+    const scopeLabel = dataScope === 'all' ? 'all users' : 'my data';
+    $('leadSummary').textContent =
+      laneLabel +
+      ' · ' +
+      scopeLabel +
+      ' · ' +
+      (runId ? 'selected run: ' : 'all runs: ') +
+      leads.length +
+      ' leads';
+    $('leadsTable').innerHTML = window.LeadsGenXUi.renderLeads(leads, dataScope === 'all');
+  }
+
   async function loadLeads() {
     const runId = $('leadRunFilter').value;
-    const leadsPayload = await api.listLeads(runId, activeLeadLane);
+    const leadsPayload = await api.listLeads(runId, activeLeadLane, dataScope);
     const leads = Array.isArray(leadsPayload) ? leadsPayload : [];
-    const laneLabel = activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator';
-    $('leadSummary').textContent =
-      laneLabel + ' · ' + (runId ? 'selected run: ' : 'all runs: ') + leads.length + ' leads';
-    $('leadsTable').innerHTML = window.LeadsGenXUi.renderLeads(leads);
+    renderLeadsData(leads, runId);
+  }
+
+  function applyDataScopeUI() {
+    document.querySelectorAll('[data-data-scope]').forEach((button) => {
+      const active = button.dataset.dataScope === dataScope;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    $('dataScopeLabel').textContent =
+      dataScope === 'all' ? 'Viewing all users — oversight mode' : 'Viewing my data';
+  }
+
+  async function setDataScope(nextScope) {
+    const requestedScope = nextScope === 'all' ? 'all' : 'mine';
+    if (!isAdmin() || requestedScope === dataScope) return;
+    const buttons = document.querySelectorAll('[data-data-scope]');
+    buttons.forEach((button) => {
+      button.disabled = true;
+    });
+    try {
+      const [runsPayload, leadsPayload] = await Promise.all([
+        api.listRuns(requestedScope),
+        api.listLeads(undefined, activeLeadLane, requestedScope),
+      ]);
+      const runs = Array.isArray(runsPayload) ? runsPayload : [];
+      const leads = Array.isArray(leadsPayload) ? leadsPayload : [];
+      dataScope = requestedScope;
+      applyDataScopeUI();
+      if (activeRunId && !runs.some((run) => String(run.id) === String(activeRunId))) {
+        settleFinishedRun(activeRunId, runs);
+      }
+      renderRunsData(runs, '');
+      renderLeadsData(leads, '');
+    } catch (error) {
+      window.LeadsGenXUi.toast(error.message);
+    } finally {
+      buttons.forEach((button) => {
+        button.disabled = false;
+      });
+    }
   }
 
   async function setLeadLane(lane) {
@@ -420,7 +491,12 @@
       '<option value="">All ' +
       (activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator') +
       ' runs</option>' +
-      laneRuns.map((run) => '<option value="' + run.id + '">Run #' + run.id + '</option>').join('');
+      laneRuns
+        .map(
+          (run) =>
+            '<option value="' + run.id + '">' + escapeHtml(runOptionLabel(run)) + '</option>'
+        )
+        .join('');
     await loadLeads();
   }
 
@@ -674,7 +750,7 @@
 
   async function loadExtensionRuns() {
     try {
-      const runs = await api.listRuns();
+      const runs = await api.listRuns('mine');
       renderExtensionRuns(runs.filter((run) => run.actorId === 'sn_extension'));
     } catch (error) {
       $('extensionRunsTable').innerHTML = window.LeadsGenXUi.empty(error.message);
@@ -1005,7 +1081,7 @@
         progressTimer = null;
         setAnalystLive(false);
         await refreshLiveProgressTables(run.id);
-        settleFinishedRun(run.id, await api.listRuns());
+        settleFinishedRun(run.id, await api.listRuns(dataScope));
       } else if (['waiting_for_scraper', 'waiting_for_credentials'].includes(run.status)) {
         // Keep watching: the engineer may reconnect or the operator may resume,
         // so the analyst must stay alive instead of freezing on a waiting run.
@@ -1158,7 +1234,7 @@
     $('refreshHiringSignals').addEventListener('click', refreshHiringSignals);
     $('hiringOpportunities').addEventListener('click', (event) => void handleHiringAction(event));
     $('downloadEmails').addEventListener('click', () =>
-      api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane)
+      api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane, dataScope)
     );
     $('saveSettingsBtn').addEventListener('click', () => saveSettings());
     $('clearApifyBtn').addEventListener('click', () => saveSettings({ apifyToken: '' }));
@@ -1254,7 +1330,7 @@
   }
 
   async function copyRunEmails(runId) {
-    const text = await api.getLeadEmailsTxt(runId);
+    const text = await api.getLeadEmailsTxt(runId, dataScope);
     await copyText(text);
     const count = text.trim() ? text.trim().split('\n').length : 0;
     window.LeadsGenXUi.toast('Copied ' + count + ' emails from run #' + runId);
@@ -1279,6 +1355,8 @@
 
   function applyRoleUI(user) {
     currentUser = user;
+    dataScope = 'mine';
+    applyDataScopeUI();
     document.querySelectorAll('[data-admin-only]').forEach((el) => {
       el.hidden = !isAdmin();
     });
@@ -1306,6 +1384,10 @@
 
   async function boot() {
     showAuthGate('loading');
+    $('dataScopeControl').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-data-scope]');
+      if (button) void setDataScope(button.dataset.dataScope);
+    });
     $('logoutBtn').addEventListener('click', async () => {
       try {
         await api.logout();

@@ -49,7 +49,9 @@ describe('static dashboard downloads', () => {
   it('requests the email TXT download format from the UI', () => {
     const appJs = readPublicFile('app.js');
 
-    expect(appJs).toContain("api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane)");
+    expect(appJs).toContain(
+      "api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane, dataScope)"
+    );
     expect(appJs).not.toContain("api.downloadLeads($('leadRunFilter').value, 'full')");
   });
 });
@@ -64,6 +66,44 @@ describe('static dashboard data scope', () => {
     expect(apiJs).toContain('listLeads: (runId, leadSource, scope)');
     expect(apiJs).toContain('getLeadEmailsTxt: (runId, scope)');
     expect(apiJs).toContain('downloadLeads: (runId, format, leadSource, scope)');
+  });
+
+  it('shows an admin-only My Data and All Users control', () => {
+    const html = readPublicFile('index.html');
+
+    expect(html).toContain('id="dataScopeControl"');
+    expect(html).toContain('data-admin-only');
+    expect(html).toContain('data-data-scope="mine"');
+    expect(html).toContain('data-data-scope="all"');
+    expect(html).toContain('id="dataScopeLabel"');
+  });
+
+  it('defaults scope in memory and never persists it', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain("let dataScope = 'mine'");
+    expect(appJs).toContain("dataScope = 'mine'");
+    expect(appJs).not.toContain("localStorage.setItem('leadsgenx:data-scope'");
+    expect(appJs).not.toContain("sessionStorage.setItem('leadsgenx:data-scope'");
+  });
+
+  it('uses one scope for runs, leads, downloads, and email copies', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('api.listRuns(dataScope)');
+    expect(appJs).toContain('api.listLeads(runId, activeLeadLane, dataScope)');
+    expect(appJs).toContain(
+      "api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane, dataScope)"
+    );
+    expect(appJs).toContain('api.getLeadEmailsTxt(runId, dataScope)');
+  });
+
+  it('renders lead ownership for the all-users view', () => {
+    const uiJs = readPublicFile('ui.js');
+
+    expect(uiJs).toContain('function renderLeads(leads, showOwner)');
+    expect(uiJs).toContain("showOwner ? '<th>Owner</th>' : ''");
+    expect(uiJs).toContain('lead.ownerUsername');
   });
 });
 

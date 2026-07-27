@@ -66,10 +66,13 @@
     );
   }
 
-  function renderLeads(leads) {
+  function renderLeads(leads, showOwner) {
     if (!leads.length) return empty('No leads found.');
+    const ownerHeader = showOwner ? '<th>Owner</th>' : '';
     return (
-      '<div class="table-wrap"><table><thead><tr><th>Type</th><th>Name</th><th>Title/Category</th><th>Company</th><th>Email</th><th>Phone</th><th>Website/Profile</th><th>Location/Address</th><th>Rating</th><th>Reviews</th></tr></thead><tbody>' +
+      '<div class="table-wrap"><table><thead><tr>' +
+      ownerHeader +
+      '<th>Type</th><th>Name</th><th>Title/Category</th><th>Company</th><th>Email</th><th>Phone</th><th>Website/Profile</th><th>Location/Address</th><th>Rating</th><th>Reviews</th></tr></thead><tbody>' +
       leads
         .map((lead) => {
           const isBusiness = lead.leadType === 'business';
@@ -87,8 +90,11 @@
               escapeHtml(signal.score) +
               '</a>'
             : '';
+          const ownerCell = showOwner ? '<td>' + escapeHtml(lead.ownerUsername) + '</td>' : '';
           return (
-            '<tr><td class="source">' +
+            '<tr>' +
+            ownerCell +
+            '<td class="source">' +
             escapeHtml(lead.leadType) +
             '</td><td>' +
             escapeHtml(name) +
