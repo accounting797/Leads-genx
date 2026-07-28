@@ -453,6 +453,37 @@
     renderLeadsData(leads, runId);
   }
 
+  function downloadCheckpointKey(format) {
+    const userKey = currentUser && currentUser.username ? currentUser.username : 'legacy';
+    return 'leadsgenx:last-download:' + userKey + ':' + dataScope + ':' + activeLeadLane + ':' + format;
+  }
+
+  function lastDownloadAt(format) {
+    try {
+      return localStorage.getItem(downloadCheckpointKey(format)) || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function downloadLeads(format) {
+    const runId = $('leadRunFilter').value;
+    const allRuns = !runId;
+    const createdAfter = allRuns && $('downloadRange').value === 'since' ? lastDownloadAt(format) : undefined;
+    try {
+      await api.downloadLeads(runId, format, activeLeadLane, dataScope, createdAfter);
+      if (allRuns) {
+        try {
+          localStorage.setItem(downloadCheckpointKey(format), new Date().toISOString());
+        } catch {
+          // A private browsing context may block storage; the download still works.
+        }
+      }
+    } catch (error) {
+      window.LeadsGenXUi.toast(error.message);
+    }
+  }
+
   function applyDataScopeUI() {
     document.querySelectorAll('[data-data-scope]').forEach((button) => {
       const active = button.dataset.dataScope === dataScope;
@@ -1274,12 +1305,8 @@
     $('hiringRunFilter').addEventListener('change', loadHiringSignals);
     $('refreshHiringSignals').addEventListener('click', refreshHiringSignals);
     $('hiringOpportunities').addEventListener('click', (event) => void handleHiringAction(event));
-    $('downloadEmails').addEventListener('click', () =>
-      api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane, dataScope)
-    );
-    $('downloadFullLeads').addEventListener('click', () =>
-      api.downloadLeads($('leadRunFilter').value, 'full', activeLeadLane, dataScope)
-    );
+    $('downloadEmails').addEventListener('click', () => void downloadLeads('emails'));
+    $('downloadFullLeads').addEventListener('click', () => void downloadLeads('full'));
     $('saveSettingsBtn').addEventListener('click', () => saveSettings());
     $('clearApifyBtn').addEventListener('click', () => saveSettings({ apifyToken: '' }));
     $('clearBrightDataBtn').addEventListener('click', () => saveSettings({ brightDataApiKey: '' }));

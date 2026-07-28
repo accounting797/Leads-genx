@@ -192,9 +192,23 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }),
-    downloadLeads: (runId, format, leadSource, scope) => {
-      window.location.href =
-        BASE + queryPath('/leads/download', { runId, format, leadSource, scope });
+    downloadLeads: async (runId, format, leadSource, scope, createdAfter) => {
+      const res = await fetch(
+        BASE + queryPath('/leads/download', { runId, format, leadSource, scope, createdAfter }),
+        withTimeout({}, 120_000)
+      );
+      if (!res.ok) throw new Error((await res.text()) || 'Download failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const disposition = res.headers.get('content-disposition') || '';
+      const match = disposition.match(/filename="([^"]+)"/i);
+      link.href = url;
+      link.download = match ? match[1] : 'leads-genx-export.txt';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
   };
 })();

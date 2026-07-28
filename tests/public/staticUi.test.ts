@@ -49,12 +49,22 @@ describe('static dashboard downloads', () => {
   it('requests the selected run and full-lead TXT download format from the UI', () => {
     const appJs = readPublicFile('app.js');
 
-    expect(appJs).toContain(
-      "api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane, dataScope)"
-    );
-    expect(appJs).toContain(
-      "api.downloadLeads($('leadRunFilter').value, 'full', activeLeadLane, dataScope)"
-    );
+    expect(appJs).toContain("downloadLeads('emails')");
+    expect(appJs).toContain("downloadLeads('full')");
+  });
+
+  it('offers a since-last-download checkpoint for all-runs exports', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+
+    expect(html).toContain('id="downloadRange"');
+    expect(html).toContain('Since last download');
+    expect(appJs).toContain('localStorage');
+    expect(appJs).toContain('last-download');
+    expect(appJs).toContain('downloadCheckpointKey(format)');
+    expect(appJs).toContain('await api.downloadLeads');
+    expect(appJs).toContain('createdAfter');
+    expect(readPublicFile('api.js')).toContain('URL.createObjectURL');
   });
 });
 
@@ -67,7 +77,7 @@ describe('static dashboard data scope', () => {
     expect(apiJs).toContain('listRuns: (scope)');
     expect(apiJs).toContain('listLeads: (runId, leadSource, scope)');
     expect(apiJs).toContain('getLeadEmailsTxt: (runId, scope)');
-    expect(apiJs).toContain('downloadLeads: (runId, format, leadSource, scope)');
+    expect(apiJs).toContain('downloadLeads: async (runId, format, leadSource, scope, createdAfter)');
   });
 
   it('shows an admin-only My Data and All Users control', () => {
@@ -94,9 +104,7 @@ describe('static dashboard data scope', () => {
 
     expect(appJs).toContain('api.listRuns(dataScope)');
     expect(appJs).toContain('api.listLeads(runId, activeLeadLane, dataScope)');
-    expect(appJs).toContain(
-      "api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane, dataScope)"
-    );
+    expect(appJs).toContain("api.downloadLeads(runId, format, activeLeadLane, dataScope, createdAfter)");
     expect(appJs).toContain('api.getLeadEmailsTxt(runId, dataScope)');
   });
 

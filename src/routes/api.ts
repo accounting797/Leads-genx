@@ -612,14 +612,20 @@ export function createApiRouter({
     res: Response,
     scope: DataScope,
     runId?: number,
-    leadSource?: 'google_maps' | 'sales_navigator'
+    leadSource?: 'google_maps' | 'sales_navigator',
+    createdAfter?: Date
   ): Record<string, unknown> | undefined {
     if (!prisma) return undefined;
     const where: Record<string, unknown> = {};
     if (runId) where.runId = runId;
     if (leadSource) where.leadSource = leadSource;
     const ownerWhere = runOwnerWhere(res, scope);
-    if (ownerWhere) where.run = ownerWhere;
+    if (ownerWhere || createdAfter) {
+      where.run = {
+        ...(ownerWhere || {}),
+        ...(createdAfter ? { createdAt: { gt: createdAfter } } : {}),
+      };
+    }
     return Object.keys(where).length ? where : undefined;
   }
 
@@ -629,6 +635,11 @@ export function createApiRouter({
       const scope = parseDataScope(req);
       const runId = req.query.runId ? Number(req.query.runId) : undefined;
       const leadSource = typeof req.query.leadSource === 'string' ? req.query.leadSource : undefined;
+      const createdAfter = typeof req.query.createdAfter === 'string' ? new Date(req.query.createdAfter) : undefined;
+      if (createdAfter && Number.isNaN(createdAfter.getTime())) {
+        res.status(400).json({ error: 'createdAfter must be a valid ISO date.' });
+        return;
+      }
       if (leadSource && leadSource !== 'google_maps' && leadSource !== 'sales_navigator') {
         res.status(400).json({ error: 'Choose Google Maps or Sales Navigator.' });
         return;
@@ -637,7 +648,7 @@ export function createApiRouter({
         leadSource === 'google_maps' || leadSource === 'sales_navigator' ? leadSource : undefined;
       const leads = prisma
         ? await prisma.lead.findMany({
-            where: leadScope(res, scope, runId, selectedLeadSource),
+            where: leadScope(res, scope, runId, selectedLeadSource, createdAfter),
             orderBy: { createdAt: 'desc' },
             include: {
               run: {
@@ -711,6 +722,11 @@ export function createApiRouter({
       const scope = parseDataScope(req);
       const runId = req.query.runId ? Number(req.query.runId) : undefined;
       const leadSource = typeof req.query.leadSource === 'string' ? req.query.leadSource : undefined;
+      const createdAfter = typeof req.query.createdAfter === 'string' ? new Date(req.query.createdAfter) : undefined;
+      if (createdAfter && Number.isNaN(createdAfter.getTime())) {
+        res.status(400).json({ error: 'createdAfter must be a valid ISO date.' });
+        return;
+      }
       if (leadSource && leadSource !== 'google_maps' && leadSource !== 'sales_navigator') {
         res.status(400).json({ error: 'Choose Google Maps or Sales Navigator.' });
         return;
@@ -719,7 +735,7 @@ export function createApiRouter({
         leadSource === 'google_maps' || leadSource === 'sales_navigator' ? leadSource : undefined;
       const leads = prisma
         ? await prisma.lead.findMany({
-            where: leadScope(res, scope, runId, selectedLeadSource),
+            where: leadScope(res, scope, runId, selectedLeadSource, createdAfter),
             orderBy: { createdAt: 'desc' },
           })
         : [];

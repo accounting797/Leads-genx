@@ -492,6 +492,29 @@ describe('API', () => {
     expect(res.text).toBe(['jane@example.com', 'ops@example.com'].join('\n'));
   });
 
+  it('filters all-runs downloads from the requested checkpoint date', async () => {
+    let receivedWhere: unknown;
+    const app = createApp({
+      authDisabled: true,
+      prisma: createPrismaStub([], {
+        lead: {
+          findMany: async ({ where }: { where: unknown }) => {
+            receivedWhere = where;
+            return [];
+          },
+        },
+      }) as never,
+    });
+
+    await request(app)
+      .get('/api/leads/download?format=full&createdAfter=2026-07-27T10%3A00%3A00.000Z')
+      .expect(200);
+
+    expect(receivedWhere).toEqual({
+      run: { createdAt: { gt: new Date('2026-07-27T10:00:00.000Z') } },
+    });
+  });
+
   it('rejects unsupported lead download formats', async () => {
     const app = createApp({
       authDisabled: true,
