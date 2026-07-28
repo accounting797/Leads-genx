@@ -364,6 +364,21 @@
     return base + ' · ' + owner;
   }
 
+  async function clearPreviousRuns() {
+    const scopeLabel = dataScope === 'all' ? 'all users' : 'your data';
+    if (!window.confirm('Delete all finished runs and their leads in ' + scopeLabel + ' across Google Maps and Sales Navigator? Active runs will be kept. This cannot be undone.')) return;
+    $('clearPreviousRunsStatus').textContent = 'Clearing…';
+    try {
+      const result = await api.clearPreviousRuns(undefined, dataScope);
+      $('clearPreviousRunsStatus').textContent = result.deletedCount + ' finished run' + (result.deletedCount === 1 ? '' : 's') + ' cleared.';
+      window.LeadsGenXUi.toast('Previous runs cleared');
+      await loadRuns();
+      await loadLeads();
+    } catch (error) {
+      $('clearPreviousRunsStatus').textContent = error.message;
+    }
+  }
+
   function datedRunOptionLabel(run) {
     return runOptionLabel(run) + ' · ' + new Date(run.createdAt).toLocaleString();
   }
@@ -1308,6 +1323,7 @@
     $('downloadEmails').addEventListener('click', () => void downloadLeads('emails'));
     $('downloadFullLeads').addEventListener('click', () => void downloadLeads('full'));
     $('saveSettingsBtn').addEventListener('click', () => saveSettings());
+    $('clearPreviousRunsBtn').addEventListener('click', () => void clearPreviousRuns());
     $('clearApifyBtn').addEventListener('click', () => saveSettings({ apifyToken: '' }));
     $('clearBrightDataBtn').addEventListener('click', () => saveSettings({ brightDataApiKey: '' }));
     $('testBrightDataBtn').addEventListener('click', async () => {

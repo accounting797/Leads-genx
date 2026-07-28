@@ -539,6 +539,17 @@ describe('static dashboard source-aware progress', () => {
     expect(appJs).toContain('apify_shard_started');
   });
 
+  it('places a confirmed historical-run cleanup control in Settings', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const apiJs = readPublicFile('api.js');
+
+    expect(html).toContain('id="clearPreviousRunsBtn"');
+    expect(appJs).toContain('clearPreviousRunsBtn');
+    expect(appJs).toContain('window.confirm');
+    expect(apiJs).toContain('clearPreviousRuns');
+  });
+
   it('stores separate Nova decks and applies source-specific filters', () => {
     const apiJs = readPublicFile('api.js');
     const appJs = readPublicFile('app.js');

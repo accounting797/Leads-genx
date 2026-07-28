@@ -548,6 +548,31 @@ describe('API', () => {
     expect(deleted).toEqual([12]);
   });
 
+  it('clears only finished runs in the requested scope and source', async () => {
+    let receivedWhere: unknown;
+    const app = createApp({
+      authDisabled: true,
+      prisma: createPrismaStub([], {
+        run: {
+          deleteMany: async ({ where }: { where: unknown }) => {
+            receivedWhere = where;
+            return { count: 3 };
+          },
+        },
+      }) as never,
+    });
+
+    const res = await request(app)
+      .delete('/api/runs/clear-previous?leadSource=sales_navigator')
+      .expect(200);
+
+    expect(res.body).toEqual({ data: { deletedCount: 3 } });
+    expect(receivedWhere).toEqual({
+      status: { in: ['completed', 'partially_completed', 'cancelled', 'failed'] },
+      leadSource: 'sales_navigator',
+    });
+  });
+
   it('returns 404 when deleting a missing run', async () => {
     const app = createApp({
       authDisabled: true,

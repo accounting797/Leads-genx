@@ -720,11 +720,17 @@
               <div id="proxyTestResults" class="proxy-list"></div>
             </section>
           </div>
-          <div class="actions settings-actions">
-            <button id="saveSettingsBtn" type="button" class="primary-btn">Save Settings</button>
-            <span id="settingsStatus" class="form-status"></span>
-          </div>
-        </div>
+           <div class="actions settings-actions">
+             <button id="saveSettingsBtn" type="button" class="primary-btn">Save Settings</button>
+             <span id="settingsStatus" class="form-status"></span>
+           </div>
+           <section class="settings-card danger-card">
+             <h3>Clear Previous Runs</h3>
+             <p class="settings-hint">Deletes only finished historical runs and their leads in the current data scope. Active runs are never touched.</p>
+             <button id="clearPreviousRunsBtn" type="button" class="ghost-btn danger">Clear Previous Runs</button>
+             <span id="clearPreviousRunsStatus" class="settings-hint"></span>
+           </section>
+         </div>
       </section>
     </main>
 

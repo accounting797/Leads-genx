@@ -502,6 +502,30 @@ export function createApiRouter({
   );
 
   router.delete(
+    '/runs/clear-previous',
+    asyncHandler(async (req, res) => {
+      if (!prisma) {
+        res.status(503).json({ error: 'Database unavailable' });
+        return;
+      }
+      const leadSource = typeof req.query.leadSource === 'string' ? req.query.leadSource : undefined;
+      if (leadSource && leadSource !== 'google_maps' && leadSource !== 'sales_navigator') {
+        res.status(400).json({ error: 'Choose Google Maps or Sales Navigator.' });
+        return;
+      }
+      const ownerWhere = runOwnerWhere(res, parseDataScope(req));
+      const result = await prisma.run.deleteMany({
+        where: {
+          status: { in: ['completed', 'partially_completed', 'cancelled', 'failed'] },
+          ...(leadSource ? { leadSource } : {}),
+          ...(ownerWhere || {}),
+        },
+      });
+      res.json({ data: { deletedCount: result.count } });
+    })
+  );
+
+  router.delete(
     '/runs/:id',
     asyncHandler(async (req, res) => {
       if (!prisma) {

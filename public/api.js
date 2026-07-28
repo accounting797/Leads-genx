@@ -129,6 +129,8 @@
     listRuns: (scope) => requestJson(queryPath('/runs', { scope })),
     getRun: (id) => requestJson('/runs/' + id),
     deleteRun: (id) => requestJson('/runs/' + id, { method: 'DELETE' }),
+    clearPreviousRuns: (leadSource, scope) =>
+      requestJson(queryPath('/runs/clear-previous', { leadSource, scope }), { method: 'DELETE' }),
     stopRun: (id) => requestJson('/runs/' + id + '/stop', { method: 'POST' }),
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
     getRunAnalyst: (id) => requestJson('/runs/' + id + '/analyst'),
