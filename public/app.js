@@ -1,18 +1,18 @@
 (function () {
   const api = window.LeadsGenXApi;
   const chips = {};
-  let lastShuffleComboId;
   const maxResultsBySource = {};
   let activeSource = 'google_maps';
-  let activeLeadLane = 'google_maps';
-  let latestRuns = [];
-  let hiringRefreshTimer = null;
   let activeRunId = null;
   let progressTimer = null;
   let progressStartedAt = null;
   let lastEventKey = null;
   let lastEventChangeAt = null;
   let knownBusinessCount = 0;
+  let targetedCatalog = null;
+  let targetedCampaignId = null;
+  let targetedPollTimer = null;
+  let targetedRefreshVersion = 0;
 
   const RING_CIRCUMFERENCE = 326.7;
 
@@ -105,12 +105,230 @@
     $(tab + 'Tab').classList.add('active');
     if (tab === 'runs') loadRuns();
     if (tab === 'leads') loadLeads();
-    if (tab === 'hiring') loadHiringSignals();
     if (tab === 'logs') loadLogs();
     if (tab === 'settings') loadSettings();
     if (tab === 'account') loadAccount();
     if (tab === 'admin') loadAdminPanel();
-    if (tab === 'linkedin') openLinkedInTab();
+    if (tab === 'targeted') loadTargetedCatalog();
+  }
+
+  function targetedList(id) {
+    return $(id).value.split(/[\r\n,]+/).map((value) => value.trim()).filter(Boolean);
+  }
+
+  function selectedTargetedProviders(containerId) {
+    return Array.from($(containerId).querySelectorAll('input:checked')).map((input) => input.value);
+  }
+
+  function targetedInput() {
+    const selectedBanks = Array.from($('targetedBank').selectedOptions).map((option) => option.value).filter(Boolean);
+    const bankMode = $('targetedMode').value === 'bank';
+    const prompt = $('targetedPrompt').value.trim() || (bankMode && selectedBanks.length ? 'Public business contacts' : '');
+    return {
+      prompt,
+      mode: $('targetedMode').value,
+      country: $('targetedCountry').value,
+      keywords: targetedList('targetedKeywords'),
+      industries: targetedList('targetedIndustries'),
+      companyTypes: targetedList('targetedCompanyTypes'),
+      roles: targetedList('targetedRoles'), seniorities: [],
+      visibleProviders: bankMode ? [] : selectedTargetedProviders('targetedVisibleProviders'),
+      infrastructureProviders: bankMode ? [] : selectedTargetedProviders('targetedInfrastructureProviders'),
+      bankIds: bankMode ? selectedBanks : [],
+      areaCodes: targetedList('targetedAreaCodes'), states: targetedList('targetedStates'),
+      cities: targetedList('targetedCities'), postalCodes: targetedList('targetedPostalCodes'),
+      radiusMiles: Number($('targetedRadius').value || 25),
+      maxContactsPerCompany: Number($('targetedContactsPerCompany').value || 10),
+      maxResults: Number($('targetedMaxResults').value || 10000),
+      googleRequestBudget: Number($('targetedGoogleBudget').value || 50),
+      publicSearchRequestBudget: Number($('targetedPublicSearchBudget').value || 1200),
+    };
+  }
+
+  function uniqueProviders(entries, visible) {
+    const byId = new Map();
+    entries.filter((entry) => visible ? entry.matchType === 'visible_domain' : entry.matchType !== 'visible_domain')
+      .forEach((entry) => { if (!byId.has(entry.id)) byId.set(entry.id, entry); });
+    return Array.from(byId.values());
+  }
+
+  function renderTargetedProviderChecks(containerId, entries, recommended) {
+    $(containerId).innerHTML = entries.map((entry) =>
+      '<label class="targeted-check"><input type="checkbox" value="' + escapeHtml(entry.id) + '" ' +
+      (recommended.includes(entry.id) ? 'checked' : '') + '><span>' + escapeHtml(entry.label) + '</span></label>'
+    ).join('');
+  }
+
+  async function loadTargetedCatalog() {
+    if (!isAdmin()) return;
+    try {
+      if (!targetedCatalog) {
+        targetedCatalog = await api.getTargetedCatalog();
+        renderTargetedProviderChecks('targetedVisibleProviders', uniqueProviders(targetedCatalog.providers, true), []);
+        renderTargetedProviderChecks('targetedInfrastructureProviders', uniqueProviders(targetedCatalog.providers, false), ['microsoft_365', 'google_workspace']);
+        $('targetedBank').innerHTML = targetedCatalog.banks.map((bank) =>
+          '<option value="' + escapeHtml(bank.id) + '" data-country="' + escapeHtml(bank.country) + '">' + escapeHtml(bank.label + ' · ' + bank.country) + '</option>'
+        ).join('');
+      }
+      renderTargetedFunnel({ discovered: 0, aligned: 0, strict: 0, mailboxVerified: 0, review: 0, rejected: 0 });
+    } catch (error) {
+      $('targetedFormStatus').textContent = error.message;
+    }
+  }
+
+  async function loadTargetedBankMarkets() {
+    const selected = Array.from($('targetedBank').selectedOptions);
+    if (!selected.length) { $('targetedBankHint').textContent = 'Choose one or more banks first.'; return; }
+    const countries = Array.from(new Set(selected.map((option) => option.dataset.country)));
+    if (countries.length !== 1) {
+      $('targetedBankHint').textContent = 'Choose banks from one country per campaign so geography remains exact.';
+      return;
+    }
+    const limit = Math.max(1, Math.min(100, Number($('targetedMarketLimit').value || 100)));
+    $('targetedMode').value = 'bank';
+    $('targetedCountry').value = countries[0];
+    $('targetedBankHint').textContent = 'Loading public branch locations…';
+    try {
+      const responses = await Promise.all(selected.map((option) => api.getTargetedBankMarkets({ bankId: option.value, limit: limit })));
+      const unique = new Map();
+      responses.flat().forEach((market) => {
+        const key = [market.city, market.state, market.postalCodes[0] || '', market.areaCodes[0] || ''].join('|').toLowerCase();
+        const existing = unique.get(key);
+        if (!existing || Number(market.branchCount || 0) > Number(existing.branchCount || 0)) unique.set(key, market);
+      });
+      const markets = Array.from(unique.values()).sort((a, b) => Number(b.branchCount || 0) - Number(a.branchCount || 0)).slice(0, limit);
+      $('targetedMarkets').innerHTML = markets.map((market, index) =>
+        '<label class="targeted-market"><input type="checkbox" checked data-market-index="' + index + '"><span><strong>' +
+        escapeHtml((market.areaCodes[0] || '—') + ' · ' + market.city + ' · ' + market.state + ' · ' + (market.postalCodes[0] || 'No postal')) +
+        '</strong><small>' + escapeHtml(market.branchCount + ' branch/ATM locations') + '</small></span></label>'
+      ).join('');
+      $('targetedAreaCodes').value = markets.map((market) => market.areaCodes[0] || '').filter(Boolean).join(', ');
+      $('targetedStates').value = markets.map((market) => market.state).join(', ');
+      $('targetedCities').value = markets.map((market) => market.city).join(', ');
+      $('targetedPostalCodes').value = markets.map((market) => market.postalCodes[0] || '').join(', ');
+      $('targetedBankHint').textContent = 'Top ' + markets.length + ' automatic markets resolved. Geography remains editable under Advanced.';
+    } catch (error) {
+      $('targetedBankHint').textContent = error.message;
+    }
+  }
+
+  async function planTargetedCampaign() {
+    renderTargetedConfirmation();
+    $('targetedFormStatus').textContent = 'Building deterministic query plan…';
+    try {
+      if (!targetedCampaignId) targetedCampaignId = (await api.createTargetedCampaign(targetedInput())).id;
+      const campaign = await api.planTargetedCampaign(targetedCampaignId);
+      const detail = await api.getTargetedCampaign(campaign.id);
+      renderTargetedDetail(detail);
+      $('targetedFormStatus').textContent = detail.workUnits.length + ' work units planned.';
+      return detail;
+    } catch (error) {
+      const fields = error.payload && error.payload.fields;
+      $('targetedFormStatus').textContent = fields ? Object.values(fields).join(' ') : error.message;
+      throw error;
+    }
+  }
+
+  function renderTargetedWorkUnits(units) {
+    const visible = units.slice(0, 100);
+    $('targetedWorkUnits').innerHTML = visible.length ? visible.map((unit) =>
+      '<div class="targeted-unit" data-connector="' + escapeHtml(unit.connector) + '"><span class="targeted-unit-type">' +
+      escapeHtml(unit.documentType.toUpperCase()) + '</span><input value="' + escapeHtml(unit.query) + '" data-targeted-unit-query="' + unit.id + '">' +
+      '<button type="button" class="ghost-btn" data-save-targeted-unit="' + unit.id + '">Save</button><small>' +
+      (unit.connector === 'public_document' ? 'Executable public-document search' : 'Executable public-web discovery') + ' · ' + escapeHtml(unit.status || 'planned') + '</small></div>'
+    ).join('') + (units.length > visible.length ? '<p class="settings-hint">Showing first 100 of ' + units.length + ' units.</p>' : '')
+      : '<p class="settings-hint">No work units planned.</p>';
+  }
+
+  function renderTargetedFunnel(funnel) {
+    const cards = [
+      ['Discovered', funnel.discovered], ['Aligned', funnel.aligned], ['Strict Export', funnel.strict],
+      ['Mailbox Verified', funnel.mailboxVerified], ['Review / Risky', funnel.review], ['Rejected', funnel.rejected],
+    ];
+    $('targetedQualityFunnel').innerHTML = cards.map((card) => '<div><strong>' + Number(card[1] || 0).toLocaleString() + '</strong><span>' + card[0] + '</span></div>').join('');
+  }
+
+  async function renderTargetedCandidates(campaignId) {
+    const candidates = await api.getTargetedCandidates(campaignId, $('targetedTierFilter').value);
+    $('targetedCandidates').innerHTML = candidates.length ? '<table><thead><tr><th>Email</th><th>Company</th><th>Location</th><th>Score</th><th>Tier</th><th>Reason</th></tr></thead><tbody>' +
+      candidates.slice(0, 200).map((candidate) => '<tr><td>' + escapeHtml(candidate.email) + '</td><td>' + escapeHtml(candidate.companyName || '—') +
+      '</td><td>' + escapeHtml(candidate.address || '—') + '</td><td>' + candidate.relevanceScore + '</td><td><span class="targeted-tier" data-tier="' + escapeHtml(candidate.qualityTier) + '">' +
+      escapeHtml(candidate.qualityTier) + '</span></td><td>' + escapeHtml(candidate.relevanceReason || '—') + '</td></tr>').join('') + '</tbody></table>'
+      : '<p class="settings-hint">No candidates yet.</p>';
+  }
+
+  function renderTargetedDetail(detail) {
+    targetedCampaignId = detail.id;
+    $('targetedCampaignStatus').textContent = 'Campaign #' + detail.id + ' · ' + detail.status.replace(/_/g, ' ');
+    renderTargetedFunnel(detail.funnel || {});
+    if (detail.workUnits) renderTargetedWorkUnits(detail.workUnits);
+    const active = ['queued', 'running', 'waiting_for_scraper'].includes(detail.status);
+    $('targetedStopBtn').disabled = !active;
+    $('targetedExportBtn').disabled = !['completed', 'partially_completed', 'cancelled'].includes(detail.status) || !(detail.funnel && detail.funnel.strict);
+    if (detail.errorMessage) $('targetedFormStatus').textContent = detail.errorMessage;
+  }
+
+  async function refreshTargetedCampaign() {
+    if (!targetedCampaignId) return;
+    const refreshVersion = targetedRefreshVersion;
+    try {
+      const detail = await api.getTargetedCampaign(targetedCampaignId);
+      if (refreshVersion !== targetedRefreshVersion) return;
+      renderTargetedDetail(detail);
+      await renderTargetedCandidates(targetedCampaignId);
+      if (['completed', 'partially_completed', 'cancelled', 'failed', 'waiting_for_scraper'].includes(detail.status) && targetedPollTimer) {
+        clearInterval(targetedPollTimer); targetedPollTimer = null;
+      }
+    } catch (error) { $('targetedFormStatus').textContent = error.message; }
+  }
+
+  function renderTargetedConfirmation() {
+    const input = targetedInput();
+    $('targetedConfirmation').innerHTML = '<strong>' + escapeHtml(input.prompt || 'No target entered') + '</strong><dl>' +
+      '<div><dt>Mode</dt><dd>' + escapeHtml(input.mode) + '</dd></div><div><dt>Geography</dt><dd>' +
+      escapeHtml([input.areaCodes.join('/'), input.states.join('/'), input.cities.join('/'), input.postalCodes.join('/')].filter(Boolean).join(' · ')) +
+      '</dd></div><div><dt>Provider filters</dt><dd>' + escapeHtml(input.visibleProviders.concat(input.infrastructureProviders).join(', ') || 'Any') +
+      '</dd></div><div><dt>Limits</dt><dd>' + input.maxContactsPerCompany + ' contacts/company · ' + input.maxResults.toLocaleString() + ' results</dd></div></dl>';
+  }
+
+  async function startTargetedCampaign() {
+    try {
+      if (!targetedCampaignId) await planTargetedCampaign();
+      await api.startTargetedCampaign(targetedCampaignId);
+      $('targetedFormStatus').textContent = 'Targeted campaign started. Polling every 3 seconds.';
+      await refreshTargetedCampaign();
+      if (!targetedPollTimer) targetedPollTimer = setInterval(refreshTargetedCampaign, 3000);
+    } catch (error) { $('targetedFormStatus').textContent = error.message; }
+  }
+
+  async function stopTargetedCampaignImmediate() {
+    if (!targetedCampaignId) return;
+    targetedRefreshVersion += 1;
+    if (targetedPollTimer) { clearInterval(targetedPollTimer); targetedPollTimer = null; }
+    $('targetedStopBtn').disabled = true;
+    $('targetedStopBtn').textContent = 'Stoppingâ€¦';
+    $('targetedFormStatus').textContent = 'Stopping targeted campaignâ€¦';
+    try {
+      await api.stopTargetedCampaign(targetedCampaignId);
+      $('targetedCampaignStatus').textContent = 'Campaign #' + targetedCampaignId + ' Â· cancelled';
+      $('targetedFormStatus').textContent = 'Targeted campaign cancelled.';
+      await refreshTargetedCampaign();
+    } catch (error) {
+      $('targetedFormStatus').textContent = 'Could not stop targeted campaign: ' + error.message;
+      $('targetedStopBtn').disabled = false;
+    } finally {
+      $('targetedStopBtn').textContent = 'Stop';
+    }
+  }
+
+  async function saveTargetedWorkUnit(event) {
+    const unitId = event.target.dataset && event.target.dataset.saveTargetedUnit;
+    if (!unitId || !targetedCampaignId) return;
+    const input = document.querySelector('[data-targeted-unit-query="' + unitId + '"]');
+    try {
+      await api.editTargetedWorkUnit(targetedCampaignId, unitId, { query: input.value });
+      window.LeadsGenXUi.toast('Targeted query updated');
+    } catch (error) { $('targetedFormStatus').textContent = error.message; }
   }
 
   function renderSavedProxies(proxies) {
@@ -125,9 +343,6 @@
     $('setGoogleActor').value = settings.defaultGoogleMapsActorId;
     $('setSalesNavActor').value = settings.defaultSalesNavigatorActorId;
     $('setApifyStatus').textContent = settings.hasSavedApifyToken ? '· saved' : '· not saved';
-    $('setBrightDataStatus').textContent = settings.hasSavedBrightDataKey
-      ? '· saved ' + (settings.brightDataKeyPreview || '')
-      : '· not saved';
     $('setGoogleStatus').textContent = settings.hasSavedGoogleApiKeys
       ? '· ' + settings.googleApiKeyCount + ' key(s) saved'
       : '· not saved';
@@ -173,13 +388,11 @@
         defaultGoogleMapsActorId: $('setGoogleActor').value,
         defaultSalesNavigatorActorId: $('setSalesNavActor').value,
         apifyToken: $('setApifyToken').value.trim() || undefined,
-        brightDataApiKey: $('setBrightDataKey').value.trim() || undefined,
         googleApiKeys: $('setGoogleKeys').value.trim() || undefined,
         proxyUrls: $('setProxyUrls').value.trim() || undefined,
       };
       const settings = await api.saveSettings(body);
       $('setApifyToken').value = '';
-      $('setBrightDataKey').value = '';
       $('setGoogleKeys').value = '';
       $('setProxyUrls').value = '';
       applySettingsStatus(settings);
@@ -290,7 +503,6 @@
       leadSource: activeSource,
       actorId: $('actorId').value.trim() || undefined,
       maxResults: numberValue('maxResults') || 100,
-      comboId: lastShuffleComboId,
     };
 
     if (activeSource === 'google_maps') {
@@ -349,9 +561,7 @@
 
   async function loadRuns(preferredRunId) {
     const runs = await api.listRuns();
-    latestRuns = runs;
     const selectedRunId = preferredRunId || $('leadRunFilter').value;
-    const selectedHiringRunId = $('hiringRunFilter').value;
     $('runsTable').innerHTML = window.LeadsGenXUi.renderRuns(runs);
     $('metricRuns').textContent = runs.length;
     $('metricActive').textContent = runs.filter((run) =>
@@ -359,34 +569,11 @@
     ).length;
     const total = runs.reduce((sum, run) => sum + (run._count ? run._count.leads : run.leadCount || 0), 0);
     $('metricLeads').textContent = total;
-    const laneRuns = runs.filter((run) => run.leadSource === activeLeadLane);
     $('leadRunFilter').innerHTML =
-      '<option value="">All ' +
-      (activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator') +
-      ' runs</option>' +
-      laneRuns.map((run) => '<option value="' + run.id + '">Run #' + run.id + '</option>').join('');
-    if (selectedRunId && laneRuns.some((run) => String(run.id) === String(selectedRunId))) {
+      '<option value="">All runs</option>' +
+      runs.map((run) => '<option value="' + run.id + '">Run #' + run.id + ' - ' + run.leadSource + '</option>').join('');
+    if (selectedRunId && runs.some((run) => String(run.id) === String(selectedRunId))) {
       $('leadRunFilter').value = selectedRunId;
-    }
-    const hiringRuns = runs.filter((run) => ['completed', 'partially_completed'].includes(run.status));
-    $('hiringRunFilter').innerHTML =
-      '<option value="">Choose a completed run</option>' +
-      hiringRuns
-        .map(
-          (run) =>
-            '<option value="' +
-            run.id +
-            '">Run #' +
-            run.id +
-            ' · ' +
-            (run.leadSource === 'google_maps' ? 'Google Maps' : 'Sales Navigator') +
-            '</option>'
-        )
-        .join('');
-    if (selectedHiringRunId && hiringRuns.some((run) => String(run.id) === String(selectedHiringRunId))) {
-      $('hiringRunFilter').value = selectedHiringRunId;
-    } else if (hiringRuns.length) {
-      $('hiringRunFilter').value = String(hiringRuns[0].id);
     }
     // Reattach live tracking to the newest active run after a page reload.
     if (!activeRunId) {
@@ -400,146 +587,9 @@
 
   async function loadLeads() {
     const runId = $('leadRunFilter').value;
-    const leads = await api.listLeads(runId, activeLeadLane);
-    const laneLabel = activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator';
-    $('leadSummary').textContent =
-      laneLabel + ' · ' + (runId ? 'selected run: ' : 'all runs: ') + leads.length + ' leads';
+    const leads = await api.listLeads(runId);
+    $('leadSummary').textContent = (runId ? 'Selected run: ' : 'All runs: ') + leads.length + ' email leads';
     $('leadsTable').innerHTML = window.LeadsGenXUi.renderLeads(leads);
-  }
-
-  async function setLeadLane(lane) {
-    activeLeadLane = lane === 'sales_navigator' ? 'sales_navigator' : 'google_maps';
-    document.querySelectorAll('[data-lead-lane]').forEach((button) => {
-      button.classList.toggle('active', button.dataset.leadLane === activeLeadLane);
-    });
-    const laneRuns = latestRuns.filter((run) => run.leadSource === activeLeadLane);
-    $('leadRunFilter').innerHTML =
-      '<option value="">All ' +
-      (activeLeadLane === 'google_maps' ? 'Google Maps' : 'Sales Navigator') +
-      ' runs</option>' +
-      laneRuns.map((run) => '<option value="' + run.id + '">Run #' + run.id + '</option>').join('');
-    await loadLeads();
-  }
-
-  async function loadHiringSignals() {
-    if (hiringRefreshTimer) {
-      clearTimeout(hiringRefreshTimer);
-      hiringRefreshTimer = null;
-    }
-    const runId = $('hiringRunFilter').value;
-    if (!runId) {
-      $('hiringStatus').textContent = 'Choose a completed run to see its hiring signals.';
-      $('hiringMatches').innerHTML = '';
-      $('hiringOpportunities').innerHTML = '';
-      return;
-    }
-    try {
-      const result = await api.getHiringSignals(runId);
-      const scan = result.scan;
-      const observationStatus =
-        scan && scan.lastSuccessfulObservationAt
-          ? ' · Last successful observation ' +
-            new Date(scan.lastSuccessfulObservationAt).toLocaleString()
-          : '';
-      const cacheStatus =
-        scan && scan.cacheFreshness
-          ? ' · ' +
-            (scan.cacheFreshness === 'cached'
-              ? 'Cached board data'
-              : scan.cacheFreshness === 'mixed'
-                ? 'Mix of cached and fresh board data'
-                : scan.cacheFreshness === 'fresh'
-                  ? 'Fresh board data'
-                  : 'No board data')
-          : '';
-      $('hiringStatus').textContent = scan
-        ? scan.status === 'queued' || scan.status === 'running'
-          ? 'Nova is checking public Greenhouse boards now · ' +
-            scan.inspectedCount +
-            ' inspected.' +
-            observationStatus +
-            cacheStatus
-          : 'Latest scan ' +
-            scan.status.replace(/_/g, ' ') +
-            ' · ' +
-            scan.matchedCount +
-            ' existing matches · ' +
-            scan.opportunityCount +
-            ' adjacent opportunities.' +
-            observationStatus +
-            cacheStatus
-        : 'No hiring scan yet for this run. Refresh signals when you’re ready.';
-      const rendered = window.LeadsGenXUi.renderHiringSignals(result);
-      $('hiringMatches').innerHTML = rendered.matches;
-      $('hiringOpportunities').innerHTML = rendered.opportunities;
-      if (scan && (scan.status === 'queued' || scan.status === 'running')) {
-        hiringRefreshTimer = setTimeout(loadHiringSignals, 2000);
-      }
-    } catch (error) {
-      $('hiringStatus').textContent = error.message;
-    }
-  }
-
-  async function refreshHiringSignals() {
-    const runId = $('hiringRunFilter').value;
-    if (!runId) {
-      window.LeadsGenXUi.toast('Choose a completed run first.');
-      return;
-    }
-    $('refreshHiringSignals').disabled = true;
-    try {
-      await api.refreshHiringSignals(runId);
-      window.LeadsGenXUi.toast('Nova is refreshing public hiring signals.');
-      await loadHiringSignals();
-    } catch (error) {
-      window.LeadsGenXUi.toast(error.message);
-    } finally {
-      $('refreshHiringSignals').disabled = false;
-    }
-  }
-
-  async function prepareHiringSearch(id, targetLane) {
-    const prepared = await api.prepareHiringSearch(id, targetLane);
-    setSource(prepared.targetLane);
-    if (prepared.targetLane === 'google_maps') {
-      chips.gmSearchTerms.setValues([prepared.companyName]);
-      if (prepared.geographies && prepared.geographies.length) {
-        chips.gmLocations.setValues(prepared.geographies.slice(0, 1));
-      }
-    } else {
-      chips.snCompanies.setValues([prepared.companyName]);
-      if (prepared.geographies && prepared.geographies.length) {
-        chips.snGeographies.setValues(prepared.geographies.slice(0, 1));
-      }
-      if (prepared.industries && prepared.industries.length) {
-        chips.snIndustries.setValues(prepared.industries.slice(0, 3));
-      }
-    }
-    setTab('runs');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    window.LeadsGenXUi.toast('Review the prepared filters, then start when you’re ready.');
-  }
-
-  async function handleHiringAction(event) {
-    const target = event.target.closest('button');
-    if (!target) return;
-    try {
-      if (target.dataset.prepareHiring) {
-        await prepareHiringSearch(target.dataset.prepareHiring, target.dataset.targetLane);
-        return;
-      }
-      if (target.dataset.saveHiring) {
-        await api.updateHiringOpportunity(target.dataset.saveHiring, { saved: target.textContent.trim() === 'Save' });
-        await loadHiringSignals();
-        return;
-      }
-      if (target.dataset.dismissHiring) {
-        await api.updateHiringOpportunity(target.dataset.dismissHiring, { dismissed: true });
-        await loadHiringSignals();
-      }
-    } catch (error) {
-      window.LeadsGenXUi.toast(error.message);
-    }
   }
 
   async function openAllLeads() {
@@ -551,151 +601,6 @@
   async function loadLogs() {
     const logs = await api.listErrors();
     $('logsTable').innerHTML = window.LeadsGenXUi.renderLogs(logs);
-  }
-
-  // ---------------- LinkedIn extension tab ----------------
-
-  let extensionToken = null;
-  let extensionTokenRevealed = false;
-
-  const EXTENSION_RUN_STATUS_LABELS = {
-    queued: 'Queued',
-    running: 'Running',
-    cooling_down: 'Cooling down',
-    waiting_for_scraper: 'Waiting for the scraper',
-    waiting_for_credentials: 'Needs credentials',
-    paused: 'Paused',
-    cancelled: 'Cancelled',
-    completed: 'Completed',
-    partially_completed: 'Partially completed',
-    failed: 'Failed',
-  };
-
-  function extensionRunStatusLabel(status) {
-    return EXTENSION_RUN_STATUS_LABELS[status] || status || '—';
-  }
-
-  function maskedExtensionToken(token) {
-    if (!token) return '••••••';
-    return '••••' + token.slice(-6);
-  }
-
-  function renderExtensionToken() {
-    $('extensionTokenDisplay').textContent =
-      extensionTokenRevealed && extensionToken ? extensionToken : maskedExtensionToken(extensionToken);
-    $('toggleExtensionToken').textContent = extensionTokenRevealed ? 'Hide' : 'Reveal';
-  }
-
-  async function loadExtensionToken() {
-    $('extensionTokenStatus').textContent = 'Fetching your extension key…';
-    try {
-      const result = await api.getExtensionToken();
-      extensionToken = result.token;
-      extensionTokenRevealed = false;
-      renderExtensionToken();
-      $('extensionTokenStatus').textContent = 'This key links the extension to your account — keep it to yourself.';
-    } catch (error) {
-      $('extensionTokenDisplay').textContent = '••••••';
-      $('extensionTokenStatus').textContent = error.message;
-    }
-  }
-
-  async function copyExtensionToken() {
-    if (!extensionToken) {
-      window.LeadsGenXUi.toast('Your extension key is still loading — one moment');
-      return;
-    }
-    await copyText(extensionToken);
-    window.LeadsGenXUi.toast('Copied — paste it in the extension popup');
-  }
-
-  async function regenerateExtensionKey() {
-    if (
-      !window.confirm(
-        'Regenerate your extension key? The old key stops working instantly — you will need to paste the new one into the extension popup.'
-      )
-    ) {
-      return;
-    }
-    $('regenerateExtensionToken').disabled = true;
-    try {
-      const result = await api.regenerateExtensionToken();
-      extensionToken = result.token;
-      extensionTokenRevealed = true;
-      renderExtensionToken();
-      $('extensionTokenStatus').textContent = 'Fresh key generated — paste it into the extension popup to reconnect.';
-      window.LeadsGenXUi.toast('New extension key generated');
-    } catch (error) {
-      $('extensionTokenStatus').textContent = error.message;
-      window.LeadsGenXUi.toast(error.message);
-    } finally {
-      $('regenerateExtensionToken').disabled = false;
-    }
-  }
-
-  function renderExtensionRuns(runs) {
-    if (!runs.length) {
-      $('extensionRunsTable').innerHTML = window.LeadsGenXUi.empty(
-        'No extension sessions yet — your scraped leads will land here.'
-      );
-      return;
-    }
-    $('extensionRunsTable').innerHTML =
-      '<div class="table-wrap"><table><thead><tr>' +
-      '<th>Run #</th><th>Label</th><th>Leads</th><th>Status</th><th>Started</th><th></th>' +
-      '</tr></thead><tbody>' +
-      runs
-        .map((run) => {
-          const count = run._count ? run._count.leads : run.leadCount || 0;
-          return (
-            '<tr><td>#' +
-            run.id +
-            '</td><td>' +
-            escapeHtml(run.searchUrl || 'Sales Navigator extension') +
-            '</td><td>' +
-            count +
-            '</td><td><span class="badge ' +
-            escapeHtml(run.status) +
-            '">' +
-            escapeHtml(extensionRunStatusLabel(run.status)) +
-            '</span></td><td>' +
-            escapeHtml(new Date(run.createdAt).toLocaleString()) +
-            '</td><td><button type="button" class="ghost-btn small" data-enrich-run="' +
-            run.id +
-            '">Enrich</button></td></tr>'
-          );
-        })
-        .join('') +
-      '</tbody></table></div>';
-  }
-
-  async function loadExtensionRuns() {
-    try {
-      const runs = await api.listRuns();
-      renderExtensionRuns(runs.filter((run) => run.actorId === 'sn_extension'));
-    } catch (error) {
-      $('extensionRunsTable').innerHTML = window.LeadsGenXUi.empty(error.message);
-    }
-  }
-
-  // Bright Data enrichment: one click fills emails/phones for the run's
-  // LinkedIn leads. Progress is narrated by Nova in the run's event feed.
-  async function enrichLinkedInRun(runId, button) {
-    if (button) button.disabled = true;
-    try {
-      const result = await api.enrichLinkedIn(runId);
-      window.LeadsGenXUi.toast(result.message || 'Enrichment started');
-    } catch (error) {
-      window.LeadsGenXUi.toast(error.message);
-      if (button) button.disabled = false;
-    }
-  }
-
-  function openLinkedInTab() {
-    // The key is fetched once (lazy) and only refetched after a regenerate or a
-    // failed load; the runs table refreshes every time the tab is opened.
-    if (!extensionToken) void loadExtensionToken();
-    void loadExtensionRuns();
   }
 
   async function copyText(text) {
@@ -1019,31 +924,6 @@
     }
   }
 
-
-  // Nova Shuffle: one click arranges a precision combo — ONE search term,
-  // ONE category, ONE company type, ONE location — rotating through the
-  // library and learning from the user's own results over time.
-  async function shuffleFilters() {
-    $('shuffleFiltersBtn').disabled = true;
-    $('shuffleStatus').textContent = 'Nova is arranging…';
-    try {
-      const pick = await api.shuffleNext();
-      const combo = pick.combo;
-      chips.gmSearchTerms.setValues([combo.searchTerm]);
-      chips.gmCategories.setValues([combo.category]);
-      chips.gmCompanyTypes.setValues([combo.companyType]);
-      chips.gmLocations.setValues([combo.location]);
-      lastShuffleComboId = combo.id;
-      $('shuffleStatus').textContent = combo.label + ' · ' + (pick.freshTerritory ? 'fresh slice' : 'best performer');
-      window.LeadsGenXUi.toast('Nova arranged: ' + combo.label + '. ' + pick.note + ' ' + combo.rationale);
-    } catch (error) {
-      $('shuffleStatus').textContent = '';
-      window.LeadsGenXUi.toast(error.message);
-    } finally {
-      $('shuffleFiltersBtn').disabled = false;
-    }
-  }
-
   async function init() {
     const suggestions = await api.getSuggestions();
     chips.gmSearchTerms = window.LeadsGenXChips.createChipInput($('gmSearchTerms'), {
@@ -1083,7 +963,13 @@
     document.querySelectorAll('.source-btn').forEach((btn) =>
       btn.addEventListener('click', () => setSource(btn.dataset.source))
     );
-    document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
+    document.querySelectorAll('.tab').forEach((btn) => btn.addEventListener('click', () => {
+      if (btn.dataset.tab === 'targeted') {
+        window.open('/targeted.html', '_blank', 'noopener');
+        return;
+      }
+      setTab(btn.dataset.tab);
+    }));
     document.querySelectorAll('#outputModeSelect .mode-card').forEach((card) =>
       card.addEventListener('click', (event) => {
         if (card.dataset.mode === 'hybrid_max' && !hybridUnlocked()) {
@@ -1117,48 +1003,36 @@
     $('refreshLogs').addEventListener('click', loadLogs);
     $('metricLeadsCard').addEventListener('click', openAllLeads);
     $('leadRunFilter').addEventListener('change', loadLeads);
-    document.querySelectorAll('[data-lead-lane]').forEach((button) =>
-      button.addEventListener('click', () => void setLeadLane(button.dataset.leadLane))
-    );
-    $('hiringRunFilter').addEventListener('change', loadHiringSignals);
-    $('refreshHiringSignals').addEventListener('click', refreshHiringSignals);
-    $('hiringOpportunities').addEventListener('click', (event) => void handleHiringAction(event));
-    $('downloadEmails').addEventListener('click', () =>
-      api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane)
-    );
+    $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
     $('saveSettingsBtn').addEventListener('click', () => saveSettings());
     $('clearApifyBtn').addEventListener('click', () => saveSettings({ apifyToken: '' }));
-    $('clearBrightDataBtn').addEventListener('click', () => saveSettings({ brightDataApiKey: '' }));
-    $('testBrightDataBtn').addEventListener('click', async () => {
-      $('testBrightDataBtn').disabled = true;
-      $('brightDataTestStatus').textContent = 'Testing…';
-      try {
-        const pasted = $('setBrightDataKey').value.trim();
-        const result = await api.testBrightDataCredential(pasted ? { brightDataApiKey: pasted } : {});
-        $('brightDataTestStatus').textContent = (result.ok ? '✓ ' : '✗ ') + result.detail;
-      } catch (error) {
-        $('brightDataTestStatus').textContent = error.message;
-      } finally {
-        $('testBrightDataBtn').disabled = false;
-      }
-    });
     $('clearGoogleBtn').addEventListener('click', () => saveSettings({ googleApiKeys: '' }));
     $('clearProxiesBtn').addEventListener('click', () => saveSettings({ proxyUrls: '' }));
     $('testProxiesBtn').addEventListener('click', testSavedProxies);
     $('testApifyBtn').addEventListener('click', testApifyCredential);
     $('testGoogleBtn').addEventListener('click', testGoogleCredentials);
-    $('refreshExtensionRuns').addEventListener('click', loadExtensionRuns);
-    $('shuffleFiltersBtn').addEventListener('click', shuffleFilters);
-    $('extensionRunsTable').addEventListener('click', (event) => {
-      const target = event.target.closest('[data-enrich-run]');
-      if (target) void enrichLinkedInRun(target.dataset.enrichRun, target);
+    $('targetedBank').addEventListener('change', loadTargetedBankMarkets);
+    $('targetedLoadMarkets').addEventListener('click', loadTargetedBankMarkets);
+    $('targetedPlanBtn').addEventListener('click', planTargetedCampaign);
+    $('targetedStartBtn').addEventListener('click', startTargetedCampaign);
+    $('targetedStopBtn').addEventListener('click', async () => {
+      await stopTargetedCampaignImmediate();
     });
-    $('copyExtensionToken').addEventListener('click', () => void copyExtensionToken());
-    $('toggleExtensionToken').addEventListener('click', () => {
-      extensionTokenRevealed = !extensionTokenRevealed;
-      renderExtensionToken();
+    $('targetedExportBtn').addEventListener('click', () => {
+      if (targetedCampaignId) api.downloadTargetedStrict(targetedCampaignId);
     });
-    $('regenerateExtensionToken').addEventListener('click', () => void regenerateExtensionKey());
+    $('targetedRefreshBtn').addEventListener('click', refreshTargetedCampaign);
+    $('targetedTierFilter').addEventListener('change', () => {
+      if (targetedCampaignId) renderTargetedCandidates(targetedCampaignId);
+    });
+    $('targetedResetLearningBtn').addEventListener('click', async () => {
+      if (!window.confirm('Reset all learned targeted-query priorities? Campaign results will not be deleted.')) return;
+      try {
+        const result = await api.resetTargetedLearning();
+        $('targetedFormStatus').textContent = 'Reset learned priorities on ' + result.resetWorkUnits + ' work units. Campaign results were kept.';
+      } catch (error) { $('targetedFormStatus').textContent = error.message; }
+    });
+    $('targetedWorkUnits').addEventListener('click', saveTargetedWorkUnit);
     $('runsTable').addEventListener('click', (event) => {
       const target = event.target;
       const viewRunId = target.dataset ? target.dataset.viewRun : undefined;
@@ -1166,12 +1040,8 @@
       const deleteRunId = target.dataset ? target.dataset.deleteRun : undefined;
       const stopRunId = target.dataset ? target.dataset.stopRun : undefined;
       if (viewRunId) {
-        const selectedRun = latestRuns.find((run) => String(run.id) === String(viewRunId));
-        void setLeadLane(selectedRun && selectedRun.leadSource);
-        setTimeout(() => {
-          $('leadRunFilter').value = viewRunId;
-          setTab('leads');
-        }, 0);
+        $('leadRunFilter').value = viewRunId;
+        setTab('leads');
       }
       if (copyRunEmailsId) void copyRunEmails(copyRunEmailsId);
       if (stopRunId) void stopRun(stopRunId);
@@ -1317,7 +1187,6 @@
     $('byodSaveBtn').addEventListener('click', saveByod);
     $('byodClearBtn').addEventListener('click', clearByod);
     $('byodTestApify').addEventListener('click', () => testByod('apify'));
-    $('byodTestBrightData').addEventListener('click', () => testByod('brightdata'));
     $('byodTestGoogle').addEventListener('click', () => testByod('google'));
     $('adminCreateBtn').addEventListener('click', adminCreateUser);
     $('refreshAdmin').addEventListener('click', loadAdminPanel);
@@ -1375,7 +1244,6 @@
       ? 'Using your own details: ' +
         [
           status.apifyTokenSet ? 'Apify token ' + (status.apifyTokenPreview || 'saved') : null,
-          status.brightDataKeySet ? 'Bright Data key ' + (status.brightDataKeyPreview || 'saved') : null,
           status.googleApiKeyCount ? status.googleApiKeyCount + ' Google key' + (status.googleApiKeyCount > 1 ? 's' : '') : null,
           status.proxyCount ? status.proxyCount + ' prox' + (status.proxyCount > 1 ? 'ies' : 'y') : null,
         ]
@@ -1388,7 +1256,6 @@
     $('byodFormStatus').textContent = '';
     const body = {};
     if ($('byodApifyToken').value.trim()) body.apifyToken = $('byodApifyToken').value.trim();
-    if ($('byodBrightDataKey').value.trim()) body.brightDataApiKey = $('byodBrightDataKey').value.trim();
     if ($('byodGoogleKeys').value.trim()) body.googleApiKeys = $('byodGoogleKeys').value;
     if ($('byodProxyUrls').value.trim()) body.proxyUrls = $('byodProxyUrls').value;
     if (!Object.keys(body).length) {
@@ -1398,7 +1265,6 @@
     try {
       const status = await api.saveMyCredentials(body);
       $('byodApifyToken').value = '';
-      $('byodBrightDataKey').value = '';
       $('byodGoogleKeys').value = '';
       $('byodProxyUrls').value = '';
       renderByodStatus(status);
@@ -1428,19 +1294,10 @@
           ? $('byodApifyToken').value.trim()
             ? { token: $('byodApifyToken').value.trim() }
             : {}
-          : which === 'brightdata'
-            ? $('byodBrightDataKey').value.trim()
-              ? { key: $('byodBrightDataKey').value.trim() }
-              : {}
-            : $('byodGoogleKeys').value.trim()
-              ? { key: $('byodGoogleKeys').value.split('\n')[0].trim() }
-              : {};
-      const result =
-        which === 'apify'
-          ? await api.testMyApify(body)
-          : which === 'brightdata'
-            ? await api.testMyBrightData(body)
-            : await api.testMyGoogle(body);
+          : $('byodGoogleKeys').value.trim()
+            ? { key: $('byodGoogleKeys').value.split('\n')[0].trim() }
+            : {};
+      const result = which === 'apify' ? await api.testMyApify(body) : await api.testMyGoogle(body);
       $('byodFormStatus').textContent = (result.ok ? '✓ ' : '✗ ') + result.detail;
     } catch (error) {
       $('byodFormStatus').textContent = error.message;

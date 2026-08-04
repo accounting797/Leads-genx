@@ -7,14 +7,12 @@
   "scripts": {
     "dev": "npm run build && node scripts/start-dev.cjs",
     "dev:watch": "nodemon --exec ts-node src/server.ts",
-    "prebuild": "node scripts/ensure-prisma-client.cjs",
     "build": "tsc",
     "start": "node dist/server.js",
     "scraper:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-google-scraper.ps1",
     "scraper:up": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-google-scraper.ps1",
     "scraper:down": "docker compose -f docker-compose.google-scraper.yml down",
-    "pretest": "node scripts/ensure-prisma-client.cjs",
-    "test": "vitest run --exclude \"**/.worktrees/**\"",
+    "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init"
@@ -22,9 +20,13 @@
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "apify-client": "^2.23.4",
+    "csv-parse": "^7.0.2",
     "express": "^5.2.1",
+    "mammoth": "^1.12.0",
+    "pdfjs-dist": "^6.2.108",
     "socks": "^2.8.9",
-    "ssh2": "^1.17.0"
+    "ssh2": "^1.17.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

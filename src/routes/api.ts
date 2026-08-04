@@ -17,9 +17,6 @@ import {
   SECRET_MASK,
 } from '../domain/operatorSettings';
 import { testProxies, ProxyTestResult } from '../integrations/proxyTester';
-import { testBrightDataKey } from '../integrations/brightDataClient';
-import { enrichRunLinkedInLeads } from '../domain/linkedinEnrichment';
-import { pickNextCombo, ComboStat } from '../domain/shuffleCombos';
 import {
   testApifyToken,
   testGoogleApiKey,
@@ -38,10 +35,9 @@ import { limitsForUser, outputModeAllowed, startOfToday } from '../domain/tierLi
 import { hasUserCredentials, loadUserCredentials } from '../domain/userCredentials';
 import { createAuthRouter } from './auth';
 import { createAdminRouter } from './admin';
-import { createExtensionRouter } from './extension';
-import type { HiringSignalService } from '../domain/hiringSignalService';
-import { createHiringSignalsRouter } from './hiringSignals';
-import { companyIdentity, HiringScoreComponents } from '../domain/greenhouseSignals';
+import { createTargetedRouter } from './targeted';
+import { TargetedService } from '../domain/targeted/service';
+import { TargetedValidationError } from '../domain/targeted/validation';
 
 function parseEventMetadata(metadataJson: string | null): { kind?: string } | undefined {
   if (!metadataJson) return undefined;
@@ -50,30 +46,6 @@ function parseEventMetadata(metadataJson: string | null): { kind?: string } | un
     return parsed && typeof parsed === 'object' ? parsed : undefined;
   } catch {
     return undefined;
-  }
-}
-
-function parseHiringComponents(scoreJson: string): HiringScoreComponents {
-  const empty = { roles: 0, recency: 0, geography: 0, industry: 0, breadth: 0 };
-  try {
-    const value = JSON.parse(scoreJson) as Partial<Record<keyof HiringScoreComponents, unknown>>;
-    return Object.fromEntries(
-      Object.keys(empty).map((key) => {
-        const valueAtKey = value[key as keyof HiringScoreComponents];
-        return [key, typeof valueAtKey === 'number' && Number.isFinite(valueAtKey) ? valueAtKey : 0];
-      })
-    ) as unknown as HiringScoreComponents;
-  } catch {
-    return empty;
-  }
-}
-
-function safeHttpsUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' ? url.toString() : '';
-  } catch {
-    return '';
   }
 }
 
@@ -108,15 +80,13 @@ export interface ApiDeps {
   /** Explicitly disable auth enforcement (tests only — production never sets this). */
   authDisabled?: boolean;
   deployService?: import('../domain/deployService').DeployService;
-  hiringSignalService?: HiringSignalService;
+  targetedService?: TargetedService;
 }
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID =
   process.env.DEFAULT_GOOGLE_MAPS_ACTOR_ID || 'compass/google-maps-extractor';
 const DEFAULT_SALES_NAVIGATOR_ACTOR_ID =
-  process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID === 'harvestapi/linkedin-profile-search'
-    ? 'harvestapi/linkedin-sales-navigator-lead-search-cookie'
-    : process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID || 'harvestapi/linkedin-sales-navigator-lead-search-cookie';
+  process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID || 'harvestapi/linkedin-profile-search';
 
 function asListInput(value: unknown): string[] | undefined {
   if (value === undefined) return undefined;
@@ -138,15 +108,7 @@ function proxyListError(proxies: string[]): string | undefined {
   return undefined;
 }
 
-export function createApiRouter({
-  prisma,
-  runService,
-  proxyTester,
-  credentialTester,
-  authDisabled,
-  deployService,
-  hiringSignalService,
-}: ApiDeps = {}) {
+export function createApiRouter({ prisma, runService, proxyTester, credentialTester, authDisabled, deployService, targetedService }: ApiDeps = {}) {
   const router = Router();
 
   // Auth is enforced whenever a real user/session store is present and not
@@ -172,24 +134,6 @@ export function createApiRouter({
     router.use('/auth', createAuthRouter({ prisma, credentialTester }));
   }
 
-  // Extension endpoints mix Bearer-token auth (ping/leads/finish, resolved
-  // inside the router) with session auth (token routes via the guard), so the
-  // router mounts before the blanket session guard.
-  if (prisma?.user) {
-    router.use(
-      '/extension',
-      createExtensionRouter({
-        prisma,
-        guard,
-        onRunSettled: hiringSignalService
-          ? async (runId) => {
-              await hiringSignalService.scheduleIfEligible(runId);
-            }
-          : undefined,
-      })
-    );
-  }
-
   // Everything below this line requires a signed-in user when auth is enabled.
   router.use(guard);
 
@@ -197,8 +141,8 @@ export function createApiRouter({
     router.use('/admin', adminGuard, createAdminRouter({ prisma, deployService }));
   }
 
-  if (prisma && hiringSignalService) {
-    router.use(createHiringSignalsRouter({ prisma, service: hiringSignalService }));
+  if (prisma && targetedService) {
+    router.use('/targeted', adminGuard, createTargetedRouter({ prisma, targetedService }));
   }
 
   router.get('/suggestions', (_req, res) => {
@@ -235,24 +179,20 @@ export function createApiRouter({
         const savedSettings = await loadOperatorSettings(prisma);
         let effectiveApify = savedSettings.apifyToken;
         let effectiveGoogle = savedSettings.googleApiKeys;
-        let effectiveBrightData = savedSettings.brightDataApiKey;
-        if (runUser) {
+        if (runUser && runUser.role !== 'ADMIN') {
           const byod = await loadUserCredentials(prisma, runUser.id);
           if (hasUserCredentials(byod)) {
             effectiveApify = byod.apifyToken ?? savedSettings.apifyToken;
             effectiveGoogle = byod.googleApiKeys.length ? byod.googleApiKeys : savedSettings.googleApiKeys;
-            effectiveBrightData = byod.brightDataApiKey ?? savedSettings.brightDataApiKey;
           }
         }
         hasSavedToken = Boolean(effectiveApify);
         const bodyHasToken = typeof body.apifyToken === 'string' && Boolean(body.apifyToken.trim());
         const bodyHasGoogleKey = typeof body.googleApiKey === 'string' && Boolean(body.googleApiKey.trim());
-        const bodyHasBrightData = typeof body.brightDataApiKey === 'string' && Boolean(body.brightDataApiKey.trim());
         if (!bodyHasToken && effectiveApify) body.apifyToken = effectiveApify;
         if (!bodyHasGoogleKey && effectiveGoogle.length) {
           body.googleApiKey = effectiveGoogle.join('\n');
         }
-        if (!bodyHasBrightData && effectiveBrightData) body.brightDataApiKey = effectiveBrightData;
       } catch {
         hasSavedToken = false;
       }
@@ -366,82 +306,6 @@ export function createApiRouter({
     })
   );
 
-  // Bright Data enrichment: fill in emails/phones for a run's LinkedIn
-  // leads (extension-captured or otherwise) using the contact-enriched
-  // people dataset. BYOD key wins; falls back to the operator's key.
-  router.post(
-    '/runs/:id/enrich-linkedin',
-    asyncHandler(async (req, res) => {
-      const id = Number(req.params.id);
-      if (!prisma) {
-        res.status(503).json({ error: 'Database unavailable' });
-        return;
-      }
-      const run = await prisma.run.findUnique({ where: { id } });
-      if (!run || !canAccessRun(currentUser(res), run)) {
-        res.status(404).json({ error: 'Run not found' });
-        return;
-      }
-      const user = currentUser(res);
-      const byod = user ? await loadUserCredentials(prisma, user.id) : undefined;
-      const apiKey = byod?.brightDataApiKey || (await loadOperatorSettings(prisma)).brightDataApiKey;
-      if (!apiKey) {
-        res.status(400).json({
-          error: 'No Bright Data key yet — add one in Settings and Nova will handle the rest.',
-        });
-        return;
-      }
-      const pending = await prisma.lead.count({
-        where: { runId: id, profileUrl: { not: null }, OR: [{ email: null }, { email: '' }] },
-      });
-      if (pending === 0) {
-        res.json({ data: { started: false, pending: 0, message: 'Every LinkedIn lead already has contact data.' } });
-        return;
-      }
-      // Fire and forget — progress lands in the run's event feed as
-      // brightdata_enrichment_* events (Nova narrates every batch).
-      void enrichRunLinkedInLeads(prisma, id, { apiKey }).catch(() => {});
-      res.status(202).json({
-        data: {
-          started: true,
-          pending,
-          message: `Nova is enriching ${pending} LinkedIn profiles with Bright Data — watch the run feed.`,
-        },
-      });
-    })
-  );
-
-  // Nova Shuffle: one-click precision filters. One option per filter group,
-  // rotating through the curated library — unseen slices first, then the
-  // user's own best performers (learning from run outcomes).
-  router.get(
-    '/shuffle/next',
-    asyncHandler(async (req, res) => {
-      if (!prisma) {
-        res.status(503).json({ error: 'Database unavailable' });
-        return;
-      }
-      const user = currentUser(res);
-      const runs = await prisma.run.findMany({
-        where: user ? { userId: user.id } : {},
-        select: { filterJson: true, leadCount: true },
-      });
-      const stats: Record<string, ComboStat> = {};
-      for (const run of runs) {
-        try {
-          const parsed = JSON.parse(run.filterJson ?? '{}') as { comboId?: string };
-          if (!parsed.comboId) continue;
-          const stat = (stats[parsed.comboId] = stats[parsed.comboId] ?? { runs: 0, leads: 0 });
-          stat.runs += 1;
-          stat.leads += run.leadCount ?? 0;
-        } catch {
-          // Unparseable filterJson never blocks a shuffle.
-        }
-      }
-      res.json({ data: pickNextCombo(stats) });
-    })
-  );
-
   router.post(
     '/runs/:id/stop',
     asyncHandler(async (req, res) => {
@@ -517,23 +381,10 @@ export function createApiRouter({
         res.status(404).json({ error: 'Run not found' });
         return;
       }
-      const latestHiringScan = await prisma.hiringSignalScan.findFirst({
-        where: { runId },
-        orderBy: { id: 'desc' },
-        select: { id: true, status: true, errorMessage: true },
-      });
-      const [events, providerStates, errorLogs, hiringSignals] = await Promise.all([
+      const [events, providerStates, errorLogs] = await Promise.all([
         prisma.runEvent.findMany({ where: { runId }, orderBy: { createdAt: 'asc' }, take: 200 }),
         prisma.runProviderState.findMany({ where: { runId } }),
         prisma.errorLog.findMany({ where: { runId }, orderBy: { createdAt: 'desc' }, take: 20 }),
-        latestHiringScan
-          ? prisma.hiringOpportunity.findMany({
-              where: { scanId: latestHiringScan.id, dismissed: false },
-              orderBy: [{ score: 'desc' }, { companyName: 'asc' }],
-              take: 10,
-              select: { companyName: true, score: true, explanation: true, originLane: true },
-            })
-          : Promise.resolve([]),
       ]);
       const report = analyzeRun({
         run: {
@@ -555,33 +406,16 @@ export function createApiRouter({
         })),
         providerStates,
         errorLogs,
-        hiringSignals: hiringSignals.map((signal) => ({
-          companyName: signal.companyName,
-          score: signal.score,
-          explanation: signal.explanation ?? '',
-          originLane: signal.originLane as 'google_maps' | 'sales_navigator' | 'hiring_opportunity',
-        })),
-        hiringScan: latestHiringScan
-          ? {
-              status: latestHiringScan.status,
-              errorMessage: latestHiringScan.errorMessage,
-            }
-          : null,
       });
       res.json({ data: report });
     })
   );
 
-  function leadScope(
-    res: Response,
-    runId?: number,
-    leadSource?: 'google_maps' | 'sales_navigator'
-  ): Record<string, unknown> | undefined {
+  function leadScope(res: Response, runId?: number): Record<string, unknown> | undefined {
     const user = currentUser(res);
     if (!prisma) return undefined;
     const where: Record<string, unknown> = {};
     if (runId) where.runId = runId;
-    if (leadSource) where.leadSource = leadSource;
     if (user && user.role !== 'ADMIN') where.run = { userId: user.id };
     return Object.keys(where).length ? where : undefined;
   }
@@ -590,63 +424,13 @@ export function createApiRouter({
     '/leads',
     asyncHandler(async (req, res) => {
       const runId = req.query.runId ? Number(req.query.runId) : undefined;
-      const leadSource = typeof req.query.leadSource === 'string' ? req.query.leadSource : undefined;
-      if (leadSource && leadSource !== 'google_maps' && leadSource !== 'sales_navigator') {
-        res.status(400).json({ error: 'Choose Google Maps or Sales Navigator.' });
-        return;
-      }
-      const selectedLeadSource =
-        leadSource === 'google_maps' || leadSource === 'sales_navigator' ? leadSource : undefined;
       const leads = prisma
         ? await prisma.lead.findMany({
-            where: leadScope(res, runId, selectedLeadSource),
+            where: leadScope(res, runId),
             orderBy: { createdAt: 'desc' },
           })
         : [];
-      if (!prisma || !leads.length) {
-        res.json({ data: leads });
-        return;
-      }
-      const runIds = [...new Set(leads.map((lead) => lead.runId))];
-      const scans = await prisma.hiringSignalScan.findMany({
-        where: { runId: { in: runIds } },
-        orderBy: { id: 'desc' },
-        select: { id: true, runId: true },
-      });
-      const latestScanIds = new Map<number, number>();
-      for (const scan of scans) {
-        if (!latestScanIds.has(scan.runId)) latestScanIds.set(scan.runId, scan.id);
-      }
-      const signals = latestScanIds.size
-        ? await prisma.hiringOpportunity.findMany({
-            where: {
-              scanId: { in: [...latestScanIds.values()] },
-              dismissed: false,
-              relationship: 'exact',
-            },
-            orderBy: { score: 'desc' },
-          })
-        : [];
-      const signalByIdentity = new Map(
-        signals.map((signal) => [
-          `${signal.runId}:${signal.companyKey}`,
-          {
-            id: signal.id,
-            score: signal.score,
-            components: parseHiringComponents(signal.scoreJson),
-            explanation: signal.explanation ?? '',
-            evidenceUrl: safeHttpsUrl(signal.evidenceUrl),
-            observedAt: signal.observedAt.toISOString(),
-          },
-        ])
-      );
-      res.json({
-        data: leads.map((lead) => {
-          const identity = companyIdentity({ companyName: lead.companyName, website: lead.website });
-          const hiringSignal = signalByIdentity.get(`${lead.runId}:${identity.companyKey}`);
-          return hiringSignal ? { ...lead, hiringSignal } : lead;
-        }),
-      });
+      res.json({ data: leads });
     })
   );
 
@@ -654,16 +438,9 @@ export function createApiRouter({
     '/leads/download',
     asyncHandler(async (req, res) => {
       const runId = req.query.runId ? Number(req.query.runId) : undefined;
-      const leadSource = typeof req.query.leadSource === 'string' ? req.query.leadSource : undefined;
-      if (leadSource && leadSource !== 'google_maps' && leadSource !== 'sales_navigator') {
-        res.status(400).json({ error: 'Choose Google Maps or Sales Navigator.' });
-        return;
-      }
-      const selectedLeadSource =
-        leadSource === 'google_maps' || leadSource === 'sales_navigator' ? leadSource : undefined;
       const leads = prisma
         ? await prisma.lead.findMany({
-            where: leadScope(res, runId, selectedLeadSource),
+            where: leadScope(res, runId),
             orderBy: { createdAt: 'desc' },
           })
         : [];
@@ -740,7 +517,6 @@ export function createApiRouter({
         defaultGoogleMapsActorId: body.defaultGoogleMapsActorId as string | undefined,
         defaultSalesNavigatorActorId: body.defaultSalesNavigatorActorId as string | undefined,
         apifyToken: body.apifyToken as string | undefined,
-        brightDataApiKey: body.brightDataApiKey as string | undefined,
         googleApiKeys: asListInput(body.googleApiKeys),
         proxyUrls,
       });
@@ -749,7 +525,7 @@ export function createApiRouter({
       // Replacing or removing a credential resets the engineer's memory for it.
       await pruneQuarantinedCredentials(
         prisma,
-        [settings.apifyToken, settings.brightDataApiKey, ...settings.googleApiKeys].filter((value): value is string => Boolean(value))
+        [settings.apifyToken, ...settings.googleApiKeys].filter((value): value is string => Boolean(value))
       );
 
       // Nova's promise: the moment fresh credentials land, any run that was
@@ -886,33 +662,8 @@ export function createApiRouter({
     })
   );
 
-  router.post(
-    '/settings/test/brightdata',
-    adminGuard,
-    asyncHandler(async (req, res) => {
-      const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-      const provided = typeof body.brightDataApiKey === 'string' ? body.brightDataApiKey.trim() : '';
-      const key = provided || (await loadOperatorSettings(prisma)).brightDataApiKey;
-      if (!key) {
-        res.status(400).json({ error: 'No Bright Data key to test. Save or paste one first.' });
-        return;
-      }
-      const result = await testBrightDataKey(key);
-      if (result.ok) {
-        try {
-          if (prisma && (await unquarantineCredential(prisma, key))) {
-            result.detail = `${result.detail} — quarantine cleared, the engineer trusts this key again`;
-          }
-        } catch {
-          // Quarantine state must never break a credential test.
-        }
-      }
-      res.json({ data: result });
-    })
-  );
-
   router.use(async (error: unknown, req: Request, res: Response, _next: NextFunction) => {
-    if (error instanceof ValidationError) {
+    if (error instanceof ValidationError || error instanceof TargetedValidationError) {
       res.status(400).json({ error: error.message, fields: error.fields });
       return;
     }

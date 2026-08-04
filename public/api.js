@@ -1,16 +1,8 @@
 (function () {
   const BASE = '/api';
-  const REQUEST_TIMEOUT_MS = 45_000;
-
-  function withTimeout(options, timeoutMs = REQUEST_TIMEOUT_MS) {
-    return {
-      ...(options || {}),
-      signal: options && options.signal ? options.signal : AbortSignal.timeout(timeoutMs),
-    };
-  }
 
   async function requestJson(path, options) {
-    const res = await fetch(BASE + path, withTimeout(options));
+    const res = await fetch(BASE + path, options);
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 && !path.startsWith('/auth/')) {
       window.dispatchEvent(new CustomEvent('lgx:unauthorized', { detail: data }));
@@ -25,7 +17,7 @@
   }
 
   async function requestText(path, options) {
-    const res = await fetch(BASE + path, withTimeout(options, 120_000));
+    const res = await fetch(BASE + path, options);
     const text = await res.text();
     if (!res.ok) throw new Error(text || 'Request failed');
     return text;
@@ -69,12 +61,6 @@
       }),
     testMyGoogle: (body) =>
       requestJson('/auth/credentials/test/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body || {}),
-      }),
-    testMyBrightData: (body) =>
-      requestJson('/auth/credentials/test/brightdata', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}),
@@ -123,33 +109,10 @@
     stopRun: (id) => requestJson('/runs/' + id + '/stop', { method: 'POST' }),
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
     getRunAnalyst: (id) => requestJson('/runs/' + id + '/analyst'),
-    listLeads: (runId, leadSource) => {
-      const params = new URLSearchParams();
-      if (runId) params.set('runId', runId);
-      if (leadSource) params.set('leadSource', leadSource);
-      const query = params.toString();
-      return requestJson('/leads' + (query ? '?' + query : ''));
-    },
-    getHiringSignals: (runId) => requestJson('/runs/' + runId + '/hiring-signals'),
-    refreshHiringSignals: (runId) =>
-      requestJson('/runs/' + runId + '/hiring-signals/refresh', { method: 'POST' }),
-    updateHiringOpportunity: (id, body) =>
-      requestJson('/hiring-opportunities/' + id, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      }),
-    prepareHiringSearch: (id, targetLane) =>
-      requestJson('/hiring-opportunities/' + id + '/prepare-search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetLane }),
-      }),
+    listLeads: (runId) => requestJson('/leads' + (runId ? '?runId=' + runId : '')),
     getLeadEmailsTxt: (runId) =>
       requestText('/leads/download?format=emails' + (runId ? '&runId=' + runId : '')),
     listErrors: () => requestJson('/errors'),
-    getExtensionToken: () => requestJson('/extension/token'),
-    regenerateExtensionToken: () => requestJson('/extension/token/regenerate', { method: 'POST' }),
     getSettings: () => requestJson('/settings'),
     saveSettings: (body) =>
       requestJson('/settings', {
@@ -175,19 +138,39 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}),
       }),
-    testBrightDataCredential: (body) =>
-      requestJson('/settings/test/brightdata', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body || {}),
+    getTargetedCatalog: () => requestJson('/targeted/catalog'),
+    getTargetedBankMarkets: (body) =>
+      requestJson('/targeted/markets/banks', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       }),
-    enrichLinkedIn: (runId) => requestJson('/runs/' + runId + '/enrich-linkedin', { method: 'POST' }),
-    shuffleNext: () => requestJson('/shuffle/next'),
-    downloadLeads: (runId, format, leadSource) => {
+    resetTargetedLearning: () => requestJson('/targeted/learning/reset', { method: 'POST' }),
+    auditTargetedGeography: () => requestJson('/targeted/geography/audit', { method: 'POST' }),
+    createTargetedCampaign: (body) =>
+      requestJson('/targeted/campaigns', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }),
+    listTargetedCampaigns: () => requestJson('/targeted/campaigns'),
+    planTargetedCampaign: (id) => requestJson('/targeted/campaigns/' + id + '/plan', { method: 'POST' }),
+    editTargetedWorkUnit: (id, unitId, body) =>
+      requestJson('/targeted/campaigns/' + id + '/work-units/' + unitId, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      }),
+    startTargetedCampaign: (id) => requestJson('/targeted/campaigns/' + id + '/start', { method: 'POST' }),
+    stopTargetedCampaign: (id) => requestJson('/targeted/campaigns/' + id + '/stop', { method: 'POST' }),
+    deleteTargetedCampaign: (id) => requestJson('/targeted/campaigns/' + id, { method: 'DELETE' }),
+    getTargetedCampaign: (id) => requestJson('/targeted/campaigns/' + id),
+    getTargetedCandidates: (id, tier) =>
+      requestJson('/targeted/campaigns/' + id + '/candidates' + (tier ? '?tier=' + encodeURIComponent(tier) : '')),
+    downloadTargetedStrict: (id) => {
+      window.location.href = BASE + '/targeted/campaigns/' + id + '/export?quality=strict';
+    },
+    downloadAllTargetedStrict: () => {
+      window.location.href = BASE + '/targeted/export?quality=strict';
+    },
+    downloadLeads: (runId, format) => {
       const params = new URLSearchParams();
       if (runId) params.set('runId', runId);
       if (format) params.set('format', format);
-      if (leadSource) params.set('leadSource', leadSource);
       const query = params.toString();
       window.location.href = BASE + '/leads/download' + (query ? '?' + query : '');
     },

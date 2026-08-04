@@ -13,7 +13,6 @@ import { maskProxyUrl, SECRET_MASK } from './operatorSettings';
 
 export interface UserCredentials {
   apifyToken?: string;
-  brightDataApiKey?: string;
   googleApiKeys: string[];
   proxyUrls: string[];
 }
@@ -21,8 +20,6 @@ export interface UserCredentials {
 export interface SafeUserCredentials {
   hasCredentials: boolean;
   apifyTokenSet: boolean;
-  brightDataKeySet: boolean;
-  brightDataKeyPreview?: string;
   googleApiKeyCount: number;
   proxyCount: number;
   apifyTokenPreview?: string;
@@ -47,8 +44,6 @@ export async function loadUserCredentials(prisma: SettingsPrisma | undefined, us
     const parsed = JSON.parse(row.value) as Partial<UserCredentials>;
     return {
       apifyToken: typeof parsed.apifyToken === 'string' && parsed.apifyToken ? parsed.apifyToken : undefined,
-      brightDataApiKey:
-        typeof parsed.brightDataApiKey === 'string' && parsed.brightDataApiKey ? parsed.brightDataApiKey : undefined,
       googleApiKeys: Array.isArray(parsed.googleApiKeys) ? parsed.googleApiKeys.map(String).filter(Boolean) : [],
       proxyUrls: Array.isArray(parsed.proxyUrls) ? parsed.proxyUrls.map(String).filter(Boolean) : [],
     };
@@ -58,12 +53,11 @@ export async function loadUserCredentials(prisma: SettingsPrisma | undefined, us
 }
 
 export function hasUserCredentials(creds: UserCredentials): boolean {
-  return Boolean(creds.apifyToken || creds.brightDataApiKey || creds.googleApiKeys.length || creds.proxyUrls.length);
+  return Boolean(creds.apifyToken || creds.googleApiKeys.length || creds.proxyUrls.length);
 }
 
 export interface UserCredentialsWrite {
   apifyToken?: string;
-  brightDataApiKey?: string;
   googleApiKeys?: string[];
   proxyUrls?: string[];
 }
@@ -81,8 +75,6 @@ export async function saveUserCredentials(
   };
   const next: UserCredentials = {
     apifyToken: write.apifyToken !== undefined ? write.apifyToken.trim() || undefined : current.apifyToken,
-    brightDataApiKey:
-      write.brightDataApiKey !== undefined ? write.brightDataApiKey.trim() || undefined : current.brightDataApiKey,
     googleApiKeys: write.googleApiKeys !== undefined ? write.googleApiKeys : current.googleApiKeys,
     proxyUrls: write.proxyUrls !== undefined ? write.proxyUrls.map(unmaskProxy) : current.proxyUrls,
   };
@@ -102,8 +94,6 @@ export function toSafeUserCredentials(creds: UserCredentials): SafeUserCredentia
   return {
     hasCredentials: hasUserCredentials(creds),
     apifyTokenSet: Boolean(creds.apifyToken),
-    brightDataKeySet: Boolean(creds.brightDataApiKey),
-    brightDataKeyPreview: creds.brightDataApiKey ? `••••${creds.brightDataApiKey.slice(-4)}` : undefined,
     googleApiKeyCount: creds.googleApiKeys.length,
     proxyCount: creds.proxyUrls.length,
     apifyTokenPreview: creds.apifyToken ? `••••${creds.apifyToken.slice(-4)}` : undefined,

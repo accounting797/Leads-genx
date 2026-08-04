@@ -165,61 +165,6 @@ describe('validateCreateRunInput', () => {
     });
   });
 
-  it('runs Sales Navigator filter searches on Bright Data alone — no Apify, no cookies', () => {
-    const input = validateCreateRunInput(
-      {
-        leadSource: 'sales_navigator',
-        maxResults: 100,
-        brightDataApiKey: 'bd-secret',
-        salesNavigator: {
-          titles: ['VP Sales'],
-          seniorities: ['Director'],
-          functions: ['Sales'],
-          industries: ['Software'],
-          headcounts: ['51-200'],
-          geographies: ['Austin, TX'],
-        },
-      },
-      false
-    );
-
-    expect(input).toMatchObject({
-      leadSource: 'sales_navigator',
-      brightDataApiKey: 'bd-secret',
-      salesNavigator: { titles: ['VP Sales'], headcounts: ['51-200'] },
-    });
-  });
-
-  it('points filter searches to Bright Data when neither engine can run', () => {
-    expect(() =>
-      validateCreateRunInput(
-        {
-          leadSource: 'sales_navigator',
-          maxResults: 100,
-          salesNavigator: { titles: ['VP Sales'] },
-        },
-        false
-      )
-    ).toThrow(/Bright Data/);
-  });
-
-  it('still allows filter searches via HarvestAPI cookies without a Bright Data key', () => {
-    const input = validateCreateRunInput(
-      {
-        apifyToken: 'secret-token',
-        leadSource: 'sales_navigator',
-        maxResults: 100,
-        salesNavigator: {
-          titles: ['VP Sales'],
-          cookies: '[{"name":"li_at","value":"dummy"}]',
-          userAgent: 'Mozilla/5.0 test-agent',
-        },
-      },
-      false
-    );
-    expect(input.salesNavigator?.titles).toEqual(['VP Sales']);
-  });
-
   it('rejects Sales Navigator runs with malformed cookie JSON', () => {
     expect(() =>
       validateCreateRunInput(

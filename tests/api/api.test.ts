@@ -227,11 +227,7 @@ describe('API', () => {
     const app = createApp({
       authDisabled: true,
       prisma: {
-        appSetting: {
-          async findMany() {
-            return [];
-          },
-        },
+        appSetting: { findMany: async () => [] },
       } as never,
     });
 
@@ -240,9 +236,8 @@ describe('API', () => {
     expect(res.body).toEqual({
       data: {
         defaultGoogleMapsActorId: 'compass/google-maps-extractor',
-        defaultSalesNavigatorActorId: 'harvestapi/linkedin-sales-navigator-lead-search-cookie',
+        defaultSalesNavigatorActorId: 'harvestapi/linkedin-profile-search',
         hasSavedApifyToken: false,
-        hasSavedBrightDataKey: false,
         hasSavedGoogleApiKeys: false,
         googleApiKeyCount: 0,
         proxyCount: 0,

@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 const projectRoot = path.join(__dirname, '..', '..');
@@ -8,18 +7,6 @@ const projectRoot = path.join(__dirname, '..', '..');
 function readPublicFile(fileName: string): string {
   return fs.readFileSync(path.join(projectRoot, 'public', fileName), 'utf8');
 }
-
-function readExtensionFile(fileName: string): string {
-  return fs.readFileSync(path.join(projectRoot, 'extension', fileName), 'utf8');
-}
-
-describe('network timeout guardrails', () => {
-  it('puts hard deadlines on dashboard and extension requests', () => {
-    expect(readPublicFile('api.js')).toContain('AbortSignal.timeout');
-    expect(readExtensionFile('background.js')).toContain('AbortSignal.timeout');
-    expect(readExtensionFile('popup.js')).toContain('AbortSignal.timeout');
-  });
-});
 
 describe('static dashboard downloads', () => {
   it('makes the top leads metric open the all-runs leads view', () => {
@@ -49,81 +36,76 @@ describe('static dashboard downloads', () => {
   it('requests the email TXT download format from the UI', () => {
     const appJs = readPublicFile('app.js');
 
-    expect(appJs).toContain("api.downloadLeads($('leadRunFilter').value, 'emails', activeLeadLane)");
+    expect(appJs).toContain("api.downloadLeads($('leadRunFilter').value, 'emails')");
     expect(appJs).not.toContain("api.downloadLeads($('leadRunFilter').value, 'full')");
   });
 });
 
-describe('static dashboard hiring lanes', () => {
-  it('keeps Google Maps, Sales Navigator, and Hiring opportunities visibly separate', () => {
+describe('admin targeted scraping wizard', () => {
+  it('opens a dedicated animated targeted workspace with run controls and complete exports', () => {
+    const html = readPublicFile('targeted.html');
+    const js = readPublicFile('targeted.js');
+    const css = readPublicFile('targeted.css');
+    expect(html).toContain('id="targetedCommandCenter"');
+    expect(html).toContain('id="targetedRunHistory"');
+    expect(html).toContain('id="targetedDownloadAllBtn"');
+    expect(html).toContain('id="targetedQualityFunnel"');
+    expect(js).toContain('listTargetedCampaigns');
+    expect(js).toContain('stopTargetedCampaign');
+    expect(js).toContain('downloadTargetedStrict');
+    expect(js).toContain('downloadAllTargetedStrict');
+    expect(js).toContain('deleteTargetedCampaign');
+    expect(js).toContain('data-delete-run');
+    expect(css).toContain('@keyframes targetedPulse');
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(html).toContain('/targeted.js?v=20260803-stop5');
+    expect(html).toContain('/targeted.css?v=20260803-stop4');
+  });
+
+  it('acknowledges targeted cancellation immediately instead of waiting for a full refresh', () => {
+    const js = readPublicFile('targeted.js');
+    const appJs = readPublicFile('app.js');
+    const css = readPublicFile('targeted.css');
+    expect(js).toContain('async function stopCampaign');
+    expect(js).toContain('Stopping run #');
+    expect(js).toContain("$('targetedStopBtn').disabled = true");
+    expect(js).toContain("['queued', 'running', 'waiting_for_scraper']");
+    expect(js).toContain('refreshVersion !== targetedRefreshVersion');
+    expect(appJs).toContain('async function stopTargetedCampaignImmediate');
+    expect(appJs).toContain('Targeted campaign cancelled.');
+    expect(js).toContain("renderActiveSubstitution(detail.workUnits || [], detail.status)");
+    expect(js).toContain('RUN ENDED Â· CANCELLED');
+    expect(css).toContain('body[data-running="false"] .targeted-signal i');
+  });
+
+  it('renders a compact automatic workflow with advanced controls collapsed', () => {
     const html = readPublicFile('index.html');
-
-    expect(html).toContain('data-lead-lane="google_maps"');
-    expect(html).toContain('data-lead-lane="sales_navigator"');
-    expect(html).toContain('data-tab="hiring"');
-    expect(html).toContain('id="hiringOpportunities"');
+    expect(html).toContain('data-tab="targeted"');
+    expect(html).toContain('data-admin-only');
+    expect(html).toContain('id="targetedPrompt"');
+    expect(html).toContain('id="targetedQualityFunnel"');
+    expect(html).toContain('id="targetedMarketLimit"');
+    expect(html).toContain('id="targetedMarketLimit" type="number" min="1" max="100" value="100"');
+    expect(html).toContain('id="targetedPublicSearchBudget"');
+    expect(html).toContain('id="targetedAdvanced"');
+    expect(html).toContain('id="targetedTierFilter"');
+    expect(html).toContain('Automatically resolve');
+    expect(html).not.toContain('Preview only in localhost MVP');
+    expect(html).not.toContain('data-targeted-stage=');
   });
 
-  it('prepares hiring searches for review without auto-starting a run', () => {
+  it('loads the catalog, starts campaigns, and polls active results', () => {
+    const appJs = readPublicFile('app.js');
     const apiJs = readPublicFile('api.js');
-    const appJs = readPublicFile('app.js');
-
-    expect(apiJs).toContain('prepareHiringSearch');
-    expect(appJs).toContain('Review the prepared filters, then start when you');
-    expect(appJs).toContain('chips.snCompanies.setValues');
-    expect(appJs).toContain('chips.gmSearchTerms.setValues');
-  });
-
-  it('shows transparent score components, observation time, and cache freshness', () => {
-    const uiJs = readPublicFile('ui.js');
-    const appJs = readPublicFile('app.js');
-
-    for (const label of ['Roles', 'Recency', 'Geography', 'Industry', 'Breadth']) {
-      expect(uiJs).toContain(label);
-    }
-    expect(uiJs).toContain('item.observedAt');
-    expect(appJs).toContain('lastSuccessfulObservationAt');
-    expect(appJs).toContain('cacheFreshness');
-  });
-
-  it('escapes evidence-derived hiring text in every card detail', () => {
-    const context = vm.createContext({ window: {} });
-    vm.runInContext(readPublicFile('ui.js'), context);
-    const ui = (context.window as {
-      LeadsGenXUi: {
-        renderHiringSignals(result: unknown): { matches: string; opportunities: string };
-      };
-    }).LeadsGenXUi;
-    const rendered = ui.renderHiringSignals({
-      matches: { google_maps: [], sales_navigator: [] },
-      opportunities: [
-        {
-          id: 1,
-          companyName: '<img src=x onerror=alert(1)>',
-          originLane: 'hiring_opportunity',
-          score: 88,
-          components: { roles: 35, recency: 25, geography: 20, industry: 8, breadth: 0 },
-          explanation: '<script>alert(1)</script>',
-          evidenceUrl: 'javascript:alert(1)',
-          observedAt: '2026-07-25T00:00:00Z',
-          jobs: [
-            {
-              title: '<svg onload=alert(1)>',
-              location: '<b>Dallas</b>',
-              updatedAt: '2026-07-24T00:00:00Z',
-            },
-          ],
-        },
-      ],
-    });
-
-    expect(rendered.opportunities).not.toContain('<script>');
-    expect(rendered.opportunities).not.toContain('<img src=x');
-    expect(rendered.opportunities).not.toContain('<svg onload');
-    expect(rendered.opportunities).not.toContain('javascript:');
-    expect(rendered.opportunities).toContain('href="#"');
-    expect(rendered.opportunities).toContain('&lt;script&gt;');
-    expect(rendered.opportunities).toContain('&lt;b&gt;Dallas&lt;/b&gt;');
+    expect(appJs).toContain('loadTargetedCatalog');
+    expect(appJs).toContain('startTargetedCampaign');
+    expect(appJs).toContain('renderTargetedFunnel');
+    expect(appJs).toContain("api.getTargetedCandidates(campaignId, $('targetedTierFilter').value)");
+    expect(appJs).toContain("$('targetedBank').addEventListener('change', loadTargetedBankMarkets)");
+    expect(appJs).toContain('3000');
+    expect(apiJs).toContain('createTargetedCampaign');
+    expect(apiJs).toContain('getTargetedCampaign');
+    expect(apiJs).toContain("'/targeted/campaigns/' + id + '/export?quality=strict'");
   });
 });
 

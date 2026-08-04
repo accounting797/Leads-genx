@@ -8,17 +8,6 @@ import { buildGoogleMapsSearchQueries } from './googleMapsQueryBuilder';
 
 const DEFAULT_GOOGLE_MAPS_ACTOR_ID = 'compass/google-maps-extractor';
 const DEFAULT_SALES_NAVIGATOR_ACTOR_ID = 'harvestapi/linkedin-sales-navigator-lead-search-cookie';
-const LEGACY_GENERIC_LINKEDIN_ACTOR_ID = 'harvestapi/linkedin-profile-search';
-
-function salesNavigatorActorId(configuredActorId?: string): string {
-  const actorId =
-    configuredActorId ??
-    process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID ??
-    DEFAULT_SALES_NAVIGATOR_ACTOR_ID;
-  return actorId === LEGACY_GENERIC_LINKEDIN_ACTOR_ID
-    ? DEFAULT_SALES_NAVIGATOR_ACTOR_ID
-    : actorId;
-}
 
 function addRepeated(parts: string[], key: string, values?: string[]) {
   for (const value of values ?? []) {
@@ -156,7 +145,10 @@ export function buildActorInput(input: ValidatedRunInput): ActorRunInput {
   return {
     token: input.apifyToken,
     leadSource: 'sales_navigator',
-    actorId: salesNavigatorActorId(input.actorId),
+    actorId:
+      input.actorId ??
+      process.env.DEFAULT_SALES_NAVIGATOR_ACTOR_ID ??
+      DEFAULT_SALES_NAVIGATOR_ACTOR_ID,
     input: snInput,
     maxResults: input.maxResults,
   };

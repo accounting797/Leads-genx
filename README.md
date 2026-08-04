@@ -10,9 +10,9 @@ The app runs locally at `http://localhost:4177` and stores runs, leads, events, 
 
 This is the recommended higher-volume source. Use business search terms, categories, and one or more locations to collect company-level leads such as business name, category, address, website, phone, rating, review count, and Google Maps URL. A pasted Google Maps URL is optional and only needed as an advanced override.
 
-Google Maps Standard runs automatically start Docker and Google Places together; there is no provider-selection step. Docker submits deterministic, one-location browser batches to the locally built scraper on `127.0.0.1:8080`, while Google spreads its request budget across locations before deeper pagination. Both lanes persist through the same SQLite-backed ingestion coordinator, merge duplicate businesses, and preserve partial output if one lane fails. The Google request budget defaults to 50 HTTP attempts and is capped at 500; set it to `0` for Docker-only discovery. Hybrid Max Output adds Apify without mixing these records into Sales Navigator leads.
+Google Maps runs automatically use Docker Local-First; there is no provider selection step. The pipeline submits deterministic, one-location browser batches to the locally built scraper on `127.0.0.1:8080`, checkpoints each batch in SQLite, merges duplicate businesses, and only uses Google Places for the remaining target. The Google fallback defaults to 25 HTTP requests and is capped at 500. Set its budget to `0` for browser-only discovery.
 
-Local-first runs accept up to 10,000 target businesses. This is a target, not a guaranteed result count: Google availability, search coverage, websites, and published email addresses determine the actual output. The application baseline is four scraper pages with one durable checkpoint batch supervised at a time.
+Local-first runs accept up to 10,000 target businesses. This is a target, not a guaranteed result count: Google availability, search coverage, websites, and published email addresses determine the actual output. Browser concurrency remains at 1 while direct-mode reliability is being established.
 
 API keys and proxy URLs are request-scoped. They are never written to run filters, events, or scraper job records, and the dashboard clears them after an accepted request. Direct mode uses the host's public IP. If a run is interrupted, direct batches resume from their stored checkpoints; secret-dependent runs wait for credential re-entry.
 
@@ -97,6 +97,27 @@ Runs fall back to saved Google keys and the saved Apify token when the run form 
 ## Export
 
 Use the Leads tab to download TXT exports for all leads or a selected run.
+
+## Targeted Scraping (Admin Pilot)
+
+Administrators have a **Targeted Scraping** tab for public B2B and public business contacts. The seven-stage wizard keeps geography in this order: area code, state/province, city, ZIP/postal code, then visible email-domain and MX/security-infrastructure filters.
+
+The initial provider catalog includes Microsoft 365, Google Workspace, Zoho, GoDaddy, Fastmail, Proton Business, Rackspace, Mimecast, Proofpoint, Cisco Secure Email/IronPort, Barracuda, SpamTitan, Gmail, Outlook/Hotmail, Yahoo/AOL, Comcast, AT&T, Verizon, Cox, Spectrum, iCloud, GMX, and Mail.com families. Visible domains and MX infrastructure are separate signals.
+
+US Bank mode can load the top 25 branch-density markets from the public FDIC locations API. Canadian bank names are available, but automatic Canadian branch-density lookup is not enabled in the localhost MVP; enter Canadian area codes, provinces, cities, and postal codes manually.
+
+Only HTML/public-business discovery work units execute in this MVP. PDF, XLS, XLSX, CSV, DOCX, and TXT variants are shown honestly as **Preview only in localhost MVP**. Strict output requires explicit target alignment and valid domain/MX checks. DNS/MX qualification is not mailbox verification and does not guarantee inbox placement or a result volume.
+
+To test locally from PowerShell:
+
+```powershell
+npm.cmd run prisma:generate
+$env:DATABASE_URL='file:./dev.db'; npx.cmd prisma db push
+npm.cmd run scraper:up
+npm.cmd run dev
+```
+
+Open `http://localhost:4177`, sign in as an administrator, select **Targeted Scraping**, build the query plan, review the executable and preview-only work units, and start the campaign. Strict results export as one normalized email per line.
 
 ## Verification
 

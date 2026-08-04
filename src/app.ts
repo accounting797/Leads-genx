@@ -11,18 +11,13 @@ import { ApiDeps, createApiRouter } from './routes/api';
 import { safeErrorMessage } from './domain/errorLogger';
 import { loadOperatorSettings, loadQuarantinedCredentials, quarantineCredential } from './domain/operatorSettings';
 import { createDeployService } from './domain/deployService';
-import { createHiringSignalService } from './domain/hiringSignalService';
-import { GreenhouseClient } from './integrations/greenhouseClient';
+import { PrismaTargetedStore } from './domain/targeted/store';
+import { TargetedService } from './domain/targeted/service';
+import { PublicWebSearchClient } from './domain/targeted/publicWebSearch';
 
 export function createApp(deps: ApiDeps = {}) {
   const app = express();
   const runtimePrisma = deps.prisma ?? prisma;
-  const hiringSignalService =
-    deps.hiringSignalService ??
-    createHiringSignalService({
-      prisma: runtimePrisma,
-      greenhouseClient: new GreenhouseClient(),
-    });
   const runService =
     deps.runService ??
     createRunService({
@@ -36,18 +31,30 @@ export function createApp(deps: ApiDeps = {}) {
       loadQuarantinedCredentials: () => loadQuarantinedCredentials(runtimePrisma),
       quarantineCredential: (provider, credential, reason) =>
         quarantineCredential(runtimePrisma, provider, credential, reason),
-      onRunSettled: async (runId) => {
-        await hiringSignalService.scheduleIfEligible(runId);
-      },
     });
+  const targetedService = deps.targetedService ?? new TargetedService({
+    store: new PrismaTargetedStore(runtimePrisma),
+    googleClient: new GooglePlacesApiClient(),
+    localClient: new LocalMapsScraperKitClient({ maxPolls: 120 }),
+    emailExtractor: new WebsiteEmailExtractor(),
+    webSearchClient: new PublicWebSearchClient(),
+    settingsLoader: async () => {
+      const settings = await loadOperatorSettings(runtimePrisma);
+      return { googleApiKeys: settings.googleApiKeys, proxyUrls: settings.proxyUrls };
+    },
+  });
 
   if (deps.recoverOnStartup && runService.recoverInterruptedRuns) {
     setImmediate(() => {
       void runService.recoverInterruptedRuns?.().catch((error) => {
         console.error(`Local-first recovery failed: ${safeErrorMessage(error)}`);
       });
-      void hiringSignalService.recoverInterruptedScans().catch((error) => {
-        console.error(`Hiring-signal recovery failed: ${safeErrorMessage(error)}`);
+    });
+  }
+  if (deps.recoverOnStartup) {
+    setImmediate(() => {
+      void targetedService.recoverInterruptedCampaigns().catch((error) => {
+        console.error(`Targeted recovery failed: ${safeErrorMessage(error)}`);
       });
     });
   }
@@ -62,21 +69,18 @@ export function createApp(deps: ApiDeps = {}) {
       credentialTester: deps.credentialTester,
       authDisabled: deps.authDisabled,
       deployService: deps.deployService ?? createDeployService(),
-      hiringSignalService,
+      targetedService,
     })
   );
-  app.use(
-    express.static(path.join(__dirname, '..', 'public'), {
-      setHeaders: (res, filePath) => {
-        // HTML/JS/CSS must revalidate every load — a stale cached frontend
-        // silently drops new fields (a "saved" key that never reaches the
-        // server). Versioned assets can still be cached by the browser.
-        if (/\.(html|js|css)$/.test(filePath)) {
-          res.setHeader('Cache-Control', 'no-cache');
-        }
-      },
-    })
-  );
+  app.use(express.static(path.join(__dirname, '..', 'public'), {
+    etag: false,
+    maxAge: 0,
+    setHeaders: (response) => {
+      response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      response.setHeader('Pragma', 'no-cache');
+      response.setHeader('Expires', '0');
+    },
+  }));
 
   return app;
 }

@@ -63,22 +63,6 @@ export async function executeBalancedGoogleMapsRun(
   const plannedBatches = buildLocalDiscoveryBatches(filters, input.maxResults);
   const plannedByKey = new Map(plannedBatches.map((batch) => [batch.key, batch]));
   const existingBatches = await store.listBatches(run.id);
-  const interruptedBatches = existingBatches.filter((batch) => batch.status === 'running');
-  for (const checkpoint of interruptedBatches) {
-    await store.upsertBatch(run.id, {
-      ...checkpoint,
-      status: 'retry',
-      errorCode: 'interrupted_before_settlement',
-    });
-  }
-  if (interruptedBatches.length > 0) {
-    await store.addEvent(
-      run.id,
-      'local_batches_requeued',
-      `Nova recovered ${interruptedBatches.length} interrupted Docker ${interruptedBatches.length === 1 ? 'batch' : 'batches'}; completed output remains saved.`,
-      { provider: 'local_maps_scraper', requeuedBatchCount: interruptedBatches.length }
-    );
-  }
   const existingKeys = new Set(existingBatches.map((batch) => batch.batchKey));
   for (const batch of plannedBatches) {
     if (existingKeys.has(batch.key)) continue;
@@ -118,27 +102,17 @@ export async function executeBalancedGoogleMapsRun(
     yieldCount: number,
     extra: { budgetUsed?: number; budgetMax?: number; errorCode?: string; errorMessage?: string } = {}
   ) => {
-    try {
-      await store.upsertProviderState(run.id, {
-        provider,
-        status,
-        operation,
-        yieldCount,
-        budgetUsed: extra.budgetUsed,
-        budgetMax: extra.budgetMax,
-        errorCode: extra.errorCode,
-        errorMessage: extra.errorMessage,
-        heartbeatAt: now(),
-      });
-    } catch {
-      await store.addErrorLog({
-        runId: run.id,
-        source: 'balancedGoogleMapsRunService',
-        severity: 'warn',
-        message: 'Provider heartbeat could not be persisted.',
-        details: { provider, errorCode: 'heartbeat_write_failed' },
-      }).catch(() => {});
-    }
+    await store.upsertProviderState(run.id, {
+      provider,
+      status,
+      operation,
+      yieldCount,
+      budgetUsed: extra.budgetUsed,
+      budgetMax: extra.budgetMax,
+      errorCode: extra.errorCode,
+      errorMessage: extra.errorMessage,
+      heartbeatAt: now(),
+    });
   };
 
   const snapshotMetrics = async () => {
@@ -201,19 +175,7 @@ export async function executeBalancedGoogleMapsRun(
       await heartbeat('google', 'standby', 'Skipped — request budget is zero', 0, { budgetUsed: 0, budgetMax: 0 });
       return 'completed';
     }
-    if (!input.googleApiKey) {
-      await store.addEvent(
-        run.id,
-        'google_places_waiting_for_credentials',
-        'Google Places needs credentials; Docker continues and all saved output will be preserved.',
-        { provider: 'google_places', requestBudget: budget }
-      );
-      await heartbeat('google', 'standby', 'Waiting for Google credentials', 0, {
-        budgetUsed: apiRequestsUsed,
-        budgetMax: budget,
-      });
-      return 'waiting_for_credentials';
-    }
+    if (!input.googleApiKey) return 'waiting_for_credentials';
     if (!googleClient) {
       await recordProviderFailure('google_places', new Error('Google Places client is not configured'));
       return 'failed';
@@ -423,7 +385,7 @@ export async function executeBalancedGoogleMapsRun(
         batchBeat.unref?.();
         let result;
         try {
-          result = await localClient.searchBatch({ batch, proxies: input.proxyUrls ?? [] });
+          result = await localClient.searchBatch({ batch, proxies: input.proxyUrls ?? [], shouldStop: isCancelled });
         } finally {
           clearInterval(batchBeat);
         }
@@ -472,6 +434,10 @@ export async function executeBalancedGoogleMapsRun(
           break;
         }
       } catch (error) {
+        if (error instanceof LocalScraperError && error.code === 'cancelled') {
+          await store.upsertBatch(run.id, { ...checkpoint, status: 'cancelled', attemptCount, errorCode: 'operator_cancelled' });
+          throw new RunCancelledError();
+        }
         consecutiveEmptyBatches = 0;
         const code = errorCode(error);
 
@@ -561,9 +527,8 @@ export async function executeBalancedGoogleMapsRun(
 
   const googleState: ProviderState = googleResult.status === 'fulfilled' ? googleResult.value : 'failed';
   const localState: ProviderState = localResult.status === 'fulfilled' ? localResult.value : 'failed';
-  const localCompletedWithOutput = localState === 'completed' && snap.businessCount > 0;
 
-  if (googleState === 'waiting_for_credentials' && !localCompletedWithOutput) {
+  if (googleState === 'waiting_for_credentials') {
     await store.updateRun(run.id, {
       status: 'waiting_for_credentials',
       ...(await snapshotMetrics()),

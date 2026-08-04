@@ -106,16 +106,6 @@
       clear() {
         selected.clear();
         renderChips();
-        renderMenu();
-      },
-      setValues(values) {
-        selected.clear();
-        (values || []).forEach((value) => {
-          const clean = String(value || '').trim();
-          if (clean) selected.add(clean);
-        });
-        renderChips();
-        renderMenu();
       },
     };
   }

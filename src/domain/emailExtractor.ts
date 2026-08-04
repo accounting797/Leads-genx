@@ -126,25 +126,26 @@ export type ClassifiedContactLead = NormalizedLead & {
   normalizedEmail: string;
   contactQuality: ContactQuality;
   qualityReason: string;
+  contactSource: 'listing_email_field' | 'business_website';
 };
 
 export async function collectContactCandidates(
   lead: NormalizedLead,
   extractor?: EmailExtractor
 ): Promise<ClassifiedContactLead[]> {
-  const decisions = new Map<string, { normalizedEmail: string; quality: ContactQuality; reason: string }>();
+  const decisions = new Map<string, { normalizedEmail: string; quality: ContactQuality; reason: string; contactSource: 'listing_email_field' | 'business_website' }>();
 
-  const addCandidate = (candidate?: string) => {
+  const addCandidate = (candidate: string | undefined, contactSource: 'listing_email_field' | 'business_website') => {
     if (!candidate) return;
     const decision = classifyContact(candidate, lead.website);
-    if (!decisions.has(decision.normalizedEmail)) decisions.set(decision.normalizedEmail, decision);
+    if (!decisions.has(decision.normalizedEmail)) decisions.set(decision.normalizedEmail, { ...decision, contactSource });
   };
 
-  addCandidate(lead.email);
+  addCandidate(lead.email, 'listing_email_field');
 
   if (extractor && lead.website) {
     try {
-      for (const email of await extractor.extract(lead.website)) addCandidate(email);
+      for (const email of await extractor.extract(lead.website)) addCandidate(email, 'business_website');
     } catch {
       // Site-level failures should not fail the whole lead run.
     }
@@ -156,6 +157,7 @@ export async function collectContactCandidates(
     normalizedEmail: decision.normalizedEmail,
     contactQuality: decision.quality,
     qualityReason: decision.reason,
+    contactSource: decision.contactSource,
   }));
 }
 

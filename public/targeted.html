@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Targeted Scraping · Leads-GenX</title>
+  <link rel="stylesheet" href="/styles.css?v=20260803-stop4">
+  <link rel="stylesheet" href="/targeted.css?v=20260803-stop4">
+</head>
+<body class="targeted-workspace-body">
+  <div class="targeted-space" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <header class="targeted-command-bar">
+    <a class="targeted-brand" href="/"><span>GX</span><div><strong>LEADS-GENX</strong><small>Targeted Intelligence</small></div></a>
+    <div class="targeted-live"><i></i><span id="targetedLiveText">SYSTEM READY</span></div>
+    <div class="inline-actions">
+      <button id="targetedDownloadAllBtn" class="ghost-btn" type="button">Download all Strict leads</button>
+      <a href="/" class="ghost-btn">Main dashboard</a>
+    </div>
+  </header>
+
+  <main id="targetedCommandCenter" class="targeted-command-center">
+    <section class="targeted-hero">
+      <div>
+        <p class="targeted-eyebrow">ADMIN RESEARCH COMMAND CENTER</p>
+        <h1>Targeted Scraping</h1>
+        <p>Choose a bank and the engine resolves up to 100 high-density US or Canadian bank markets, then searches every area code → city → state/province → postal substitution across HTML and public documents.</p>
+      </div>
+      <div class="targeted-core" aria-hidden="true"><div class="targeted-ring r1"></div><div class="targeted-ring r2"></div><div class="targeted-orb">GX</div></div>
+    </section>
+
+    <section class="targeted-console-grid">
+      <article class="targeted-console-card targeted-builder">
+        <div class="targeted-card-head"><div><span>01</span><h2>Mission target</h2></div><strong id="targetedCampaignStatus">New campaign</strong></div>
+        <label><span>Optional targeting details</span><textarea id="targetedPrompt" rows="3" placeholder="Bank mode works automatically. Optionally add an industry or role."></textarea></label>
+        <div class="targeted-grid three">
+          <label><span>Lead mode</span><select id="targetedMode"><option value="bank" selected>Bank-market public contacts</option><option value="office">Office / business mail</option><option value="google">Google / Workspace</option><option value="other">Other public contacts</option></select></label>
+          <label><span>Country</span><select id="targetedCountry"><option value="US">United States</option><option value="CA">Canada</option></select></label>
+          <label><span>Top markets</span><input id="targetedMarketLimit" type="number" min="1" max="100" value="100"></label>
+          <label class="wide"><span>Bank(s) — choose from one country</span><select id="targetedBank" multiple size="8"></select></label>
+        </div>
+        <p id="targetedBankHint" class="targeted-hint">Select a bank to resolve its strongest markets automatically.</p>
+        <div id="targetedMarkets" class="targeted-market-stream"></div>
+        <details id="targetedAdvanced" class="targeted-advanced-panel">
+          <summary>Advanced intent, providers, geography, and budgets</summary>
+          <div class="targeted-grid two">
+            <label><span>Keywords</span><input id="targetedKeywords"></label><label><span>Industries</span><input id="targetedIndustries"></label>
+            <label><span>Company types</span><input id="targetedCompanyTypes"></label><label><span>Roles</span><input id="targetedRoles"></label>
+          </div>
+          <div class="targeted-grid two"><div><h3>Visible domains</h3><div id="targetedVisibleProviders" class="targeted-checks"></div></div><div><h3>Mail infrastructure</h3><div id="targetedInfrastructureProviders" class="targeted-checks"></div></div></div>
+          <div class="targeted-grid four">
+            <label><span>Area codes</span><textarea id="targetedAreaCodes" rows="3"></textarea></label><label><span>Cities</span><textarea id="targetedCities" rows="3"></textarea></label>
+            <label><span>States/provinces</span><textarea id="targetedStates" rows="3"></textarea></label><label><span>ZIP/postal</span><textarea id="targetedPostalCodes" rows="3"></textarea></label>
+            <label><span>Radius miles</span><input id="targetedRadius" type="number" value="25"></label><label><span>Contacts/company</span><input id="targetedContactsPerCompany" type="number" min="1" max="50" value="10"></label>
+            <label><span>Maximum results</span><input id="targetedMaxResults" type="number" value="10000"></label><label><span>Google budget</span><input id="targetedGoogleBudget" type="number" value="50"></label>
+            <label><span>Public document searches</span><input id="targetedPublicSearchBudget" type="number" min="0" max="5000" value="1200"></label>
+          </div>
+          <div class="targeted-advanced-actions"><button id="targetedResetLearningBtn" class="ghost-btn danger" type="button">Reset learned priorities</button></div>
+          <div id="targetedWorkUnits" class="targeted-work-units"></div>
+        </details>
+        <div id="targetedConfirmation" class="targeted-confirmation">Select a bank. The engine will build all market substitutions automatically.</div>
+        <div class="inline-actions targeted-launch-actions">
+          <button id="targetedPlanBtn" class="ghost-btn" type="button">Build plan</button>
+          <button id="targetedStartBtn" class="primary-btn" type="button">Launch targeted run</button>
+          <button id="targetedStopBtn" class="ghost-btn danger" type="button" disabled>Stop run</button>
+          <button id="targetedExportBtn" class="ghost-btn" type="button" disabled>Download this run</button>
+        </div>
+        <p id="targetedFormStatus" class="targeted-hint"></p>
+      </article>
+
+      <aside class="targeted-console-card targeted-telemetry">
+        <div class="targeted-card-head"><div><span>02</span><h2>Live telemetry</h2></div><button id="targetedRefreshBtn" class="ghost-btn" type="button">Refresh</button></div>
+        <div id="targetedQualityFunnel" class="targeted-funnel"></div>
+        <div id="targetedActiveSubstitution" class="targeted-active-substitution"><small>CURRENT SUBSTITUTION</small><strong>No run selected</strong></div>
+        <div class="targeted-progress"><i id="targetedProgressFill"></i></div>
+        <div class="targeted-signal"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <label><span>Display tier</span><select id="targetedTierFilter"><option value="strict">Strict</option><option value="review">Review</option><option value="rejected">Rejected</option></select></label>
+        <div id="targetedCandidates" class="targeted-candidates"><p class="targeted-hint">No leads loaded yet.</p></div>
+      </aside>
+    </section>
+
+    <section class="targeted-console-card targeted-history-card">
+      <div class="targeted-card-head"><div><span>03</span><h2>Targeted run history</h2></div><p>Every run includes exact counts and independent controls.</p></div>
+      <div id="targetedRunHistory" class="targeted-run-history"></div>
+    </section>
+  </main>
+  <script src="/api.js?v=20260803-stop4"></script>
+  <script src="/targeted.js?v=20260803-stop5"></script>
+</body>
+</html>

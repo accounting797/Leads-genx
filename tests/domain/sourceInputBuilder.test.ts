@@ -9,8 +9,8 @@ import { suggestions } from '../../src/domain/suggestions';
 
 describe('suggestions', () => {
   it('exposes curated Google Maps suggestion groups', () => {
-    expect(suggestions.googleMaps.searchTemplates).toHaveLength(52);
-    expect(suggestions.googleMaps.businessCategories).toHaveLength(62);
+    expect(suggestions.googleMaps.searchTemplates).toHaveLength(50);
+    expect(suggestions.googleMaps.businessCategories).toHaveLength(50);
     expect(suggestions.googleMaps.companyTypes).toHaveLength(30);
     expect(suggestions.googleMaps.searchTemplates).toEqual(
       expect.arrayContaining(['Sales', 'Engineering', 'CEO', 'Accounting'])
@@ -241,22 +241,6 @@ describe('buildActorInput', () => {
       currentJobTitles: ['VP Sales'],
       locations: ['United States'],
     });
-  });
-
-  it('migrates the legacy generic LinkedIn actor to the cookie-based Sales Navigator actor', () => {
-    const result = buildActorInput({
-      apifyToken: 'token',
-      leadSource: 'sales_navigator',
-      actorId: 'harvestapi/linkedin-profile-search',
-      searchUrl: 'https://www.linkedin.com/sales/search/people?query=test',
-      maxResults: 25,
-      salesNavigator: {
-        cookies: '[{"name":"li_at","value":"session-value"}]',
-        userAgent: 'Mozilla/5.0 test-agent',
-      },
-    });
-
-    expect(result.actorId).toBe('harvestapi/linkedin-sales-navigator-lead-search-cookie');
   });
 
   it('uses a supplied Sales Navigator URL instead of structured search fields', () => {

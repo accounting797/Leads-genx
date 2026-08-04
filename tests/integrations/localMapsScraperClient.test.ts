@@ -7,7 +7,7 @@ describe('LocalMapsScraperClient', () => {
   });
 
   it('creates a scraper-kit job, polls it, downloads CSV, and expands email rows', async () => {
-    const requests: Array<{ url: string; method?: string; body?: unknown; hasTimeoutSignal: boolean }> = [];
+    const requests: Array<{ url: string; method?: string; body?: unknown }> = [];
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
@@ -15,7 +15,6 @@ describe('LocalMapsScraperClient', () => {
           url,
           method: init?.method,
           body: init?.body ? JSON.parse(String(init.body)) : undefined,
-          hasTimeoutSignal: init?.signal instanceof AbortSignal,
         });
 
         if (url.endsWith('/api/v1/jobs') && !init?.method) {
@@ -72,7 +71,6 @@ describe('LocalMapsScraperClient', () => {
     );
     expect(events).toContainEqual(expect.objectContaining({ type: 'started', jobId: 'job-1' }));
     expect(events).toContainEqual(expect.objectContaining({ type: 'completed', itemCount: 2 }));
-    expect(requests.every((request) => request.hasTimeoutSignal)).toBe(true);
   });
 
   it('returns no items when the scraper-kit API is not running', async () => {
@@ -157,30 +155,6 @@ describe('LocalMapsScraperClient', () => {
     });
   });
 
-  it('accepts lowercase status payloads in the compatibility search path', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/v1/jobs') && !init?.method) return Response.json([]);
-      if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
-        return Response.json({ id: 'fallback-lowercase' }, { status: 201 });
-      }
-      if (url.endsWith('/api/v1/jobs/fallback-lowercase')) return Response.json({ status: 'ok' });
-      if (url.endsWith('/api/v1/jobs/fallback-lowercase/download')) {
-        return new Response('title,website\n"Lowercase Co","https://lowercase.example.com"');
-      }
-      return new Response('not found', { status: 404 });
-    }));
-
-    const events: unknown[] = [];
-    const items = await new LocalMapsScraperClient({ pollIntervalMs: 1, maxPolls: 2 }).search({
-      filters: { searchTerms: ['dentist'], locations: ['Austin, TX'] },
-      maxResults: 10,
-      onEvent: (event) => events.push(event),
-    });
-
-    expect(items).toHaveLength(1);
-    expect(events).toContainEqual(expect.objectContaining({ type: 'completed', itemCount: 1 }));
-  });
-
   it('emits a failed event when a scraper-kit job never finishes', async () => {
     vi.stubGlobal(
       'fetch',
@@ -217,6 +191,34 @@ describe('LocalMapsScraperClient', () => {
         message: 'Local Google Maps scraper-kit job did not finish before the polling limit',
       })
     );
+  });
+
+  it('deletes an active scraper job as soon as cancellation is requested', async () => {
+    const requests: Array<{ url: string; method?: string }> = [];
+    let cancelled = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      requests.push({ url, method: init?.method });
+      if (url.endsWith('/api/v1/jobs') && !init?.method) return Response.json([]);
+      if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
+        return Response.json({ id: 'job-cancel-me' }, { status: 201 });
+      }
+      if (url.endsWith('/api/v1/jobs/job-cancel-me') && init?.method === 'DELETE') {
+        return new Response(null, { status: 204 });
+      }
+      if (url.endsWith('/api/v1/jobs/job-cancel-me')) return Response.json({ Status: 'working' });
+      return new Response('not found', { status: 404 });
+    }));
+
+    const client = new LocalMapsScraperClient({ pollIntervalMs: 1, maxPolls: 20 });
+    const items = await client.search({
+      filters: { searchTerms: ['bank contacts'], locations: ['Houston, TX'] },
+      maxResults: 100,
+      shouldStop: () => cancelled,
+      onEvent: (event) => { if (event.type === 'started') cancelled = true; },
+    });
+
+    expect(items).toEqual([]);
+    expect(requests).toContainEqual({ url: 'http://localhost:8080/api/v1/jobs/job-cancel-me', method: 'DELETE' });
   });
 
   it('runs one deterministic resumable batch and accepts lowercase status payloads', async () => {
@@ -257,6 +259,27 @@ describe('LocalMapsScraperClient', () => {
     });
     expect(result).toMatchObject({ batchKey: 'batch-key-1', jobId: 'batch-job', rawBusinessCount: 1 });
     expect(result.items).toHaveLength(1);
+  });
+
+  it('deletes a resumable batch job when a simple run is stopped', async () => {
+    let cancelled = false;
+    const requests: Array<{ url: string; method?: string }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      requests.push({ url, method: init?.method });
+      if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
+        cancelled = true;
+        return Response.json({ id: 'simple-run-job' }, { status: 201 });
+      }
+      if (url.endsWith('/api/v1/jobs/simple-run-job') && init?.method === 'DELETE') return new Response(null, { status: 204 });
+      if (url.endsWith('/api/v1/jobs/simple-run-job')) return Response.json({ status: 'working' });
+      return Response.json([]);
+    }));
+    const client = new LocalMapsScraperClient({ pollIntervalMs: 1, maxPolls: 20 });
+    await expect(client.searchBatch({
+      batch: { key: 'simple', query: 'plumbers Houston TX', lat: '29.7604', lon: '-95.3698', depth: 1, maxResults: 25 },
+      shouldStop: async () => cancelled,
+    })).rejects.toMatchObject({ code: 'cancelled' });
+    expect(requests).toContainEqual({ url: 'http://localhost:8080/api/v1/jobs/simple-run-job', method: 'DELETE' });
   });
 
   it('rides through status-poll hiccups instead of killing a healthy scrape', async () => {
@@ -318,35 +341,5 @@ describe('LocalMapsScraperClient', () => {
         proxies: [],
       })
     ).rejects.toThrow(/stopped answering mid-job/);
-  });
-
-  it('declares the lane down after three unsuccessful HTTP status polls', async () => {
-    let statusCalls = 0;
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/v1/jobs') && init?.method === 'POST') {
-        return Response.json({ id: 'http-down' }, { status: 201 });
-      }
-      if (url.endsWith('/api/v1/jobs/http-down')) {
-        statusCalls += 1;
-        return new Response('busy', { status: 503 });
-      }
-      return Response.json([]);
-    }));
-
-    const client = new LocalMapsScraperClient({ pollIntervalMs: 1, maxPolls: 4 });
-    await expect(
-      client.searchBatch({
-        batch: {
-          key: 'http-down-key',
-          query: 'dentist Austin, TX',
-          location: 'Austin, TX',
-          lat: '30.2672',
-          lon: '-97.7431',
-          depth: 10,
-          maxResults: 10,
-        },
-      })
-    ).rejects.toMatchObject({ code: 'unavailable' });
-    expect(statusCalls).toBe(3);
   });
 });

@@ -20,8 +20,6 @@ function baseInput(overrides: Partial<AnalystInput> = {}): AnalystInput {
     ],
     providerStates: overrides.providerStates ?? [],
     errorLogs: overrides.errorLogs ?? [],
-    hiringSignals: overrides.hiringSignals ?? [],
-    hiringScan: overrides.hiringScan ?? null,
     now: NOW,
   };
 }
@@ -125,97 +123,6 @@ describe('analyzeRun', () => {
     expect(report.verdict).toBe('perfect');
     expect(report.verdictLabel).toBe('Excellent');
     expect(report.headline).toContain('140 qualified emails');
-  });
-
-  it('adds at most two hiring notes without changing a healthy verdict', () => {
-    const report = analyzeRun(
-      baseInput({
-        run: {
-          status: 'completed',
-          leadCount: 20,
-          businessCount: 40,
-          maxResults: 40,
-          apiRequestsUsed: 0,
-          apiRequestBudget: 0,
-        },
-        hiringSignals: [
-          { companyName: 'Acme', score: 94, explanation: 'VP Sales updated recently in Austin.' },
-          { companyName: 'Beta', score: 89, explanation: 'Operations Director updated recently.' },
-          { companyName: 'Gamma', score: 85, explanation: 'Finance lead updated recently.' },
-        ],
-      })
-    );
-
-    expect(report.verdict).toBe('perfect');
-    const hiringLines = report.lines.filter((line) => line.text.toLowerCase().includes('hiring signal'));
-    expect(hiringLines).toHaveLength(2);
-    expect(hiringLines[0].text).toContain('Acme');
-    expect(hiringLines[1].text).toContain('Beta');
-  });
-
-  it('prioritizes existing-company signals and keeps one partial-scan note informational', () => {
-    const report = analyzeRun(
-      baseInput({
-        run: {
-          status: 'completed',
-          leadCount: 20,
-          businessCount: 40,
-          maxResults: 40,
-          apiRequestsUsed: 0,
-          apiRequestBudget: 0,
-        },
-        hiringSignals: [
-          {
-            companyName: 'Adjacent Co',
-            score: 99,
-            explanation: 'An adjacent opening was updated recently.',
-            originLane: 'hiring_opportunity',
-          },
-          {
-            companyName: 'Existing Co',
-            score: 75,
-            explanation: 'A role on an existing company was updated recently.',
-            originLane: 'google_maps',
-          },
-        ],
-        hiringScan: {
-          status: 'partially_completed',
-          errorMessage: 'One public board could not be checked.',
-        },
-      })
-    );
-
-    expect(report.verdict).toBe('perfect');
-    const hiringLines = report.lines.filter((line) => line.text.startsWith('Hiring '));
-    expect(hiringLines).toHaveLength(2);
-    expect(hiringLines[0].text).toContain('Existing Co');
-    expect(hiringLines[1]).toMatchObject({ tone: 'info' });
-    expect(hiringLines[1].text).toContain('Some public hiring boards');
-    expect(hiringLines.some((line) => line.text.includes('Adjacent Co'))).toBe(false);
-  });
-
-  it('keeps a failed optional hiring scan to one informational line', () => {
-    const report = analyzeRun(
-      baseInput({
-        run: {
-          status: 'completed',
-          leadCount: 20,
-          businessCount: 40,
-          maxResults: 40,
-          apiRequestsUsed: 0,
-          apiRequestBudget: 0,
-        },
-        hiringScan: {
-          status: 'failed',
-          errorMessage: 'Public board request failed.',
-        },
-      })
-    );
-
-    expect(report.verdict).toBe('perfect');
-    expect(report.lines.filter((line) => line.text.startsWith('Hiring '))).toEqual([
-      expect.objectContaining({ tone: 'info' }),
-    ]);
   });
 
   it('keeps partial output visible when a provider fails after persisting leads', () => {
@@ -333,43 +240,5 @@ describe('analyzeRun', () => {
     expect(report.verdict).toBe('bad');
     expect(report.headline).toMatch(/isn't answering/);
     expect(report.lines.some((line) => line.text.includes('resume'))).toBe(true);
-  });
-
-  it('stays All good during a long quiet task while provider heartbeats are fresh', () => {
-    const report = analyzeRun(
-      baseInput({
-        events: [
-          { type: 'google_completed', message: 'Google finished.', createdAt: new Date(NOW.getTime() - 6 * 60_000) },
-        ],
-        providerStates: [
-          {
-            provider: 'docker',
-            status: 'running',
-            operation: 'Discovery batch 1/4',
-            yieldCount: 0,
-            heartbeatAt: new Date(NOW.getTime() - 5000),
-          },
-        ],
-      })
-    );
-
-    // The screenshot bug: this exact situation used to read "Needs a look".
-    expect(report.verdict).toBe('good');
-    expect(report.lines.some((line) => line.tone === 'info' && /heads-down on a long task/.test(line.text))).toBe(true);
-    expect(report.lines.some((line) => /no provider heartbeat/.test(line.text))).toBe(false);
-  });
-
-  it('escalates when events are stale AND no provider shows signs of life', () => {
-    const report = analyzeRun(
-      baseInput({
-        events: [
-          { type: 'google_completed', message: 'Google finished.', createdAt: new Date(NOW.getTime() - 6 * 60_000) },
-        ],
-        providerStates: [],
-      })
-    );
-
-    expect(report.verdict).toBe('bad');
-    expect(report.lines.some((line) => /no provider heartbeat/.test(line.text))).toBe(true);
   });
 });

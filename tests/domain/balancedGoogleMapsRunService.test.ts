@@ -183,48 +183,6 @@ describe('executeBalancedGoogleMapsRun', () => {
     ).rejects.toThrow(/Docker lane is unavailable/);
   });
 
-  it('does not fail provider work when a heartbeat write is unavailable', async () => {
-    const run: RunRecord = {
-      id: 25,
-      status: 'queued',
-      leadSource: 'google_maps',
-      actorId: 'local_first',
-      maxResults: 1,
-      leadCount: 0,
-    };
-    const state = fakeStore(run);
-    state.store.upsertProviderState = async () => {
-      throw new Error('provider state table busy');
-    };
-
-    const outcome = await executeBalancedGoogleMapsRun({
-      store: state.store,
-      localClient: {
-        async search() { return []; },
-        async health() { return true; },
-        async searchBatch({ batch }) {
-          return {
-            batchKey: batch.key,
-            jobId: 'heartbeat-safe',
-            rawBusinessCount: 1,
-            items: [{ title: 'Heartbeat Safe Co' }],
-          };
-        },
-      },
-    }, run, {
-      leadSource: 'google_maps',
-      maxResults: 1,
-      googleMaps: {
-        provider: 'local_first',
-        searchTerms: ['dentist'],
-        locations: ['Austin, TX'],
-        apiRequestBudget: 0,
-      },
-    });
-
-    expect(outcome).toMatchObject({ status: 'completed', businessCount: 1 });
-  });
-
   it('deduplicates the same website and phone across Google and Docker before email scanning', async () => {
     const run: RunRecord = { id: 8, status: 'queued', leadSource: 'google_maps', actorId: 'local_first', maxResults: 20, leadCount: 0 };
     const state = fakeStore(run);
@@ -342,58 +300,6 @@ describe('executeBalancedGoogleMapsRun', () => {
     expect(run.status).toBe('completed');
   });
 
-  it('retries an interrupted running checkpoint once during resume', async () => {
-    const filters = {
-      provider: 'local_first' as const,
-      searchTerms: ['dentist'],
-      locations: ['Austin, TX'],
-      apiRequestBudget: 0,
-    };
-    const [planned] = buildLocalDiscoveryBatches(filters, 1);
-    const run: RunRecord = {
-      id: 23,
-      status: 'running',
-      leadSource: 'google_maps',
-      actorId: 'local_first',
-      maxResults: 1,
-      leadCount: 0,
-    };
-    const state = fakeStore(run, {
-      batches: [{
-        id: 1,
-        runId: run.id,
-        batchKey: planned.key,
-        query: planned.query,
-        status: 'running',
-        attemptCount: 1,
-        resultCount: 0,
-      }],
-    });
-    let calls = 0;
-
-    await executeBalancedGoogleMapsRun({
-      store: state.store,
-      localClient: {
-        async search() { return []; },
-        async health() { return true; },
-        async searchBatch({ batch }) {
-          calls += 1;
-          return {
-            batchKey: batch.key,
-            jobId: 'resumed-job',
-            rawBusinessCount: 1,
-            items: [{ title: 'Resumed Co' }],
-          };
-        },
-      },
-    }, run, { leadSource: 'google_maps', maxResults: 1, googleMaps: filters });
-
-    expect(calls).toBe(1);
-    expect(state.batches[0]).toMatchObject({ status: 'completed', attemptCount: 2 });
-    expect(run.status).toBe('completed');
-    expect(state.events.filter((event) => event.type === 'local_batches_requeued')).toHaveLength(1);
-  });
-
   it('hands Docker and Google results to a following Hybrid stage without finalizing early', async () => {
     const run: RunRecord = { id: 3, status: 'queued', leadSource: 'google_maps', actorId: 'hybrid', maxResults: 1, leadCount: 0 };
     const state = fakeStore(run);
@@ -496,46 +402,6 @@ describe('executeBalancedGoogleMapsRun', () => {
     expect(state.businesses).toHaveLength(1);
     expect(state.batches.filter((batch) => batch.status === 'skipped_empty_circuit')).toHaveLength(1);
     expect(run.status).toBe('completed');
-  });
-
-  it('completes with preserved Docker output when Google credentials are unavailable', async () => {
-    const run: RunRecord = {
-      id: 24,
-      status: 'queued',
-      leadSource: 'google_maps',
-      actorId: 'local_first',
-      maxResults: 20,
-      leadCount: 0,
-    };
-    const state = fakeStore(run);
-
-    await executeBalancedGoogleMapsRun({
-      store: state.store,
-      localClient: {
-        async search() { return []; },
-        async health() { return true; },
-        async searchBatch({ batch }) {
-          return {
-            batchKey: batch.key,
-            jobId: 'docker-only',
-            rawBusinessCount: 1,
-            items: [{ title: 'Docker Co', website: 'https://docker.example.com' }],
-          };
-        },
-      },
-    }, run, {
-      leadSource: 'google_maps',
-      maxResults: 20,
-      googleMaps: {
-        provider: 'local_first',
-        searchTerms: ['dentist'],
-        locations: ['Austin, TX'],
-        apiRequestBudget: 50,
-      },
-    });
-
-    expect(run).toMatchObject({ status: 'completed', businessCount: 1, apiRequestsUsed: 0 });
-    expect(state.events.filter((event) => event.type === 'google_places_waiting_for_credentials')).toHaveLength(1);
   });
 
   it('waits for secure Google credentials after opening the local circuit on recovery', async () => {

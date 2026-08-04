@@ -101,10 +101,6 @@
           </div>
 
           <section id="googleMapsFields" class="source-fields active">
-            <div class="inline-actions" style="margin-bottom: 0.75rem;">
-              <button id="shuffleFiltersBtn" type="button" class="primary-btn">✨ Nova, arrange my filters</button>
-              <span id="shuffleStatus" class="settings-hint"></span>
-            </div>
             <div class="mode-field">
               <span class="mode-field-label">Output Mode</span>
               <div class="mode-select" id="outputModeSelect" data-selected="standard" role="tablist" aria-label="Output mode">
@@ -206,7 +202,6 @@
           </section>
 
           <section id="salesNavigatorFields" class="source-fields">
-            <p class="settings-hint">Filters mirror Sales Navigator exactly — and with a Bright Data key saved in Settings, filter searches run straight through Bright Data's LinkedIn dataset: <strong>no Sales Navigator account or cookies needed</strong>, emails included when available. Paste an SN search URL below to ride HarvestAPI instead.</p>
             <div class="filter-grid">
               <label>
                 <span>Keywords</span>
@@ -347,10 +342,9 @@
         <nav class="tabs">
           <button class="tab active" data-tab="runs" type="button">Runs</button>
           <button class="tab" data-tab="leads" type="button">Leads</button>
-          <button class="tab" data-tab="hiring" type="button">Hiring opportunities</button>
+          <button class="tab" data-tab="targeted" type="button" data-admin-only>Targeted Scraping</button>
           <button class="tab" data-tab="account" type="button" id="accountTabBtn">Account</button>
           <button class="tab" data-tab="logs" type="button" data-admin-only>Logs</button>
-          <button class="tab" data-tab="linkedin" type="button">LinkedIn</button>
           <button class="tab" data-tab="settings" type="button" data-admin-only>Settings</button>
           <button class="tab" data-tab="admin" type="button" data-admin-only id="adminTabBtn">Admin</button>
         </nav>
@@ -374,27 +368,81 @@
               <button id="downloadEmails" type="button" class="ghost-btn">Download Emails TXT</button>
             </div>
           </div>
-          <div class="lane-toggle" role="tablist" aria-label="Lead lane">
-            <button class="lane-btn active" data-lead-lane="google_maps" type="button">Google Maps leads</button>
-            <button class="lane-btn" data-lead-lane="sales_navigator" type="button">Sales Navigator leads</button>
-          </div>
           <div id="leadsTable"></div>
         </div>
 
-        <div id="hiringTab" class="tab-page">
-          <div class="table-actions">
+        <div id="targetedTab" class="tab-page" data-admin-only>
+          <div class="targeted-head">
             <div>
-              <h2>Hiring opportunities</h2>
-              <p>Public Greenhouse signals, kept separate from your lead lists. Nova only prepares searches—you choose when to run them.</p>
+              <p class="targeted-kicker">ADMIN PILOT</p>
+              <h2>Targeted Scraping</h2>
+              <p>Build a public-contact campaign in the order: area code → city → state/province → ZIP/postal → intent → provider.</p>
             </div>
-            <div class="inline-actions">
-              <select id="hiringRunFilter"><option value="">Choose a completed run</option></select>
-              <button id="refreshHiringSignals" type="button" class="ghost-btn">Refresh signals</button>
-            </div>
+            <span id="targetedCampaignStatus" class="targeted-status">Draft not created</span>
           </div>
-          <p id="hiringStatus" class="hiring-status">Choose a completed run to see its hiring signals.</p>
-          <div id="hiringMatches"></div>
-          <div id="hiringOpportunities"></div>
+
+          <div class="targeted-policy">
+            Public business contacts only. Strict means target-aligned with valid domain/MX; it does not mean mailbox verified or guarantee inbox delivery.
+          </div>
+
+          <section class="targeted-stage targeted-compact active">
+            <h3>Target and automatic coverage</h3>
+            <label><span>Optional targeting details</span><textarea id="targetedPrompt" rows="3" placeholder="Bank mode generates this automatically. Optionally add an industry or role."></textarea></label>
+            <div class="targeted-grid three targeted-primary-grid">
+              <label><span>Lead mode</span><select id="targetedMode"><option value="office">Office / business mail</option><option value="google">Google / Workspace</option><option value="other">Other / public personal contacts</option><option value="bank">Bank-area public contacts</option></select></label>
+              <label><span>Country</span><select id="targetedCountry"><option value="US">United States</option><option value="CA">Canada</option></select></label>
+              <label><span>Bank(s)</span><select id="targetedBank" multiple size="7" aria-label="Select one or more banks"></select></label>
+              <label><span>Automatic market limit</span><input id="targetedMarketLimit" type="number" min="1" max="100" value="100"></label>
+              <div class="targeted-auto-action"><span class="targeted-label">Branch and ATM coverage</span><button id="targetedLoadMarkets" type="button" class="ghost-btn">Automatically resolve bank markets</button></div>
+            </div>
+            <p id="targetedBankHint" class="settings-hint">Choose one or more banks. Leads Gen X will resolve the strongest US or Canadian markets, then arrange each as area code · city · state/province · ZIP/postal.</p>
+            <div id="targetedMarkets" class="targeted-markets"></div>
+            <div id="targetedConfirmation" class="targeted-confirmation">Review your target, build the query plan, then start.</div>
+            <div class="inline-actions">
+              <button id="targetedPlanBtn" class="ghost-btn" type="button">Build query plan</button>
+              <button id="targetedStartBtn" type="button" class="primary-btn">Start targeted campaign</button>
+              <button id="targetedStopBtn" type="button" class="ghost-btn danger" disabled>Stop</button>
+              <button id="targetedExportBtn" type="button" class="ghost-btn" disabled>Export Strict TXT</button>
+            </div>
+            <span id="targetedFormStatus" class="form-status"></span>
+          </section>
+
+          <details id="targetedAdvanced" class="targeted-advanced">
+            <summary>Advanced targeting, providers, manual geography, and limits</summary>
+            <div class="targeted-grid two">
+              <label><span>Keywords</span><input id="targetedKeywords" placeholder="freight, phone, operations"></label>
+              <label><span>Industries</span><input id="targetedIndustries" placeholder="logistics, manufacturing"></label>
+              <label><span>Company types</span><input id="targetedCompanyTypes" placeholder="private company, agency"></label>
+              <label><span>Roles / seniority</span><input id="targetedRoles" placeholder="operations director, owner"></label>
+            </div>
+            <div class="targeted-grid two">
+              <div><h4>Visible email domain</h4><div id="targetedVisibleProviders" class="targeted-checks"></div></div>
+              <div><h4>MX / security infrastructure</h4><div id="targetedInfrastructureProviders" class="targeted-checks"></div></div>
+            </div>
+            <h4>Manual area-code-first geography</h4>
+            <div class="targeted-grid three">
+              <label><span>Area codes</span><input id="targetedAreaCodes" placeholder="602, 480"></label>
+              <label><span>City</span><input id="targetedCities" placeholder="Avondale, Phoenix"></label>
+              <label><span>State / province</span><input id="targetedStates" placeholder="AZ"></label>
+              <label><span>ZIP / postal code</span><input id="targetedPostalCodes" placeholder="85392, 85001"></label>
+              <label><span>Radius (miles)</span><input id="targetedRadius" type="number" min="0" max="500" value="25"></label>
+            </div>
+            <div class="targeted-grid three">
+              <label><span>Contacts per company</span><input id="targetedContactsPerCompany" type="number" min="1" max="50" value="10"></label>
+              <label><span>Maximum results</span><input id="targetedMaxResults" type="number" min="1" max="100000" value="10000"></label>
+              <label><span>Google Places request budget</span><input id="targetedGoogleBudget" type="number" min="0" max="10000" value="50"></label>
+              <label><span>Public document searches</span><input id="targetedPublicSearchBudget" type="number" min="0" max="5000" value="1200"></label>
+            </div>
+            <ul class="targeted-rules"><li>Public HTML, PDF, XLS, XLSX, CSV, DOCX, and TXT sources are executable.</li><li>Catch-all, unknown, timeout, and unverified outcomes stay out of Strict.</li><li>Maximum 5,000 work units; 100 markets × 7 formats produces 700 complete substitutions.</li></ul>
+            <div class="targeted-stage-head"><div><h4>Editable work units</h4><p>Queries remain auditable.</p></div><button id="targetedResetLearningBtn" class="ghost-btn danger" type="button">Reset learned priorities</button></div>
+            <div id="targetedWorkUnits" class="targeted-work-units"><p class="settings-hint">Build the plan to see exact queries.</p></div>
+          </details>
+
+          <section class="targeted-results">
+            <div class="table-actions"><div><h3>Quality funnel</h3><p>Every count is explicit and auditable.</p></div><div class="inline-actions"><label><span>Results</span><select id="targetedTierFilter"><option value="strict" selected>Strict only</option><option value="review">Review</option><option value="rejected">Rejected</option></select></label><button id="targetedRefreshBtn" class="ghost-btn" type="button">Refresh</button></div></div>
+            <div id="targetedQualityFunnel" class="targeted-funnel"></div>
+            <div id="targetedCandidates" class="targeted-candidates"></div>
+          </section>
         </div>
 
         <div id="accountTab" class="tab-page">
@@ -425,10 +473,6 @@
                 <input id="byodApifyToken" type="password" autocomplete="off" placeholder="Leave blank to keep saved value">
               </label>
               <label>
-                <span>Bright Data API Key (LinkedIn enrichment)</span>
-                <input id="byodBrightDataKey" type="password" autocomplete="off" placeholder="Leave blank to keep saved value">
-              </label>
-              <label>
                 <span>Google API Keys (one per line)</span>
                 <textarea id="byodGoogleKeys" rows="2" spellcheck="false" placeholder="Leave blank to keep saved keys"></textarea>
               </label>
@@ -439,7 +483,6 @@
               <div class="inline-actions">
                 <button id="byodSaveBtn" type="button" class="primary-btn">Save My Details</button>
                 <button id="byodTestApify" type="button" class="ghost-btn">Test Apify</button>
-                <button id="byodTestBrightData" type="button" class="ghost-btn">Test Bright Data</button>
                 <button id="byodTestGoogle" type="button" class="ghost-btn">Test Google</button>
                 <button id="byodClearBtn" type="button" class="ghost-btn danger">Clear All</button>
               </div>
@@ -599,41 +642,6 @@
           <div id="logsTable"></div>
         </div>
 
-        <div id="linkedinTab" class="tab-page">
-          <div class="table-actions">
-            <div>
-              <h2>LinkedIn Extension</h2>
-              <p>Nova's little helper for Sales Navigator — scrape lead searches straight from your browser and watch them land here.</p>
-            </div>
-          </div>
-          <div class="settings-grid">
-            <section class="settings-card">
-              <h3>Getting Set Up</h3>
-              <ol class="setup-steps">
-                <li>Download the extension below, unzip it, then open <code>chrome://extensions</code> in Chrome, switch on <strong>Developer mode</strong>, and pick <strong>Load unpacked</strong> to select the unzipped folder.</li>
-                <li>Paste your server URL and your extension key (right next door) into the extension popup.</li>
-                <li>Open a Sales Navigator lead search and press <strong>Start</strong> in the popup — your leads stream in here automatically.</li>
-              </ol>
-              <a class="ghost-btn download-link" href="/downloads/leadsgenx-sn-extension.zip" download>Download the Extension</a>
-            </section>
-            <section class="settings-card">
-              <h3>Your Extension Key</h3>
-              <code id="extensionTokenDisplay" class="token-display">Loading…</code>
-              <div class="inline-actions">
-                <button id="copyExtensionToken" type="button" class="ghost-btn">Copy</button>
-                <button id="toggleExtensionToken" type="button" class="ghost-btn">Reveal</button>
-                <button id="regenerateExtensionToken" type="button" class="ghost-btn">Regenerate</button>
-              </div>
-              <p class="settings-hint" id="extensionTokenStatus">This key links the extension to your account — keep it to yourself.</p>
-            </section>
-          </div>
-          <div class="table-actions extension-runs-head">
-            <h2>Extension Runs</h2>
-            <button id="refreshExtensionRuns" type="button" class="ghost-btn">Refresh</button>
-          </div>
-          <div id="extensionRunsTable"></div>
-        </div>
-
         <div id="settingsTab" class="tab-page">
           <div class="table-actions">
             <div>
@@ -664,16 +672,6 @@
                 <button id="testApifyBtn" type="button" class="ghost-btn">Test Token</button>
                 <button id="clearApifyBtn" type="button" class="ghost-btn">Clear Token</button>
                 <span id="apifyTestStatus" class="settings-hint"></span>
-              </div>
-              <label>
-                <span>Bright Data API Key <small id="setBrightDataStatus" class="settings-hint"></small></span>
-                <textarea id="setBrightDataKey" rows="2" autocomplete="off" spellcheck="false" placeholder="Leave blank to keep the saved key"></textarea>
-              </label>
-              <p class="settings-hint">Powers LinkedIn contact enrichment — emails and phones for the profiles your extension captures.</p>
-              <div class="inline-actions">
-                <button id="testBrightDataBtn" type="button" class="ghost-btn">Test Key</button>
-                <button id="clearBrightDataBtn" type="button" class="ghost-btn">Clear Key</button>
-                <span id="brightDataTestStatus" class="settings-hint"></span>
               </div>
               <label>
                 <span>Google API Keys <small id="setGoogleStatus" class="settings-hint"></small></span>

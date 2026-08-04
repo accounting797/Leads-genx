@@ -69,6 +69,7 @@ export interface LocalFirstRunStore extends RunStore {
   listBusinesses(runId: number): Promise<DiscoveredBusinessRecord[]>;
   listRecoverableRuns(): Promise<RunRecord[]>;
   getRun(runId: number): Promise<RunRecord | undefined>;
+  cancelBatches?(runId: number): Promise<void>;
 }
 
 function toRunRecord(run: {
@@ -304,6 +305,13 @@ export class PrismaRunStore implements LocalFirstRunStore {
   async listBatches(runId: number): Promise<RunBatchRecord[]> {
     const batches = await this.prisma.runBatch.findMany({ where: { runId }, orderBy: { id: 'asc' } });
     return batches.map((batch) => ({ ...batch, nextAttemptAt: batch.nextAttemptAt ?? undefined, errorCode: batch.errorCode ?? undefined }));
+  }
+
+  async cancelBatches(runId: number): Promise<void> {
+    await this.prisma.runBatch.updateMany({
+      where: { runId, status: { in: ['pending', 'running', 'retry'] } },
+      data: { status: 'cancelled', nextAttemptAt: null, errorCode: 'operator_cancelled' },
+    });
   }
 
   async upsertBusiness(runId: number, business: DiscoveredBusinessWrite): Promise<'inserted' | 'merged'> {

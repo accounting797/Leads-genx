@@ -1,5 +1,4 @@
 import { GooglePlacesError } from '../integrations/googlePlacesClient';
-import { diagnoseError } from './novaDiagnosis';
 import { LocalScraperError } from '../integrations/localMapsScraperClient';
 import { safeErrorMessage } from './errorLogger';
 
@@ -359,10 +358,14 @@ export class RunEngineer {
    * in. Silence is the only true failure mode.
    */
   private async escalate(provider: EngineerProvider, operation: string, diagnosis: FailureDiagnosis): Promise<void> {
-    // Nova names the culprit and the exact cure, in plain words — never a
-    // bare "something failed".
-    const read = diagnoseError(diagnosis.summary);
-    const advice = `${read.plainCause} ${read.action}`;
+    const advice =
+      diagnosis.category === 'auth'
+        ? 'the credential is dead — a fresh one in Settings will bring us straight back.'
+        : diagnosis.category === 'rate_limit'
+        ? 'it is throttling us hard even after cooling — more keys or proxies, or a lighter load, would fix this for good.'
+        : diagnosis.category === 'quota'
+        ? 'its quota or budget looks exhausted — a top-up or a replacement key is the cure.'
+        : 'it is unstable right now — resuming the run a little later usually clears this.';
     await this.record(
       provider,
       'guidance',

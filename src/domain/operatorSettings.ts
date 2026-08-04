@@ -7,12 +7,11 @@ export const OPERATOR_SETTING_KEYS = [
   'apifyToken',
   'googleApiKeys',
   'proxyUrls',
-  'brightDataApiKey',
 ] as const;
 
 export type OperatorSettingKey = (typeof OPERATOR_SETTING_KEYS)[number];
 
-const SECRET_KEYS = new Set<OperatorSettingKey>(['apifyToken', 'googleApiKeys', 'proxyUrls', 'brightDataApiKey']);
+const SECRET_KEYS = new Set<OperatorSettingKey>(['apifyToken', 'googleApiKeys', 'proxyUrls']);
 const LIST_KEYS = new Set<OperatorSettingKey>(['googleApiKeys', 'proxyUrls']);
 
 export const SECRET_MASK = '••••••';
@@ -23,7 +22,6 @@ export interface OperatorSettings {
   apifyToken?: string;
   googleApiKeys: string[];
   proxyUrls: string[];
-  brightDataApiKey?: string;
 }
 
 export interface OperatorSettingsWrite {
@@ -32,15 +30,12 @@ export interface OperatorSettingsWrite {
   apifyToken?: string;
   googleApiKeys?: string[];
   proxyUrls?: string[];
-  brightDataApiKey?: string;
 }
 
 export interface SafeOperatorSettings {
   defaultGoogleMapsActorId: string;
   defaultSalesNavigatorActorId: string;
   hasSavedApifyToken: boolean;
-  hasSavedBrightDataKey: boolean;
-  brightDataKeyPreview?: string;
   hasSavedGoogleApiKeys: boolean;
   googleApiKeyCount: number;
   proxyCount: number;
@@ -127,7 +122,6 @@ export async function loadOperatorSettings(prisma?: SettingsPrisma): Promise<Ope
     apifyToken: byKey.get('apifyToken') || undefined,
     googleApiKeys: parseList(byKey.get('googleApiKeys')),
     proxyUrls: parseList(byKey.get('proxyUrls')),
-    brightDataApiKey: byKey.get('brightDataApiKey') || undefined,
   };
 }
 
@@ -146,9 +140,6 @@ export async function saveOperatorSettings(
   }
   if (write.apifyToken !== undefined) {
     entries.push({ key: 'apifyToken', value: write.apifyToken.trim() || undefined });
-  }
-  if (write.brightDataApiKey !== undefined) {
-    entries.push({ key: 'brightDataApiKey', value: write.brightDataApiKey.trim() || undefined });
   }
   if (write.googleApiKeys !== undefined) {
     entries.push({
@@ -182,8 +173,6 @@ export function toSafeOperatorSettings(
     defaultGoogleMapsActorId: settings.defaultGoogleMapsActorId || defaults.googleMapsActorId,
     defaultSalesNavigatorActorId: settings.defaultSalesNavigatorActorId || defaults.salesNavigatorActorId,
     hasSavedApifyToken: Boolean(settings.apifyToken),
-    hasSavedBrightDataKey: Boolean(settings.brightDataApiKey),
-    brightDataKeyPreview: settings.brightDataApiKey ? settings.brightDataApiKey.slice(0, 6) + '…' : undefined,
     hasSavedGoogleApiKeys: settings.googleApiKeys.length > 0,
     googleApiKeyCount: settings.googleApiKeys.length,
     proxyCount: settings.proxyUrls.length,
