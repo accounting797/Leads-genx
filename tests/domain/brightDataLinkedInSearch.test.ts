@@ -5,6 +5,11 @@ import {
   resolveSearchFields,
   searchLinkedInPeople,
 } from '../../src/domain/brightDataLinkedInSearch';
+import {
+  BrightDataError,
+  LINKEDIN_PERSON_PROFILE_CONTACT_DATASET,
+  LINKEDIN_PERSON_PROFILE_DATASET,
+} from '../../src/integrations/brightDataClient';
 
 const DATASET_FIELDS = [
   { name: 'name' },
@@ -23,6 +28,14 @@ describe('resolveSearchFields', () => {
     );
     expect(resolved.mapping).toMatchObject({ titles: 'position', industries: 'industry' });
     expect(resolved.skipped).toEqual(['seniorities', 'headcounts']);
+  });
+
+  it('prefers the city field for city-targeted searches', () => {
+    const resolved = resolveSearchFields(
+      { geographies: ['Houston, TX'] },
+      [{ name: 'location' }, { name: 'city' }, { name: 'country_code' }]
+    );
+    expect(resolved.mapping.geographies).toBe('city');
   });
 });
 
@@ -49,6 +62,15 @@ describe('buildSearchFilter', () => {
 
   it('returns undefined when nothing can be filtered', () => {
     expect(buildSearchFilter({ titles: ['CEO'] }, { mapping: {}, skipped: ['titles'] })).toBeUndefined();
+  });
+
+  it('uses the exact city name when the UI supplies city and state', () => {
+    expect(
+      buildSearchFilter(
+        { geographies: ['Houston, TX'] },
+        { mapping: { geographies: 'city' }, skipped: [] }
+      )
+    ).toEqual({ name: 'city', operator: 'includes', value: 'Houston' });
   });
 });
 
@@ -77,6 +99,41 @@ describe('mapSearchHit', () => {
 });
 
 describe('searchLinkedInPeople', () => {
+  it('falls back to the standard LinkedIn dataset when contact-enriched search is unavailable', async () => {
+    const fieldDatasets: string[] = [];
+    const searchDatasets: string[] = [];
+    const events: string[] = [];
+
+    const result = await searchLinkedInPeople({ titles: ['VP Sales'] }, 5, {
+      apiKey: 'bd',
+      listFields: async (_apiKey, datasetId) => {
+        fieldDatasets.push(datasetId);
+        if (datasetId === LINKEDIN_PERSON_PROFILE_CONTACT_DATASET) {
+          throw new BrightDataError('failed', 'Bright Data request failed (HTTP 404).', 404);
+        }
+        return DATASET_FIELDS;
+      },
+      search: async ({ datasetId }) => {
+        searchDatasets.push(datasetId);
+        return {
+          totalHits: 1,
+          hits: [{ url: 'https://www.linkedin.com/in/jane/', name: 'Jane Person', position: 'VP Sales' }],
+        };
+      },
+      onEvent: (type) => {
+        events.push(type);
+      },
+    });
+
+    expect(fieldDatasets).toEqual([
+      LINKEDIN_PERSON_PROFILE_CONTACT_DATASET,
+      LINKEDIN_PERSON_PROFILE_DATASET,
+    ]);
+    expect(searchDatasets).toEqual([LINKEDIN_PERSON_PROFILE_DATASET]);
+    expect(result.leads).toHaveLength(1);
+    expect(events).toContain('brightdata_search_dataset_fallback');
+  });
+
   it('paginates with the search_after cursor, dedupes by profile, and narrates progress', async () => {
     const events: string[] = [];
     let calls = 0;

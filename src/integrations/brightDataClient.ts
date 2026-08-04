@@ -212,14 +212,23 @@ export async function searchDataset(options: BrightDataSearchOptions): Promise<B
     mode: 'sync',
     filter: options.filter,
     size: options.size ?? 100,
+    sort: 'default',
   };
   if (options.searchAfter !== undefined) body.search_after = options.searchAfter;
-  const payload = (await request(
-    fetchImpl,
-    `${API_BASE}/datasets/search/${encodeURIComponent(options.datasetId)}`,
-    options.apiKey,
-    { method: 'POST', body: JSON.stringify(body) }
-  )) as { hits?: BrightDataSearchHit[]; total_hits?: number; search_after?: unknown[] };
+  let payload: { hits?: BrightDataSearchHit[]; total_hits?: number; search_after?: unknown[] };
+  try {
+    payload = (await request(
+      fetchImpl,
+      `${API_BASE}/datasets/search/${encodeURIComponent(options.datasetId)}`,
+      options.apiKey,
+      { method: 'POST', body: JSON.stringify(body) }
+    )) as typeof payload;
+  } catch (error) {
+    if (error instanceof BrightDataError && error.status === 422) {
+      return { hits: [], totalHits: 0 };
+    }
+    throw error;
+  }
   return {
     hits: Array.isArray(payload.hits) ? payload.hits : [],
     totalHits: typeof payload.total_hits === 'number' ? payload.total_hits : 0,

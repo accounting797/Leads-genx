@@ -12,7 +12,7 @@ export const TIER_LIMITS: Record<UserTier, TierLimits> = {
   STANDARD: {
     label: 'Standard',
     runsPerDay: 5,
-    maxResultsPerRun: 500,
+    maxResultsPerRun: 1000,
     hybridAllowed: false,
   },
   HYBRID: {

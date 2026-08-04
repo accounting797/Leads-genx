@@ -3,60 +3,105 @@ import { pickNextCombo, SHUFFLE_COMBOS } from '../../src/domain/shuffleCombos';
 import { suggestions } from '../../src/domain/suggestions';
 
 describe('shuffle combo library', () => {
-  it('every combo value comes from the real suggestion lists', () => {
-    const terms = new Set(suggestions.googleMaps.searchTemplates);
-    const categories = new Set(suggestions.googleMaps.businessCategories);
-    const companyTypes = new Set(suggestions.googleMaps.companyTypes);
-    const headcounts = new Set(suggestions.salesNavigator.headcounts);
+  it('uses canonical source-specific values', () => {
+    const mapsTerms = new Set(suggestions.googleMaps.searchTemplates);
+    const mapsCategories = new Set(suggestions.googleMaps.businessCategories);
+    const mapsTypes = new Set(suggestions.googleMaps.companyTypes);
+    const snTitles = new Set(suggestions.salesNavigator.titles);
+    const snIndustries = new Set(suggestions.salesNavigator.industries);
+    const snHeadcounts = new Set(suggestions.salesNavigator.headcounts);
+
     for (const combo of SHUFFLE_COMBOS) {
-      expect(terms.has(combo.searchTerm), `term ${combo.searchTerm}`).toBe(true);
-      expect(categories.has(combo.category), `category ${combo.category}`).toBe(true);
-      expect(companyTypes.has(combo.companyType), `type ${combo.companyType}`).toBe(true);
-      expect(headcounts.has(combo.headcount), `headcount ${combo.headcount}`).toBe(true);
+      expect(mapsTerms.has(combo.googleMaps.searchTerm), combo.id).toBe(true);
+      expect(mapsCategories.has(combo.googleMaps.category), combo.id).toBe(true);
+      expect(mapsTypes.has(combo.googleMaps.companyType), combo.id).toBe(true);
+      expect(snTitles.has(combo.salesNavigator.title), combo.id).toBe(true);
+      expect(snIndustries.has(combo.salesNavigator.industry), combo.id).toBe(true);
+      expect(snHeadcounts.has(combo.salesNavigator.headcount), combo.id).toBe(true);
     }
   });
 
-  it('uses exactly ONE option per filter — the precision contract', () => {
-    for (const combo of SHUFFLE_COMBOS) {
-      expect(combo.searchTerm).toBeTruthy();
-      expect(combo.category).toBeTruthy();
-      expect(combo.location).toBeTruthy();
-      expect(combo.id).toMatch(/^[a-z0-9-]+$/);
-      expect(combo.rationale.length).toBeGreaterThan(20);
-    }
+  it('keeps stable unique IDs and enough cities for a useful rotation', () => {
     expect(new Set(SHUFFLE_COMBOS.map((combo) => combo.id)).size).toBe(SHUFFLE_COMBOS.length);
+    expect(new Set(SHUFFLE_COMBOS.map((combo) => combo.city)).size).toBeGreaterThan(10);
   });
 });
 
 describe('pickNextCombo', () => {
-  it('serves unseen combos first, in library order', () => {
-    const first = pickNextCombo({});
-    expect(first.combo.id).toBe(SHUFFLE_COMBOS[0].id);
-    expect(first.freshTerritory).toBe(true);
-
-    const second = pickNextCombo({ [SHUFFLE_COMBOS[0].id]: { runs: 1, leads: 10 } });
-    expect(second.combo.id).toBe(SHUFFLE_COMBOS[1].id);
-    expect(second.combosTried).toBe(1);
+  it('does not repeat a combo or city during an active deck', () => {
+    const first = SHUFFLE_COMBOS[0];
+    const pick = pickNextCombo(
+      {
+        source: 'google_maps',
+        recentComboIds: [first.id],
+        recentCities: [first.city],
+        currentComboId: first.id,
+      },
+      {},
+      () => 0,
+    );
+    expect(pick.combo.id).not.toBe(first.id);
+    expect(pick.combo.city).not.toBe(first.city);
   });
 
-  it('learns: after a full rotation it runs back the best performer', () => {
-    const stats: Record<string, { runs: number; leads: number }> = {};
-    for (const combo of SHUFFLE_COMBOS) stats[combo.id] = { runs: 1, leads: 5 };
-    stats[SHUFFLE_COMBOS[7].id] = { runs: 2, leads: 90 }; // 45/run — the winner
-
-    const pick = pickNextCombo(stats);
-    expect(pick.combo.id).toBe(SHUFFLE_COMBOS[7].id);
-    expect(pick.freshTerritory).toBe(false);
-    expect(pick.note).toContain('best performer');
+  it('visits every eligible city before resetting the city deck', () => {
+    const cities = [...new Set(SHUFFLE_COMBOS.map((combo) => combo.city))];
+    const current = SHUFFLE_COMBOS.find((combo) => combo.city === cities[0])!;
+    const pick = pickNextCombo(
+      {
+        source: 'sales_navigator',
+        recentComboIds: [current.id],
+        recentCities: cities.slice(0, -1),
+        currentComboId: current.id,
+      },
+      {},
+      () => 0,
+    );
+    expect(pick.combo.city).toBe(cities.at(-1));
   });
 
-  it('counts tried combos accurately for the progress note', () => {
-    const pick = pickNextCombo({
-      [SHUFFLE_COMBOS[0].id]: { runs: 2, leads: 40 },
-      [SHUFFLE_COMBOS[1].id]: { runs: 1, leads: 12 },
+  it('resets an exhausted deck without immediately repeating', () => {
+    const current = SHUFFLE_COMBOS[0];
+    const pick = pickNextCombo(
+      {
+        source: 'google_maps',
+        recentComboIds: SHUFFLE_COMBOS.map((combo) => combo.id),
+        recentCities: [...new Set(SHUFFLE_COMBOS.map((combo) => combo.city))],
+        currentComboId: current.id,
+      },
+      {},
+      () => 0,
+    );
+    expect(pick.combo.id).not.toBe(current.id);
+    expect(pick.combo.city).not.toBe(current.city);
+    expect(pick.updatedHistory.comboIds).toEqual([pick.combo.id]);
+  });
+
+  it('returns exactly the active source filters', () => {
+    const maps = pickNextCombo({ source: 'google_maps' }, {}, () => 0);
+    expect(maps.filters).toEqual({
+      searchTerms: [maps.combo.googleMaps.searchTerm],
+      categoryFilters: [maps.combo.googleMaps.category],
+      companyTypes: [maps.combo.googleMaps.companyType],
+      locations: [maps.combo.city],
     });
-    expect(pick.combosTried).toBe(2);
-    expect(pick.combosTotal).toBe(SHUFFLE_COMBOS.length);
-    expect(pick.note).toContain(`slice 3 of ${SHUFFLE_COMBOS.length}`);
+
+    const sales = pickNextCombo({ source: 'sales_navigator' }, {}, () => 0);
+    expect(sales.filters).toEqual({
+      titles: [sales.combo.salesNavigator.title],
+      industries: [sales.combo.salesNavigator.industry],
+      geographies: [sales.combo.city],
+      headcounts: [sales.combo.salesNavigator.headcount],
+    });
+  });
+
+  it('uses learned weights only after every combo has run', () => {
+    const stats = Object.fromEntries(
+      SHUFFLE_COMBOS.map((combo) => [combo.id, { runs: 1, leads: combo.id === SHUFFLE_COMBOS[7].id ? 90 : 0 }]),
+    );
+    const pick = pickNextCombo({ source: 'google_maps' }, stats, () => 0.5);
+    expect(pick.freshTerritory).toBe(false);
+    expect(pick.note.toLowerCase()).toContain('learned');
+    expect(pick.combo.id).toBe(SHUFFLE_COMBOS[7].id);
   });
 });

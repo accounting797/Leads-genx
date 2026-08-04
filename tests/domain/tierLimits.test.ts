@@ -10,6 +10,7 @@ describe('limitsForUser', () => {
   it('gives standard users the standard caps', () => {
     expect(limitsForUser(standardUser)).toEqual(TIER_LIMITS.STANDARD);
     expect(TIER_LIMITS.STANDARD.hybridAllowed).toBe(false);
+    expect(TIER_LIMITS.STANDARD.maxResultsPerRun).toBe(1000);
   });
 
   it('gives hybrid users the hybrid caps', () => {

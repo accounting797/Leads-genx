@@ -184,6 +184,6 @@ describe('RunEngineer', () => {
     const engineer = new RunEngineer({ runId: 1, store: sink, sleep: noSleep });
     await engineer.skippedDeadCredential('apify', 2);
     expect(sink.events[0].metadata?.kind).toBe('credential_skipped');
-    expect(sink.events[0].message).toContain('Nova skipped 2');
+    expect(sink.events[0].message).toContain('Nova skipped 2 previously rejected Apify API tokens');
   });
 });

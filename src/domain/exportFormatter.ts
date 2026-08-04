@@ -22,7 +22,7 @@ type ExportableLead = Record<string, unknown>;
 
 export function formatLeadsTxt(leads: ExportableLead[]): string {
   const header =
-    'Type | Name | Title/Category | Company | Email | Phone | Website/Profile | Location/Address | Rating | Reviews';
+    'Run ID | Run Date | Owner | Source | Type | Name | Title/Category | Company | Email | Phone | Website/Profile | Location/Address | Rating | Reviews';
 
   const rows = leads.map((lead) => {
     const name = lead.leadType === 'business' ? lead.companyName : lead.fullName;
@@ -31,6 +31,10 @@ export function formatLeadsTxt(leads: ExportableLead[]): string {
     const location = lead.leadType === 'business' ? lead.address : lead.location;
 
     return [
+      lead.runId,
+      lead.runCreatedAt,
+      lead.ownerUsername,
+      lead.runLeadSource || lead.leadSource,
       lead.leadType,
       name,
       titleOrCategory,

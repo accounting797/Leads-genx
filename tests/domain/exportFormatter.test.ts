@@ -6,6 +6,10 @@ describe('formatLeadsTxt', () => {
     const txt = formatLeadsTxt([
       {
         leadType: 'business',
+        runId: 12,
+        runCreatedAt: '2026-07-27T10:00:00.000Z',
+        runLeadSource: 'google_maps',
+        ownerUsername: 'admin',
         companyName: 'Austin Dental Co',
         categoryName: 'Dental clinic',
         address: '1 Main St, Austin, TX',
@@ -17,6 +21,10 @@ describe('formatLeadsTxt', () => {
       },
       {
         leadType: 'person',
+        runId: 13,
+        runCreatedAt: '2026-07-28T11:30:00.000Z',
+        runLeadSource: 'sales_navigator',
+        ownerUsername: 'client.jane',
         fullName: 'Jane Doe',
         jobTitle: 'VP Sales',
         companyName: 'Example Inc',
@@ -28,9 +36,9 @@ describe('formatLeadsTxt', () => {
 
     expect(txt).toBe(
       [
-        'Type | Name | Title/Category | Company | Email | Phone | Website/Profile | Location/Address | Rating | Reviews',
-        'business | Austin Dental Co | Dental clinic | Austin Dental Co |  | (512) 555-0100 | https://example.com | 1 Main St, Austin, TX | 4.7 | 88',
-        'person | Jane Doe | VP Sales | Example Inc |  |  | https://linkedin.com/in/janedoe | Austin, TX |  | ',
+        'Run ID | Run Date | Owner | Source | Type | Name | Title/Category | Company | Email | Phone | Website/Profile | Location/Address | Rating | Reviews',
+        '12 | 2026-07-27T10:00:00.000Z | admin | google_maps | business | Austin Dental Co | Dental clinic | Austin Dental Co |  | (512) 555-0100 | https://example.com | 1 Main St, Austin, TX | 4.7 | 88',
+        '13 | 2026-07-28T11:30:00.000Z | client.jane | sales_navigator | person | Jane Doe | VP Sales | Example Inc |  |  | https://linkedin.com/in/janedoe | Austin, TX |  | ',
       ].join('\n')
     );
   });

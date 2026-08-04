@@ -9,24 +9,18 @@
 (() => {
   // ---------------------------------------------------------------- selectors
   // Result-card containers, tried in order; first group that matches wins.
-  const CARD_SELECTORS = [
-    'li.artdeco-list__item',
-    '.search-results__result-item',
-    '[data-x-search-result]',
-  ];
   // Name + profile URL anchors. SN lead URLs appear both as
   // "/sales/lead/<id>," (trailing comma form) and "/sales/lead/<id>/…".
   const NAME_LINK_SELECTORS = [
-    'a[href*="/sales/lead,"]',
     'a[href*="/sales/lead/"]',
-    '.artdeco-entity-lockup__title a',
+    '.artdeco-entity-lockup__title a[href*="/sales/lead"]',
   ];
-  const TITLE_SEL = '.artdeco-entity-lockup__subtitle';
+  const TITLE_SEL = '.artdeco-entity-lockup__subtitle, [data-anonymize="job-title"]';
   const COMPANY_SELECTORS = [
     'a[href*="/sales/company"]',
     '.artdeco-entity-lockup__caption a',
   ];
-  const LOCATION_SEL = '.artdeco-entity-lockup__caption';
+  const LOCATION_SEL = '.artdeco-entity-lockup__caption, [data-anonymize="location"]';
   const DEGREE_SEL = '.artdeco-entity-lockup__metadata';
   // "Next" pagination button (aria-label first, class fallback).
   const NEXT_SELECTORS = [
@@ -95,16 +89,31 @@
   }
 
   function firstLeadHref() {
-    for (const sel of CARD_SELECTORS) {
-      const card = document.querySelector(sel);
-      if (card) {
-        for (const linkSel of NAME_LINK_SELECTORS) {
-          const a = card.querySelector(linkSel);
-          if (a && a.getAttribute('href')) return absUrl(a.getAttribute('href'));
-        }
+    const anchor = document.querySelector('a[href*="/sales/lead/"]');
+    return anchor ? absUrl(anchor.getAttribute('href')) : '';
+  }
+
+  function leadCards() {
+    const anchors = Array.from(document.querySelectorAll('a[href*="/sales/lead/"]'));
+    const cards = [];
+    const seenCards = new Set();
+    for (const anchor of anchors) {
+      const card = anchor.closest('li, [role="listitem"], .search-results__result-item, [data-x-search-result]');
+      if (card && !seenCards.has(card)) {
+        seenCards.add(card);
+        cards.push(card);
       }
     }
-    return '';
+    return cards;
+  }
+
+  async function waitForLeadCards() {
+    const deadline = Date.now() + 12_000;
+    while (Date.now() < deadline && !state.stopped) {
+      if (leadCards().length > 0) return true;
+      await sleep(250);
+    }
+    return false;
   }
 
   // Human label for the run, e.g. the SN search name from the tab title.
@@ -157,18 +166,8 @@
 
   // ----------------------------------------------------------------- scraping
   function scrapeCards() {
-    // Pick the first container selector group that matches anything.
-    let cards = [];
-    for (const sel of CARD_SELECTORS) {
-      const found = document.querySelectorAll(sel);
-      if (found.length) {
-        cards = Array.from(found);
-        break;
-      }
-    }
-
     const leads = [];
-    for (const card of cards) {
+    for (const card of leadCards()) {
       // Name + profile URL come from the layered lead-link selectors; a card
       // may contain several anchors (avatar + name) — first non-empty wins.
       let fullName = '';
@@ -176,7 +175,11 @@
       for (const linkSel of NAME_LINK_SELECTORS) {
         for (const a of card.querySelectorAll(linkSel)) {
           const href = a.getAttribute('href') || '';
-          const text = clean(a.textContent);
+          const text = clean(
+            a.textContent ||
+            a.getAttribute('aria-label') ||
+            a.getAttribute('title')
+          );
           if (!fullName && text) fullName = text;
           if (!profileUrl && href.includes('/sales/lead')) profileUrl = absUrl(href);
           if (fullName && profileUrl) break;
@@ -255,6 +258,15 @@
 
   async function run() {
     showBadge();
+    if (!(await waitForLeadCards())) {
+      state.running = false;
+      removeBadge();
+      await send({
+        type: 'diagnostic',
+        status: 'No Sales Navigator lead cards detected — open a lead search results page, wait for results, then try again.',
+      });
+      return;
+    }
     while (!state.stopped) {
       const page = currentPageNumber();
       const leads = scrapeCards();

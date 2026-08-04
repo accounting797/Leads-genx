@@ -132,7 +132,10 @@ chrome.runtime.onMessage.addListener((msg) => {
   els.captured.textContent = String(msg.captured ?? 0);
   els.sent.textContent = String(msg.sent ?? 0);
   if (msg.lastStatus) els.lastStatus.textContent = msg.lastStatus;
-  if (msg.lastStatus === 'finished') {
+  if (
+    msg.lastStatus === 'finished' ||
+    String(msg.lastStatus || '').startsWith('No Sales Navigator lead cards detected')
+  ) {
     scraping = false;
     refreshButtons();
   }

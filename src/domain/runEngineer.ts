@@ -192,6 +192,13 @@ const PROVIDER_LABEL: Record<EngineerProvider, string> = {
   email: 'Website scanner',
 };
 
+const PROVIDER_CREDENTIAL_LABEL: Record<EngineerProvider, string> = {
+  apify: 'Apify API token',
+  google: 'Google Places API key',
+  docker: 'Docker scraper credential',
+  email: 'website scanner credential',
+};
+
 /**
  * The Run Engineer works every run: it diagnoses provider failures, retries
  * what is retryable, quarantines dead credentials, reconnects what can be
@@ -248,7 +255,7 @@ export class RunEngineer {
       await this.record(
         provider,
         'credential_quarantined',
-        `Nova here — that ${PROVIDER_LABEL[provider]} credential was rejected, so I've set it aside where it can't slow us down. Please drop a fresh one into Settings; the moment you save it, I'll pick everything back up.`,
+        `Nova here — your ${PROVIDER_CREDENTIAL_LABEL[provider]} was rejected, so I've set it aside where it can't slow us down. Please save a fresh ${PROVIDER_CREDENTIAL_LABEL[provider]} in Settings; the moment you save it, I'll pick everything back up.`,
         'A rejected credential never recovers on its own, so it is removed from rotation until replaced.'
       );
     }
@@ -256,7 +263,7 @@ export class RunEngineer {
       await this.record(
         provider,
         'guidance',
-        `Nova here — the ${PROVIDER_LABEL[provider]} credential was rejected. Pop a fresh one into Settings and I'll take it from there.`,
+        `Nova here — your ${PROVIDER_CREDENTIAL_LABEL[provider]} was rejected. Save a fresh ${PROVIDER_CREDENTIAL_LABEL[provider]} in Settings and I'll take it from there.`,
         diagnosis.reasoning
       );
     }
@@ -389,7 +396,7 @@ export class RunEngineer {
     await this.record(
       provider,
       'credential_skipped',
-      `Nova skipped ${count} ${PROVIDER_LABEL[provider]} credential${count === 1 ? '' : 's'} that failed before. Replace ${count === 1 ? 'it' : 'them'} in Settings when you have a moment.`,
+      `Nova skipped ${count} previously rejected ${PROVIDER_CREDENTIAL_LABEL[provider]}${count === 1 ? '' : 's'}. Replace ${count === 1 ? 'it' : 'them'} in Settings when you have a moment.`,
       'These credentials were rejected before; using them again would only waste a shard.'
     );
   }

@@ -38,15 +38,54 @@ export async function testApifyToken(
 ): Promise<CredentialTestResult> {
   const started = Date.now();
   try {
-    const res = await timedFetch(
-      fetchImpl,
-      `https://api.apify.com/v2/users/me?token=${encodeURIComponent(token)}`
-    );
+    const auth = { headers: { Authorization: `Bearer ${token}` } };
+    const res = await timedFetch(fetchImpl, 'https://api.apify.com/v2/users/me', auth);
     const latencyMs = Date.now() - started;
     if (res.status === 200) {
-      const body = (await res.json()) as { data?: { username?: string; plan?: { id?: string } } };
-      const username = body?.data?.username ? ` (${body.data.username})` : '';
-      return { ok: true, detail: `Apify token is live${username}`, latencyMs };
+      const body = (await res.json()) as {
+        data?: { username?: string; plan?: { id?: string; monthlyUsageCreditsUsd?: number } };
+      };
+      const [limitsResponse, usageResponse] = await Promise.all([
+        timedFetch(fetchImpl, 'https://api.apify.com/v2/users/me/limits', auth),
+        timedFetch(fetchImpl, 'https://api.apify.com/v2/users/me/usage/monthly', auth),
+      ]);
+      if (limitsResponse.status === 200 && usageResponse.status === 200) {
+        const limits = (await limitsResponse.json()) as {
+          data?: {
+            monthlyUsageCycle?: { endAt?: string };
+            limits?: { maxMonthlyUsageUsd?: number };
+            current?: { monthlyUsageUsd?: number };
+          };
+        };
+        const usage = (await usageResponse.json()) as {
+          data?: { totalUsageCreditsUsdAfterVolumeDiscount?: number };
+        };
+        const included = Number(
+          body.data?.plan?.monthlyUsageCreditsUsd ??
+          limits.data?.limits?.maxMonthlyUsageUsd ??
+          0
+        );
+        const used = Number(
+          usage.data?.totalUsageCreditsUsdAfterVolumeDiscount ??
+          limits.data?.current?.monthlyUsageUsd ??
+          0
+        );
+        const remaining = Math.max(0, included - used);
+        const resetAt = limits.data?.monthlyUsageCycle?.endAt;
+        const reset = resetAt
+          ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+              .format(new Date(resetAt))
+          : 'unknown';
+        const username = body.data?.username ? ` (${body.data.username})` : '';
+        const state = remaining < 0.01 ? 'EXHAUSTED' : `$${remaining.toFixed(2)} remaining`;
+        return {
+          ok: true,
+          detail: `Apify token is live${username} · ${body.data?.plan?.id ?? 'account'} · ${state} of $${included.toFixed(2)} · resets ${reset}`,
+          latencyMs: Date.now() - started,
+        };
+      }
+      const username = body.data?.username ? ` (${body.data.username})` : '';
+      return { ok: true, detail: `Apify token is live${username} · usage unavailable`, latencyMs: Date.now() - started };
     }
     if (res.status === 401 || res.status === 403) {
       return failure(latencyMs, 'Apify rejected this token — check it and try again');

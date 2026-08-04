@@ -75,6 +75,16 @@
       </div>
     </header>
 
+    <div id="dataScopeControl" class="data-scope-shell" data-admin-only hidden>
+      <div class="data-scope-control">
+        <span id="dataScopeLabel">Viewing my data</span>
+        <div class="data-scope-toggle" role="group" aria-label="Dashboard data scope">
+          <button type="button" class="active" data-data-scope="mine" aria-pressed="true">My Data</button>
+          <button type="button" data-data-scope="all" aria-pressed="false">All Users</button>
+        </div>
+      </div>
+    </div>
+
     <main class="layout">
       <section class="panel run-panel">
         <div class="panel-head">
@@ -98,6 +108,11 @@
               <span>Credentials</span>
               <p>Apify tokens, Google API keys, and proxies are managed once in the <strong>Settings</strong> tab and power every run.</p>
             </div>
+          </div>
+
+          <div class="inline-actions" style="margin-bottom: 0.75rem;">
+            <button id="shuffleFiltersBtn" type="button" class="primary-btn">✨ Nova, arrange my filters</button>
+            <span id="shuffleStatus" class="settings-hint"></span>
           </div>
 
           <section id="googleMapsFields" class="source-fields active">
@@ -183,6 +198,7 @@
                 <label>
                   <span>Google Request Budget</span>
                   <input id="gmApiBudget" type="number" min="1" max="500" value="50">
+                  <small class="settings-hint">Google requests are capped at 500 and stop cleanly on quota or rate limits; this is separate from your results cap.</small>
                 </label>
                 <label>
                   <span>Optional Proxy URLs (request-scoped)</span>
@@ -365,7 +381,12 @@
             </div>
             <div class="inline-actions">
               <select id="leadRunFilter"><option value="">All runs</option></select>
+              <select id="downloadRange" aria-label="Download range">
+                <option value="all">Everything</option>
+                <option value="since">Since last download</option>
+              </select>
               <button id="downloadEmails" type="button" class="ghost-btn">Download Emails TXT</button>
+              <button id="downloadFullLeads" type="button" class="ghost-btn">Download Full Leads TXT</button>
             </div>
           </div>
           <div id="leadsTable"></div>
@@ -457,7 +478,7 @@
               <h3>Plan</h3>
               <div class="account-plan">
                 <span class="plan-badge large" id="accountPlanBadge" data-tier="STANDARD">Standard</span>
-                <p id="accountPlanDesc">Standard plan: Docker + Google output, up to 500 results per run, 5 runs per day.</p>
+                <p id="accountPlanDesc">Standard plan: Docker + Google output, up to 1,000 results per run, 5 runs per day.</p>
               </div>
               <div id="upgradeSection">
                 <button id="upgradeBtn" type="button" class="primary-btn">Request Hybrid Upgrade</button>
@@ -520,7 +541,8 @@
               <h3>Deploy to Server</h3>
               <span class="deploy-phase" id="deployPhase" data-phase="idle">Idle</span>
             </div>
-            <p class="settings-hint">Enter your VPS details once — Leads-GenX installs itself on the server, secures it, copies your saved credentials, waits for your domain, and finishes HTTPS on its own. Keep this window open until it finishes.</p>
+            <p class="settings-hint deploy-intro">Enter your VPS details once — Leads-GenX installs itself on the server, secures it, copies your saved credentials, waits for your domain, and finishes HTTPS on its own. Keep this window open until it finishes.</p>
+            <button id="deployFullWizardToggle" type="button" class="ghost-btn deploy-full-toggle" hidden>Need a full redeploy instead? Show the full wizard</button>
             <div class="deploy-form" id="deployForm">
               <div class="form-grid two compact">
                 <label>
@@ -700,11 +722,17 @@
               <div id="proxyTestResults" class="proxy-list"></div>
             </section>
           </div>
-          <div class="actions settings-actions">
-            <button id="saveSettingsBtn" type="button" class="primary-btn">Save Settings</button>
-            <span id="settingsStatus" class="form-status"></span>
-          </div>
-        </div>
+           <div class="actions settings-actions">
+             <button id="saveSettingsBtn" type="button" class="primary-btn">Save Settings</button>
+             <span id="settingsStatus" class="form-status"></span>
+           </div>
+           <section class="settings-card danger-card">
+             <h3>Clear Previous Runs</h3>
+             <p class="settings-hint">Deletes only finished historical runs and their leads in the current data scope. Active runs are never touched.</p>
+             <button id="clearPreviousRunsBtn" type="button" class="ghost-btn danger">Clear Previous Runs</button>
+             <span id="clearPreviousRunsStatus" class="settings-hint"></span>
+           </section>
+         </div>
       </section>
     </main>
 

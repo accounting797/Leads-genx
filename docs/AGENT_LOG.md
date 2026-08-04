@@ -12,6 +12,79 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-07-26 — codex — design (smart city shuffle)
+- Added the approved design for a non-repeating, source-aware Nova Shuffle.
+- The design gives Google Maps and Sales Navigator separate browser-persisted
+  city decks, source-specific curated filters, and performance-weighted random
+  selection only after complete discovery coverage.
+- This is a specification-only commit; implementation awaits user review and an
+  implementation plan.
+
+## 2026-07-26 — codex — fix (Nova credential labels)
+- Replaced vague credential warnings with the exact provider and credential
+  type, such as `Apify API token` and `Google Places API key`.
+- Previously rejected credentials are now reported separately per provider
+  instead of as one anonymous total.
+- Added regression coverage for both startup skipping and engineer narration.
+- Verification: fresh Prisma database, 479/479 tests green with one worker to
+  avoid Windows parallel-test contention, and production build clean.
+
+## 2026-07-26 — codex — fix (Bright Data dataset fallback)
+- Fixed Bright Data LinkedIn filter runs failing immediately with HTTP 404 when
+  the contact-enriched Search dataset is unavailable to the account.
+- Search now retries the standard LinkedIn people dataset on a contact-dataset
+  404 and gives Nova an honest fallback note; enrichment can add emails later.
+- Added regression coverage for the fallback.
+- Verification: fresh Prisma database push, 479/479 tests green, and production
+  build clean.
+
+## 2026-07-26 — codex — fix (Bright Data start routing + extension package)
+- Fixed Sales Navigator filter runs with a saved Bright Data key failing before
+  execution with `Apify token is required to build actor input`. Initial run
+  creation now identifies the dedicated `brightdata_linkedin` lane without
+  constructing an Apify actor input.
+- Added a regression test proving Bright Data filter runs start without Apify.
+- Rebuilt `public/downloads/leadsgenx-sn-extension.zip` from the current
+  extension source and verified all packaged files match byte-for-byte.
+- Verification: fresh Prisma `db push`, 478/478 tests green, plain build clean,
+  extension JavaScript syntax clean.
+
+## 2026-07-26 — kimi — fix (update blocker + deploy UX)
+- FIX (founder screenshot): server update failed — bare `git pull` on the
+  server aborted because npm had locally modified package-lock.json. Both
+  layers now self-heal with `git reset --hard HEAD` before pulling: the
+  deployService SSH command (fixes existing servers on next update) and the
+  generated update-server.sh in install-vps.sh (future installs).
+- UX (founder request): once a server is remembered, the full deploy wizard
+  (tokens/domains/passwords) hides — the quick-update block IS the deploy
+  card. "Need a full redeploy?" toggle brings the wizard back.
+- Codex: note the deployService update-command contract changed — the reset
+  prefix is deliberate; a deploy target never owns local changes.
+
+## 2026-07-26 — kimi — Greenhouse implementation review: APPROVED, ship it
+- Reviewed the full range (2ff2351 foundation → 779b052 coordinator → d2c6c08
+  hardening → 0391a2d body-cancel fix → 8201356 handoff). Verified on main
+  with my own ritual: plain build clean, fresh db push, 477/477 green.
+- FOUR FOUNDER-GATE CONDITIONS — all confirmed in code:
+  1. SSRF guard (safeWebsiteFetcher): HTTPS-only, credential-free URLs, full
+     private/loopback/CGNAT/link-local/multicast blocking (v4+v6), EVERY
+     resolved address checked, DNS-PINNED connections (rebinding-proof), ≤3
+     redirects, 1MB cap, response bodies cancelled on abandon. Beyond spec —
+     exemplary.
+  2. Uniqueness: GreenhouseBoard.boardToken @unique, HiringOpportunity
+     @@unique([scanId, companyKey]), HiringSignalScan.activeRunKey @unique.
+  3. Concurrency: global cap ≤2 (Math.min(2, …)) + atomic claims
+     (claimed.count !== 1 → return) + one-active-per-run + startup recovery.
+  4. Manual refresh: bypassCache defeats the 6h cache. Confirmed.
+- Contracts: source separation via originLane end-to-end; ownership via
+  ownedRun/ownedOpportunity + canAccessRun (404 on foreign resources);
+  prepare-search prefills the form and NEVER launches; analyst surfaces
+  hiring status without flipping verdicts; parent-run completion untouched.
+- Verdict: production-grade. No Critical/Important findings from me either.
+  Founder: this is ready to go live with the next server update.
+- Codex: outstanding work — the DNS pinning and atomic scan claims are
+  beyond what the gate required. Lane is yours to demo.
+
 ## 2026-07-25 — codex — docs (Greenhouse final implementation ready for Kimi review)
 - Kimi: review the Greenhouse implementation now on `main`, starting with
   `docs/superpowers/specs/2026-07-25-greenhouse-hiring-signals-design.md` and
@@ -357,3 +430,21 @@ Newest entries on top. Format:
 - Bright Data contact enrichment: key management (admin Settings + BYOD),
   contact-enriched dataset client, POST /runs/:id/enrich-linkedin, Enrich
   button on the LinkedIn tab.
+
+## 2026-07-26 — codex — fix (pending push)
+- Bright Data people search now requests stable sorting for real
+  `search_after` pagination, treats documented 422 no-match responses as an
+  empty result, and converts `City, ST` UI geography values to the dataset's
+  city field. Contact-enriched 404 fallback remains honest and automatic.
+- Nova is source-aware: a zero-profile LinkedIn completion is “Needs a look”
+  with exact next steps, never “Excellent”; successful LinkedIn runs describe
+  profiles instead of businesses. Dashboard array boundaries are defensive.
+- Extension 1.0.1 derives cards from actual `/sales/lead/` links, waits for
+  asynchronous results, and gives a precise zero-capture diagnosis. Rebuilt
+  `public/downloads/leadsgenx-sn-extension.zip`.
+- Multi-user authorization audit found no standard-user overlap across run
+  list/detail/events/analyst/stop/delete, leads/downloads, enrichment, or
+  extension ingestion. Admin global visibility remains intentional; run
+  history now labels Owner so preserved runs cannot be mistaken for merging.
+- Release evidence before push: focused red/green regressions, extension JS
+  syntax checks, 489/489 canonical tests, and TypeScript build.

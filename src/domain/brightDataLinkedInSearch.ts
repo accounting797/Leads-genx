@@ -15,9 +15,11 @@
 
 import type { SalesNavigatorFilters } from './types';
 import {
+  BrightDataError,
   BrightDataDatasetField,
   BrightDataSearchHit,
   LINKEDIN_PERSON_PROFILE_CONTACT_DATASET,
+  LINKEDIN_PERSON_PROFILE_DATASET,
   listDatasetFields,
   searchDataset,
 } from '../integrations/brightDataClient';
@@ -28,7 +30,7 @@ const FIELD_CANDIDATES: Record<string, string[]> = {
   titles: ['position', 'title', 'job_title'],
   companies: ['current_company_name', 'company_name', 'company'],
   industries: ['industry', 'company_industry'],
-  geographies: ['location', 'city', 'country', 'country_code'],
+  geographies: ['city', 'location', 'country', 'country_code'],
   seniorities: ['seniority', 'seniority_level'],
   functions: ['function', 'job_function'],
   headcounts: ['company_headcount', 'company_size', 'employees', 'company_employee_count'],
@@ -68,9 +70,13 @@ export function buildSearchFilter(
   resolved: ResolvedSearchFields
 ): Record<string, unknown> | undefined {
   const groups: Array<Record<string, unknown>> = [];
-  const addGroup = (values: string[] | undefined, field?: string) => {
+  const addGroup = (
+    values: string[] | undefined,
+    field?: string,
+    normalize: (value: string) => string = (value) => value
+  ) => {
     if (!values?.length || !field) return;
-    const clean = values.map((value) => value.trim()).filter(Boolean);
+    const clean = values.map((value) => normalize(value.trim())).filter(Boolean);
     if (!clean.length) return;
     groups.push(
       clean.length === 1
@@ -81,7 +87,11 @@ export function buildSearchFilter(
   addGroup(filters.titles, resolved.mapping.titles);
   addGroup(filters.companies, resolved.mapping.companies);
   addGroup(filters.industries, resolved.mapping.industries);
-  addGroup(filters.geographies, resolved.mapping.geographies);
+  addGroup(
+    filters.geographies,
+    resolved.mapping.geographies,
+    resolved.mapping.geographies === 'city' ? (value) => value.split(',')[0].trim() : undefined
+  );
   addGroup(filters.seniorities, resolved.mapping.seniorities);
   addGroup(filters.functions, resolved.mapping.functions);
   addGroup(filters.headcounts, resolved.mapping.headcounts);
@@ -147,62 +157,87 @@ export async function searchLinkedInPeople(
   maxResults: number,
   deps: BrightDataLinkedInSearchDeps
 ): Promise<{ leads: BrightDataPersonLead[]; totalHits: number; skippedGroups: string[] }> {
-  const datasetId = deps.datasetId ?? LINKEDIN_PERSON_PROFILE_CONTACT_DATASET;
   const search = deps.search ?? searchDataset;
   const listFields = deps.listFields ?? listDatasetFields;
   const pageSize = deps.pageSize ?? 100;
   const maxPages = deps.maxPages ?? 50;
   const emit = deps.onEvent ?? (() => {});
 
-  const fields = await listFields(deps.apiKey, datasetId);
-  const resolved = resolveSearchFields(filters, fields);
-  const filter = buildSearchFilter(filters, resolved);
-  if (!filter) {
-    throw new Error(
-      resolved.skipped.length
-        ? `Bright Data's LinkedIn dataset can't filter by ${resolved.skipped.join(', ')} — try titles, industries, or locations.`
-        : 'Add at least one Sales Navigator filter to search Bright Data.'
-    );
-  }
-  if (resolved.skipped.length) {
-    await emit(
-      'brightdata_search_fields_skipped',
-      `Nova note — Bright Data's dataset can't filter by ${resolved.skipped.join(
-        ', '
-      )}, so I'm searching on the rest. Your other filters all apply.`,
-      { skipped: resolved.skipped }
-    );
+  async function searchOneDataset(
+    datasetId: string
+  ): Promise<{ leads: BrightDataPersonLead[]; totalHits: number; skippedGroups: string[] }> {
+    const fields = await listFields(deps.apiKey, datasetId);
+    const resolved = resolveSearchFields(filters, fields);
+    const filter = buildSearchFilter(filters, resolved);
+    if (!filter) {
+      throw new Error(
+        resolved.skipped.length
+          ? `Bright Data's LinkedIn dataset can't filter by ${resolved.skipped.join(', ')} — try titles, industries, or locations.`
+          : 'Add at least one Sales Navigator filter to search Bright Data.'
+      );
+    }
+    if (resolved.skipped.length) {
+      await emit(
+        'brightdata_search_fields_skipped',
+        `Nova note — Bright Data's dataset can't filter by ${resolved.skipped.join(
+          ', '
+        )}, so I'm searching on the rest. Your other filters all apply.`,
+        { skipped: resolved.skipped }
+      );
+    }
+
+    const leads: BrightDataPersonLead[] = [];
+    const seenProfiles = new Set<string>();
+    let searchAfter: unknown[] | undefined;
+    let totalHits = 0;
+    for (let page = 0; page < maxPages && leads.length < maxResults; page += 1) {
+      const result = await search({
+        apiKey: deps.apiKey,
+        datasetId,
+        filter,
+        size: pageSize,
+        searchAfter,
+      });
+      totalHits = result.totalHits;
+      let added = 0;
+      for (const hit of result.hits) {
+        const lead = mapSearchHit(hit);
+        if (!lead || seenProfiles.has(lead.profileUrl!.toLowerCase())) continue;
+        seenProfiles.add(lead.profileUrl!.toLowerCase());
+        leads.push(lead);
+        added += 1;
+        if (leads.length >= maxResults) break;
+      }
+      await emit(
+        'brightdata_search_progress',
+        `Bright Data search — ${leads.length} leads gathered (${totalHits} matches in the dataset).`,
+        { gathered: leads.length, totalHits, page: page + 1 }
+      );
+      if (!result.searchAfter || result.hits.length === 0 || added === 0) break;
+      searchAfter = result.searchAfter;
+    }
+    return { leads, totalHits, skippedGroups: resolved.skipped };
   }
 
-  const leads: BrightDataPersonLead[] = [];
-  const seenProfiles = new Set<string>();
-  let searchAfter: unknown[] | undefined;
-  let totalHits = 0;
-  for (let page = 0; page < maxPages && leads.length < maxResults; page += 1) {
-    const result = await search({
-      apiKey: deps.apiKey,
-      datasetId,
-      filter,
-      size: pageSize,
-      searchAfter,
-    });
-    totalHits = result.totalHits;
-    let added = 0;
-    for (const hit of result.hits) {
-      const lead = mapSearchHit(hit);
-      if (!lead || seenProfiles.has(lead.profileUrl!.toLowerCase())) continue;
-      seenProfiles.add(lead.profileUrl!.toLowerCase());
-      leads.push(lead);
-      added += 1;
-      if (leads.length >= maxResults) break;
+  const datasetIds = deps.datasetId
+    ? [deps.datasetId]
+    : [LINKEDIN_PERSON_PROFILE_CONTACT_DATASET, LINKEDIN_PERSON_PROFILE_DATASET];
+  for (let index = 0; index < datasetIds.length; index += 1) {
+    const datasetId = datasetIds[index];
+    try {
+      return await searchOneDataset(datasetId);
+    } catch (error) {
+      const canFallBack =
+        error instanceof BrightDataError &&
+        error.status === 404 &&
+        index < datasetIds.length - 1;
+      if (!canFallBack) throw error;
+      await emit(
+        'brightdata_search_dataset_fallback',
+        "Nova note — Bright Data's contact-enriched LinkedIn dataset isn't available on this account, so I'm continuing with the standard people dataset. Leads will still be saved; enrichment can add emails afterward.",
+        { fromDataset: datasetId, toDataset: datasetIds[index + 1] }
+      );
     }
-    await emit(
-      'brightdata_search_progress',
-      `Bright Data search — ${leads.length} leads gathered (${totalHits} matches in the dataset).`,
-      { gathered: leads.length, totalHits, page: page + 1 }
-    );
-    if (!result.searchAfter || result.hits.length === 0 || added === 0) break;
-    searchAfter = result.searchAfter;
   }
-  return { leads, totalHits, skippedGroups: resolved.skipped };
+  throw new Error('Bright Data did not provide an available LinkedIn people dataset.');
 }

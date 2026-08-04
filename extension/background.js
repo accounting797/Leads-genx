@@ -203,6 +203,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  if (msg.type === 'diagnostic') {
+    (async () => {
+      const state = await getSessionState();
+      state.stats.lastStatus = String(msg.status || 'Extension could not read this page.');
+      await saveSessionState(state);
+      relayProgress(state.stats);
+    })();
+    return;
+  }
+
   if (msg.type === 'finish') {
     (async () => {
       const state = await getSessionState();
