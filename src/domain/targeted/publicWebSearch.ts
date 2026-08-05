@@ -1,66 +1,145 @@
-type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-
-function decodeHtml(value: string): string {
-  return value.replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'");
+export interface WebSearchResult {
+  title: string;
+  link: string;
+  snippet: string;
+  displayUrl?: string;
 }
 
-function resultUrl(href: string): string | undefined {
-  try {
-    const url = new URL(decodeHtml(href), 'https://duckduckgo.com');
-    const redirected = url.hostname.endsWith('duckduckgo.com') ? url.searchParams.get('uddg') : undefined;
-    const result = redirected ? new URL(redirected) : url;
-    if (result.protocol !== 'http:' && result.protocol !== 'https:') return undefined;
-    if (result.hostname.endsWith('duckduckgo.com')) return undefined;
-    result.hash = '';
-    return result.toString();
-  } catch {
-    return undefined;
-  }
-}
-
-const DOCUMENT_PATH = /\.(?:pdf|xls|xlsx|csv|tsv|docx|txt)$/i;
-
-export function discoverPublicDocumentLinks(html: string, baseUrl: string, limit = 50): string[] {
-  const links: string[] = [];
-  for (const match of html.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi)) {
-    try {
-      const url = new URL(decodeHtml(match[1]), baseUrl);
-      if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !DOCUMENT_PATH.test(url.pathname)) continue;
-      url.hash = '';
-      const normalized = url.toString();
-      if (!links.includes(normalized)) links.push(normalized);
-      if (links.length >= Math.min(100, Math.max(1, limit))) break;
-    } catch {
-      // Ignore malformed document links.
-    }
-  }
-  return links;
+export interface PublicWebSearchOptions {
+  query: string;
+  maxResults?: number;
+  timeoutMs?: number;
+  retries?: number;
 }
 
 export class PublicWebSearchClient {
-  constructor(private readonly fetcher: Fetcher = fetch) {}
+  private readonly defaultTimeoutMs = 15000;
+  private readonly defaultRetries = 2;
+  private readonly userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  ];
 
-  async search(query: string, limit = 20): Promise<string[]> {
-    const url = new URL('https://html.duckduckgo.com/html/');
-    url.searchParams.set('q', query.slice(0, 1_500));
-    const response = await this.fetcher(url, {
-      signal: AbortSignal.timeout(20_000),
-      headers: { 'user-agent': 'Mozilla/5.0 (compatible; Leads-GenX/1.0; public-business-research)' },
-    });
-    if (!response.ok) throw new Error(`Public web search failed with HTTP ${response.status}.`);
-    if (!(response.headers.get('content-type') ?? '').toLowerCase().includes('text/html')) {
-      throw new Error('Public web search did not return HTML.');
+  async search(options: PublicWebSearchOptions): Promise<WebSearchResult[]> {
+    const {
+      query,
+      maxResults = 10,
+      timeoutMs = this.defaultTimeoutMs,
+      retries = this.defaultRetries,
+    } = options;
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const results = await this.executeSearch(query, maxResults, timeoutMs, attempt);
+        if (results.length > 0) {
+          return results;
+        }
+        return [];
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.warn(`[PublicWebSearch] Attempt ${attempt + 1}/${retries + 1} failed: ${lastError.message}`);
+
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+        }
+      }
     }
-    const declared = Number(response.headers.get('content-length') ?? 0);
-    if (declared > 2 * 1024 * 1024) throw new Error('Public web search response exceeded 2 MB.');
-    const html = await response.text();
-    if (Buffer.byteLength(html, 'utf8') > 2 * 1024 * 1024) throw new Error('Public web search response exceeded 2 MB.');
-    const urls: string[] = [];
-    for (const match of html.matchAll(/<a\b[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["']/gi)) {
-      const result = resultUrl(match[1]);
-      if (result && !urls.includes(result)) urls.push(result);
-      if (urls.length >= Math.min(50, Math.max(1, limit))) break;
+
+    throw new Error(`Public web search failed after ${retries + 1} attempts: ${lastError?.message}`);
+  }
+
+  private async executeSearch(
+    query: string, 
+    maxResults: number, 
+    timeoutMs: number,
+    attempt: number
+  ): Promise<WebSearchResult[]> {
+    const userAgent = this.userAgents[attempt % this.userAgents.length];
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const encodedQuery = encodeURIComponent(query);
+      const searchUrl = `https://html.duckduckgo.com/html/?q=${encodedQuery}`;
+
+      const response = await fetch(searchUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': userAgent,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const html = await response.text();
+      return this.parseSearchResults(html, maxResults);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
     }
-    return urls;
+  }
+
+  private parseSearchResults(html: string, maxResults: number): WebSearchResult[] {
+    const results: WebSearchResult[] = [];
+    const resultRegex = /<a rel="nofollow" class="result__a" href="([^"]+)">(.*?)<\/a>.*?<a class="result__snippet"[^>]*>(.*?)<\/a>/gs;
+    let match;
+
+    while ((match = resultRegex.exec(html)) !== null && results.length < maxResults) {
+      const link = this.extractHref(match[1]);
+      const title = this.stripHtml(match[2]);
+      const snippet = this.stripHtml(match[3]);
+
+      if (link && title) {
+        results.push({
+          title: title.trim(),
+          link: link.trim(),
+          snippet: snippet.trim(),
+          displayUrl: new URL(link).hostname.replace('www.', ''),
+        });
+      }
+    }
+
+    return results;
+  }
+
+  private extractHref(href: string): string {
+    if (href.includes('duckduckgo.com/l/')) {
+      const match = href.match(/uddg=([^&]+)/);
+      if (match) {
+        try {
+          return decodeURIComponent(match[1]);
+        } catch {
+          return href;
+        }
+      }
+    }
+    return href;
+  }
+
+  private stripHtml(html: string): string {
+    return html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&#x27;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 }
