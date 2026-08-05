@@ -1,116 +1,101 @@
 import { ApifyClient } from 'apify-client';
-import { ActorClient, ActorRunStarted, ActorRunStatus, ActorStreamCallbacks, StreamingActorClient } from './actorClient';
-import { ActorRunInput } from '../domain/types';
 
-function createClient(token: string) {
-  // Bounded request timeouts: a stalled Apify API call must fail fast into
-  // the polling loop's resilience logic — never freeze the watch.
-  return new ApifyClient({ token, timeoutSecs: 45 });
+export interface ActorRunOptions {
+  actorId: string;
+  input: Record<string, unknown>;
+  timeoutSecs?: number;
+  maxPolls?: number;
+  pollIntervalMs?: number;
 }
 
-const DATASET_PAGE_SIZE = 1000;
-const ACTOR_WAIT_SECONDS = 3600;
-const STREAM_POLL_INTERVAL_MS = 15_000;
-const STREAM_MAX_WAIT_MS = 60 * 60 * 1000;
-const TERMINAL_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']);
-
-export async function collectDatasetItems(
-  listPage: (offset: number, limit: number) => Promise<unknown[]>,
-  limit = DATASET_PAGE_SIZE
-): Promise<unknown[]> {
-  const items: unknown[] = [];
-
-  for (let offset = 0; ; offset += limit) {
-    const page = await listPage(offset, limit);
-    items.push(...page);
-    if (page.length < limit) return items;
-  }
+export interface ActorRunResult {
+  datasetItems: unknown[];
+  runId: string;
+  status: string;
 }
 
-export class ApifyActorClient implements StreamingActorClient {
-  async startRun(input: ActorRunInput): Promise<ActorRunStarted> {
-    const client = createClient(input.token);
-    const run = await client.actor(input.actorId).start(input.input);
-    const finished = await client.run(run.id).waitForFinish({ waitSecs: ACTOR_WAIT_SECONDS });
+export class ApifyActorClient {
+  private client: ApifyClient;
 
-    return {
-      runId: run.id,
-      status: finished.status ?? 'UNKNOWN',
-      datasetId: finished.defaultDatasetId,
-    };
+  constructor(token?: string) {
+    const apiToken = token || process.env.APIFY_TOKEN || '';
+    if (!apiToken) {
+      console.warn('[ApifyActorClient] No APIFY_TOKEN provided. Actor runs will fail.');
+    }
+
+    // ApifyClient v2 constructor only accepts { token }
+    this.client = new ApifyClient({ token: apiToken });
   }
 
-  /**
-   * Starts the actor and streams results as they land: every poll cycle
-   * drains newly produced dataset items and reports a live heartbeat, so a
-   * 30-minute actor run produces leads from minute one instead of looking
-   * frozen until the very end.
-   */
-  async runAndStream(input: ActorRunInput, callbacks: ActorStreamCallbacks = {}): Promise<ActorRunStarted> {
-    const client = createClient(input.token);
-    const run = await client.actor(input.actorId).start(input.input);
-    const datasetId = run.defaultDatasetId;
-    const pollIntervalMs = callbacks.pollIntervalMs ?? STREAM_POLL_INTERVAL_MS;
-    const deadline = Date.now() + (callbacks.maxWaitMs ?? STREAM_MAX_WAIT_MS);
-    let offset = 0;
+  async runActor(options: ActorRunOptions): Promise<ActorRunResult> {
+    const {
+      actorId,
+      input,
+      timeoutSecs = 300,
+      maxPolls = 120,
+      pollIntervalMs = 5000,
+    } = options;
 
-    const drainNewItems = async (): Promise<void> => {
-      if (!datasetId || !callbacks.onItems) return;
-      const dataset = client.dataset(datasetId);
-      for (;;) {
-        const { items } = await dataset.listItems({ offset, limit: DATASET_PAGE_SIZE });
-        if (!items.length) return;
-        offset += items.length;
-        await callbacks.onItems(items);
-        if (items.length < DATASET_PAGE_SIZE) return;
-      }
-    };
+    if (!this.client) {
+      throw new Error('Apify client not initialized. Check APIFY_TOKEN.');
+    }
 
-    // Polling is resilient: Apify's API has hiccups, and a single failed
-    // status call must never kill a healthy actor watch. Only sustained
-    // silence (6 consecutive poll failures) is treated as a real outage.
-    let consecutivePollErrors = 0;
-    for (;;) {
-      if (Date.now() > deadline) {
-        throw new Error('Actor run exceeded the 60-minute watch window.');
-      }
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-      try {
-        const info = await client.run(run.id).get();
-        const status = info?.status ?? 'UNKNOWN';
-        consecutivePollErrors = 0;
-        await drainNewItems();
-        if (callbacks.onProgress) await callbacks.onProgress({ status, totalItems: offset });
-        if (TERMINAL_STATUSES.has(status)) {
-          if (status !== 'SUCCEEDED') {
-            throw new Error(`Actor finished with status ${status}`);
-          }
-          await drainNewItems(); // final sweep — nothing produced gets left behind
-          return { runId: run.id, status, datasetId };
-        }
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith('Actor finished with status')) throw error;
-        consecutivePollErrors += 1;
-        if (callbacks.onProgress) {
-          await callbacks.onProgress({ status: `reconnecting (${consecutivePollErrors}/6)`, totalItems: offset });
-        }
-        if (consecutivePollErrors >= 6) {
-          throw new Error('Apify stopped answering status checks — the actor may still be running; resume the run to re-attach.');
+    try {
+      const run = await this.client.actor(actorId).call(input, {
+        waitForFinish: 0,
+      });
+
+      const runId = run.id;
+      let status = run.status;
+      let polls = 0;
+
+      while (
+        status !== 'SUCCEEDED' && 
+        status !== 'FAILED' && 
+        status !== 'TIMED-OUT' && 
+        status !== 'ABORTED' &&
+        polls < maxPolls
+      ) {
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+
+        const runInfo = await this.client.run(runId).get();
+        if (!runInfo) break;
+
+        status = runInfo.status;
+        polls++;
+
+        const elapsedMs = polls * pollIntervalMs;
+        if (elapsedMs > timeoutSecs * 1000) {
+          console.warn(`[ApifyActorClient] Run ${runId} exceeded timeout (${timeoutSecs}s)`);
+          break;
         }
       }
+
+      if (status !== 'SUCCEEDED') {
+        throw new Error(`Actor run ${runId} finished with status: ${status}`);
+      }
+
+      const dataset = await this.client.run(runId).dataset().listItems();
+
+      return {
+        datasetItems: dataset.items || [],
+        runId,
+        status,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[ApifyActorClient] Run failed: ${message}`);
+      throw new Error(`Apify actor run failed: ${message}`);
     }
   }
 
-  async getRun(runId: string): Promise<ActorRunStatus> {
-    throw new Error(`Run status polling is not implemented for ${runId}`);
-  }
-
-  async getDatasetItems(datasetId: string, token: string): Promise<unknown[]> {
-    const client = createClient(token);
-    const dataset = client.dataset(datasetId);
-    return collectDatasetItems(async (offset, limit) => {
-      const { items } = await dataset.listItems({ offset, limit });
-      return items;
-    });
+  async getDatasetItems(runId: string): Promise<unknown[]> {
+    try {
+      const dataset = await this.client.run(runId).dataset().listItems();
+      return dataset.items || [];
+    } catch (error) {
+      console.error(`[ApifyActorClient] Failed to fetch dataset: ${error}`);
+      return [];
+    }
   }
 }
