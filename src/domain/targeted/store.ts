@@ -18,14 +18,14 @@ export interface LeadCreateInput {
   campaignId: string;
   source: string;
   businessName: string;
-  address?: string;
-  phone?: string;
-  website?: string;
-  email?: string;
-  category?: string;
-  rating?: number;
-  reviewsCount?: number;
-  rawData?: Record<string, unknown>;
+  address?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  email?: string | null;
+  category?: string | null;
+  rating?: number | null;
+  reviewsCount?: number | null;
+  rawData?: Record<string, unknown> | null;
 }
 
 export class PrismaTargetedStore {
@@ -99,15 +99,16 @@ export class PrismaTargetedStore {
 
   async updateCampaign(id: string, data: CampaignUpdateInput) {
     try {
+      const updateData: Prisma.TargetedCampaignUpdateInput = {};
+      if (data.name !== undefined) updateData.name = data.name;
+      if (data.description !== undefined) updateData.description = data.description;
+      if (data.filters !== undefined) updateData.filters = data.filters as Prisma.InputJsonValue;
+      if (data.status !== undefined) updateData.status = data.status;
+      updateData.updatedAt = new Date();
+
       return await this.prisma.targetedCampaign.update({
         where: { id },
-        data: {
-          ...(data.name && { name: data.name }),
-          ...(data.description !== undefined && { description: data.description }),
-          ...(data.filters && { filters: data.filters as Prisma.InputJsonValue }),
-          ...(data.status && { status: data.status }),
-          updatedAt: new Date(),
-        },
+        data: updateData,
       });
     } catch (error) {
       console.error('[TargetedStore] updateCampaign failed:', error);
@@ -170,20 +171,23 @@ export class PrismaTargetedStore {
           return { count: 0 };
         }
 
+        // Explicitly type the data to avoid TypeScript inference issues
+        const createData: Prisma.TargetedLeadCreateManyInput[] = uniqueLeads.map(l => ({
+          campaignId: l.campaignId,
+          source: l.source,
+          businessName: l.businessName,
+          address: l.address ?? null,
+          phone: l.phone ?? null,
+          website: l.website ?? null,
+          email: l.email ?? null,
+          category: l.category ?? null,
+          rating: l.rating ?? null,
+          reviewsCount: l.reviewsCount ?? null,
+          rawData: (l.rawData ?? {}) as Prisma.InputJsonValue,
+        }));
+
         const created = await tx.targetedLead.createMany({
-          data: uniqueLeads.map(l => ({
-            campaignId: l.campaignId,
-            source: l.source,
-            businessName: l.businessName,
-            address: l.address,
-            phone: l.phone,
-            website: l.website,
-            email: l.email,
-            category: l.category,
-            rating: l.rating,
-            reviewsCount: l.reviewsCount,
-            rawData: l.rawData as Prisma.InputJsonValue,
-          })),
+          data: createData,
           skipDuplicates: true,
         });
 
