@@ -9,14 +9,14 @@ echo.
 
 set SERVER_IP=45.141.215.33
 set SERVER_USER=root
-set REPO_URL=https://github.com/accounting797/Leads-genx.git
+set RAW_URL=https://raw.githubusercontent.com/accounting797/Leads-genx/main/deploy.sh
 
 echo [1/1] Connecting to server %SERVER_IP%...
 echo.
 echo When prompted, enter your server password.
 echo.
 
-ssh %SERVER_USER%@%SERVER_IP% "curl -sL %REPO_URL%/raw/main/deploy.sh | bash"
+ssh %SERVER_USER%@%SERVER_IP% "curl -fsSL %RAW_URL% -o /tmp/deploy.sh && chmod +x /tmp/deploy.sh && bash /tmp/deploy.sh"
 
 echo.
 echo ==========================================
