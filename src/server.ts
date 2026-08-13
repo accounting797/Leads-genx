@@ -1,12 +1,10 @@
-import { exec } from 'child_process';
+import { execSync } from 'child_process';
 import path from 'path';
-import { promisify } from 'util';
 import { createApp } from './app';
 import { prisma } from './db/client';
 import { backupSqliteDatabase } from './db/backup';
 import { appendErrorLogToFile, safeErrorMessage } from './domain/errorLogger';
 
-const execAsync = promisify(exec);
 const port = Number(process.env.PORT || 4177);
 
 // A stray background promise must never take the whole server down. Log it
@@ -15,11 +13,7 @@ process.on('unhandledRejection', (reason) => {
   const message = safeErrorMessage(reason);
   console.error(`Unhandled promise rejection: ${message}`);
   try {
-    appendErrorLogToFile({ 
-      source: 'process', 
-      severity: 'error', 
-      message: `unhandledRejection: ${message}` 
-    });
+    appendErrorLogToFile({ source: 'process', severity: 'error', message: `unhandledRejection: ${message}` });
   } catch {
     // Logging must never crash the process.
   }
@@ -44,69 +38,46 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-// Self-migrate on boot so updates that add tables/columns apply cleanly.
-// Use async exec instead of sync to avoid blocking the event loop.
-async function runMigrations() {
-  try {
-    console.log('[Server] Running database migrations...');
-    const { stdout, stderr } = await execAsync(
-      'npx prisma db push --skip-generate --accept-data-loss',
-      {
-        cwd: path.join(__dirname, '..'),
-        timeout: 60000,
-      }
-    );
-    if (stdout) console.log('[Server] Migration output:', stdout.trim());
-    if (stderr) console.warn('[Server] Migration stderr:', stderr.trim());
-    console.log('[Server] Database migrations completed.');
-  } catch (error) {
-    console.warn(`[Server] Schema sync skipped: ${safeErrorMessage(error)}`);
-    console.warn('[Server] If this is the first run, ensure Prisma is initialized.');
-  }
+// Self-migrate on boot so updates that add tables/columns (e.g. accounts)
+// apply cleanly even when the update script forgets to run prisma db push.
+try {
+  execSync('npx prisma db push --skip-generate', {
+    cwd: path.join(__dirname, '..'),
+    stdio: 'ignore',
+  });
+} catch (error) {
+  console.warn(`Schema sync skipped: ${error instanceof Error ? error.message : error}`);
 }
 
-async function startServer() {
-  // Run migrations before starting server
-  await runMigrations();
+const backupPath = backupSqliteDatabase(process.env.DATABASE_URL);
+if (backupPath) console.log(`Database backup saved to ${backupPath}`);
 
-  const backupPath = backupSqliteDatabase(process.env.DATABASE_URL);
-  if (backupPath) console.log(`[Server] Database backup saved to ${backupPath}`);
+const app = createApp({ recoverOnStartup: true });
 
-  const app = createApp({ recoverOnStartup: true });
+const server = app.listen(port, () => {
+  console.log(`Leads-GenX running on http://localhost:${port}`);
+});
 
-  const server = app.listen(port, () => {
-    console.log(`[Server] Leads-GenX running on http://localhost:${port}`);
-    console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
-  });
-
-  server.on('error', (error: NodeJS.ErrnoException) => {
-    if (error.code === 'EADDRINUSE') {
-      console.error(`[Server] Port ${port} is already in use — an older server is still running.`);
-      console.error('[Server] Stop it with: npx pm2 stop leads-genx || killall node');
-    } else {
-      console.error(`[Server] Server failed to start: ${error.message}`);
-    }
-    process.exit(1);
-  });
-
-  async function shutdown() {
-    console.log('[Server] Shutting down gracefully...');
-    server.close(() => {
-      console.log('[Server] HTTP server closed.');
-    });
-    await prisma.$disconnect();
-    console.log('[Server] Database disconnected.');
-    process.exit(0);
+server.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is already in use — an older server is still running.`);
+    console.error('Stop it with: taskkill /F /IM node.exe');
+  } else {
+    console.error(`Server failed to start: ${error.message}`);
   }
+  process.exit(1);
+});
 
-  process.on('SIGINT', () => {
-    void shutdown();
-  });
-
-  process.on('SIGTERM', () => {
-    void shutdown();
-  });
+async function shutdown() {
+  server.close();
+  await prisma.$disconnect();
+  process.exit(0);
 }
 
-// Start the server
-void startServer();
+process.on('SIGINT', () => {
+  void shutdown();
+});
+
+process.on('SIGTERM', () => {
+  void shutdown();
+});

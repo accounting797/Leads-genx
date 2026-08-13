@@ -15,7 +15,6 @@ export interface AnalystReport {
 
 export interface AnalystRunSnapshot {
   status: string;
-  leadSource?: 'google_maps' | 'sales_navigator';
   leadCount: number;
   rawContactCount?: number;
   businessCount: number;
@@ -169,14 +168,9 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
   if (run.businessCount > 0 || run.leadCount > 0) {
     lines.push({
       tone: 'ok',
-      text:
-        run.leadSource === 'sales_navigator'
-          ? `So far: ${run.leadCount} LinkedIn profiles saved${
-              run.rawContactCount ? `, including ${run.rawContactCount} without email addresses yet` : ''
-            }.`
-          : `So far: ${run.businessCount} businesses discovered and ${run.leadCount} qualified emails saved${
-              run.rawContactCount ? `, plus ${run.rawContactCount} raw contacts kept for review` : ''
-            }.`,
+      text: `So far: ${run.businessCount} businesses discovered and ${run.leadCount} qualified emails saved${
+        run.rawContactCount ? `, plus ${run.rawContactCount} raw contacts kept for review` : ''
+      }.`,
     });
   }
 
@@ -222,24 +216,11 @@ export function analyzeRun({ run, events, providerStates, errorLogs, now = new D
     escalate('bad');
     headline = 'Finished with a few bumps — every lead gathered before the trouble is saved.';
   } else if (run.status === 'completed') {
-    if (run.leadSource === 'sales_navigator' && run.leadCount === 0) {
-      escalate('bad');
-      headline = 'Search complete, but Bright Data returned 0 LinkedIn profiles.';
-      lines.push({
-        tone: 'warn',
-        text: 'Try one broader current title with one exact city, then add more filters after results appear.',
-      });
-    } else {
-      if (verdict === 'good') verdict = 'perfect';
-      headline =
-        run.leadSource === 'sales_navigator'
-          ? `${run.leadCount} LinkedIn profiles saved${
-              run.rawContactCount ? `; ${run.rawContactCount} still need email enrichment` : ''
-            }.`
-          : verdict === 'perfect'
-            ? `What a session — ${run.leadCount} qualified emails from ${run.businessCount} businesses without a single error.`
-            : `All done — ${run.leadCount} qualified emails saved. Do glance at the notes below when you have a moment.`;
-    }
+    if (verdict === 'good') verdict = 'perfect';
+    headline =
+      verdict === 'perfect'
+        ? `What a session — ${run.leadCount} qualified emails from ${run.businessCount} businesses without a single error.`
+        : `All done — ${run.leadCount} qualified emails saved. Do glance at the notes below when you have a moment.`;
   } else if (run.status === 'cancelled' || run.status === 'paused') {
     headline = 'Stopped as you asked — everything gathered so far is kept safe.';
   } else {

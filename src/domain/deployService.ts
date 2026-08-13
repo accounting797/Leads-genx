@@ -331,10 +331,8 @@ export function createDeployService(deps: DeployDeps = {}) {
       }
       log('Pulling the latest Leads-GenX on the server, rebuilding, and restarting (a few minutes)…');
       const updateCommand = params.githubToken
-        // The server is a deploy target — never let local tracked changes
-        // (npm-touched package-lock, old generated scripts) block the pull.
-        ? `git -C /opt/Leads-genx reset --hard HEAD && git -C /opt/Leads-genx remote set-url origin https://x-access-token:${params.githubToken}@${REPO_HTTPS} && bash /opt/Leads-genx/update-server.sh`
-        : 'git -C /opt/Leads-genx reset --hard HEAD && bash /opt/Leads-genx/update-server.sh';
+        ? `git -C /opt/Leads-genx remote set-url origin https://x-access-token:${params.githubToken}@${REPO_HTTPS} && bash /opt/Leads-genx/update-server.sh`
+        : 'bash /opt/Leads-genx/update-server.sh';
       const updateCode = await runRemote(remote, updateCommand, log);
       if (updateCode !== 0) throw new Error(`The server update script exited with code ${updateCode}.`);
       log('Update installed and the app restarted.');

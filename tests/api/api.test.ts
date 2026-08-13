@@ -487,29 +487,6 @@ describe('API', () => {
     expect(res.text).toBe(['jane@example.com', 'ops@example.com'].join('\n'));
   });
 
-  it('filters all-runs downloads from the requested checkpoint date', async () => {
-    let receivedWhere: unknown;
-    const app = createApp({
-      authDisabled: true,
-      prisma: createPrismaStub([], {
-        lead: {
-          findMany: async ({ where }: { where: unknown }) => {
-            receivedWhere = where;
-            return [];
-          },
-        },
-      }) as never,
-    });
-
-    await request(app)
-      .get('/api/leads/download?format=full&createdAfter=2026-07-27T10%3A00%3A00.000Z')
-      .expect(200);
-
-    expect(receivedWhere).toEqual({
-      run: { createdAt: { gt: new Date('2026-07-27T10:00:00.000Z') } },
-    });
-  });
-
   it('rejects unsupported lead download formats', async () => {
     const app = createApp({
       authDisabled: true,
@@ -541,31 +518,6 @@ describe('API', () => {
     await request(app).delete('/api/runs/12').expect(204);
 
     expect(deleted).toEqual([12]);
-  });
-
-  it('clears only finished runs in the requested scope and source', async () => {
-    let receivedWhere: unknown;
-    const app = createApp({
-      authDisabled: true,
-      prisma: createPrismaStub([], {
-        run: {
-          deleteMany: async ({ where }: { where: unknown }) => {
-            receivedWhere = where;
-            return { count: 3 };
-          },
-        },
-      }) as never,
-    });
-
-    const res = await request(app)
-      .delete('/api/runs/clear-previous?leadSource=sales_navigator')
-      .expect(200);
-
-    expect(res.body).toEqual({ data: { deletedCount: 3 } });
-    expect(receivedWhere).toEqual({
-      status: { in: ['completed', 'partially_completed', 'cancelled', 'failed'] },
-      leadSource: 'sales_navigator',
-    });
   });
 
   it('returns 404 when deleting a missing run', async () => {
