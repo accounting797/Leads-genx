@@ -1,5 +1,3 @@
-import { resolveMx as nodeResolveMx } from 'node:dns/promises';
-import { mxInfrastructureProvider } from './providerCatalog';
 import { TargetedQualityTier, VerificationDepth } from './types';
 
 export interface MxRecord {
@@ -22,7 +20,6 @@ export interface MailInfrastructureResult {
   reason: string;
 }
 
-const DEFAULT_RESOLVER: MxResolver = { resolveMx: nodeResolveMx };
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NO_REPLY = /^(?:no-?reply|do-?not-?reply|donotreply|mailer-daemon)$/i;
 const PLACEHOLDER_LOCAL = /^(?:test|testing|example|sample|fake)$/i;
@@ -35,8 +32,8 @@ function result(email: string, partial: Omit<MailInfrastructureResult, 'email'>)
 
 export async function classifyMailInfrastructure(
   value: string,
-  resolver: MxResolver = DEFAULT_RESOLVER,
-  timeoutMs = 5_000,
+  _resolver?: MxResolver,
+  _timeoutMs?: number,
 ): Promise<MailInfrastructureResult> {
   const email = value.trim().toLowerCase();
   const [local = '', domain = ''] = email.split('@');
@@ -47,28 +44,5 @@ export async function classifyMailInfrastructure(
     return result(email, { ...base, tier: 'rejected', reason: 'placeholder_address' });
   }
   if (DISPOSABLE_DOMAINS.has(domain)) return result(email, { ...base, tier: 'rejected', reason: 'disposable_domain' });
-
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(Object.assign(new Error('MX resolver timeout'), { code: 'ETIMEOUT' })), timeoutMs);
-    });
-    const records = await Promise.race([resolver.resolveMx(domain), timeout]);
-    const mxHosts = records.map((record) => record.exchange.trim().toLowerCase().replace(/\.+$/, '')).filter(Boolean);
-    if (!mxHosts.length) return result(email, { ...base, tier: 'rejected', reason: 'no_mx_records' });
-    const infrastructureProviders = mxInfrastructureProvider(mxHosts).map((provider) => provider.id);
-    return result(email, {
-      domain, depth: 'domain_mx', infrastructureProviders, mxHosts, mxValid: true,
-      tier: 'strict', reason: 'mx_valid',
-    });
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ETIMEOUT') return result(email, { ...base, tier: 'review', reason: 'resolver_timeout' });
-    if (['ENOTFOUND', 'ENODATA', 'ENONAME', 'NXDOMAIN'].includes(code ?? '')) {
-      return result(email, { ...base, tier: 'rejected', reason: 'domain_has_no_mx' });
-    }
-    return result(email, { ...base, tier: 'review', reason: 'resolver_error' });
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  return result(email, { ...base, tier: 'strict', reason: 'syntax_valid' });
 }

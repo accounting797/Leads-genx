@@ -91,7 +91,7 @@ export class PrismaTargetedStore {
     const row = await this.prisma.targetedCampaign.create({
       data: {
         userId, prompt: input.prompt, filterJson: JSON.stringify(input),
-        policyJson: JSON.stringify({ publicBusinessContactsOnly: true, catalogVersion: '2026-08-03' }),
+        policyJson: JSON.stringify({ eligiblePublicAddressTypes: ['personal', 'business'], catalogVersion: '2026-08-14' }),
       },
     });
     return campaignRecord(row);

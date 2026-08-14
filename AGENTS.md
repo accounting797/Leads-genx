@@ -33,6 +33,7 @@ Lead sources & engines:
 | Bright Data contact enrichment | `src/domain/linkedinEnrichment.ts` + `POST /api/runs/:id/enrich-linkedin` | Fills emails/phones for LinkedIn leads. BYOD key wins over operator key. |
 
 Cross-cutting:
+- **Temporary Targeted Valid contract:** retain internal `strict` API/database/export identifiers. Valid accepts qualifying public personal and business addresses after deterministic bad-address, association, relevance, and geography screening. Targeted performs no MX/DNS, SMTP, or mailbox verification; persisted qualifying checks are syntax-only (`checkType`/`depth` `syntax`, reason `syntax_valid`). DNS/MX and mailbox verification remain external.
 - **Anti-hang discipline (sacred):** every network call has a hard timeout; stalls map to
   retryable transient errors; polls are strike-tolerant (Docker 3, Apify 6, Bright Data 6);
   long operations emit heartbeat events every 15–20s so the UI always shows proof of life.

@@ -21,7 +21,7 @@ export function createTargetedRouter({ prisma, targetedService }: { prisma: Pris
     res.json({ data: {
       providers: providerCatalog(), banks: TARGETED_BANKS,
       defaults: { topBankMarkets: 100, maxContactsPerCompany: 10, maximumContactsPerCompany: 50, maxWorkUnits: 5000 },
-      policy: { publicBusinessContactsOnly: true, mailboxVerificationIncluded: false },
+      policy: { eligiblePublicAddressTypes: ['personal', 'business'], mailboxVerificationIncluded: false },
     } });
   });
 

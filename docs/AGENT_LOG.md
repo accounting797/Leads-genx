@@ -484,3 +484,7 @@ Newest entries on top. Format:
 - Mailbox verification remains explicitly external; syntax-only leads will not
   be represented as DNS- or mailbox-verified.
 - Implementation plan: `docs/superpowers/plans/2026-08-14-targeted-syntax-valid.md`.
+
+## 2026-08-14 — codex — fix (Targeted syntax-valid qualification)
+- Targeted Valid now persists deterministic syntax-only verification records for qualifying public personal and business addresses; MX/DNS, SMTP, and mailbox verification are not run.
+- Internal `strict` API, database, and export identifiers remain compatible. Dashboard copy now states that DNS/MX and mailbox verification are external.

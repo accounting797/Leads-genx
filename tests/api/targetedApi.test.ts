@@ -44,6 +44,10 @@ describe('admin targeted scraping API', () => {
     const catalog = await request(app()).get('/api/targeted/catalog').set('Cookie', adminCookie).expect(200);
     expect(catalog.body.data.providers).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'microsoft_365' })]));
     expect(catalog.body.data.banks.length).toBeGreaterThan(10);
+    expect(catalog.body.data.policy).toMatchObject({
+      eligiblePublicAddressTypes: ['personal', 'business'], mailboxVerificationIncluded: false,
+    });
+    expect(catalog.body.data.policy).not.toHaveProperty('publicBusinessContactsOnly');
 
     const created = await request(app()).post('/api/targeted/campaigns').set('Cookie', adminCookie).send({
       prompt: 'Public freight contacts in Phoenix', mode: 'office', country: 'US',

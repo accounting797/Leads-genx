@@ -429,7 +429,7 @@ export class TargetedService {
               evidenceType: 'public_document_contact', excerpt: section.text,
               fields: { documentType, page: section.page, sheet: section.sheet, row: section.row, contactReason: association.reason, geography },
             },
-            verification: { checkType: 'mx', status: mail.mxValid ? 'valid' : qualityTier, depth: mail.depth, reason: mail.reason, providerVersion: 'catalog-2026-08-03' },
+            verification: { checkType: 'syntax', status: qualityTier, depth: 'syntax', reason: mail.reason, providerVersion: 'syntax-2026-08-14' },
           });
           count += 1;
           artifactContacts += 1;
@@ -528,7 +528,7 @@ export class TargetedService {
           excerpt: `${contact.companyName ?? ''} ${contact.jobTitle ?? ''} ${contact.address ?? ''}`.trim(),
           fields: { matchedRules: relevance.matchedRules, missingRules: relevance.missingRules, contactReason: association.reason },
         },
-        verification: { checkType: 'mx', status: mail.mxValid ? 'valid' : qualityTier, depth: mail.depth, reason: mail.reason, providerVersion: 'catalog-2026-08-03' },
+        verification: { checkType: 'syntax', status: qualityTier, depth: 'syntax', reason: mail.reason, providerVersion: 'syntax-2026-08-14' },
       });
       count += 1;
     }

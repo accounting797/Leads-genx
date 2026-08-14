@@ -135,7 +135,7 @@
       companyTypes: targetedList('targetedCompanyTypes'),
       roles: targetedList('targetedRoles'), seniorities: [],
       visibleProviders: bankMode ? [] : selectedTargetedProviders('targetedVisibleProviders'),
-      infrastructureProviders: bankMode ? [] : selectedTargetedProviders('targetedInfrastructureProviders'),
+      infrastructureProviders: [],
       bankIds: bankMode ? selectedBanks : [],
       areaCodes: targetedList('targetedAreaCodes'), states: targetedList('targetedStates'),
       cities: targetedList('targetedCities'), postalCodes: targetedList('targetedPostalCodes'),
@@ -167,7 +167,7 @@
       if (!targetedCatalog) {
         targetedCatalog = await api.getTargetedCatalog();
         renderTargetedProviderChecks('targetedVisibleProviders', uniqueProviders(targetedCatalog.providers, true), []);
-        renderTargetedProviderChecks('targetedInfrastructureProviders', uniqueProviders(targetedCatalog.providers, false), ['microsoft_365', 'google_workspace']);
+        $('targetedInfrastructureProviders').innerHTML = '<p class="targeted-hint">Infrastructure filters are unavailable: DNS/MX verification is external.</p>';
         $('targetedBank').innerHTML = targetedCatalog.banks.map((bank) =>
           '<option value="' + escapeHtml(bank.id) + '" data-country="' + escapeHtml(bank.country) + '">' + escapeHtml(bank.label + ' · ' + bank.country) + '</option>'
         ).join('');

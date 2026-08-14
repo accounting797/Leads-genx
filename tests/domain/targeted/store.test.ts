@@ -31,6 +31,9 @@ describe('PrismaTargetedStore', () => {
     const store = new PrismaTargetedStore(prisma);
     const filters = { prompt: 'public freight contacts', mode: 'office', country: 'US' } as TargetedDraftInput;
     const campaign = await store.createDraft(userId, filters);
+    const storedCampaign = await prisma.targetedCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(JSON.parse(storedCampaign.policyJson)).toMatchObject({ eligiblePublicAddressTypes: ['personal', 'business'] });
+    expect(JSON.parse(storedCampaign.policyJson)).not.toHaveProperty('publicBusinessContactsOnly');
     await store.upsertCandidate(campaign.id, {
       email: 'Ops@Freight.example', companyName: 'Freight Co', relevanceScore: 70,
       relevanceReason: 'target_aligned', qualityTier: 'strict', verificationDepth: 'domain_mx',

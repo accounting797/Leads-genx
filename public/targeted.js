@@ -34,7 +34,7 @@
       keywords: list('targetedKeywords'), industries: list('targetedIndustries'),
       companyTypes: list('targetedCompanyTypes'), roles: list('targetedRoles'), seniorities: [],
       visibleProviders: bankMode ? [] : checked('targetedVisibleProviders'),
-      infrastructureProviders: bankMode ? [] : checked('targetedInfrastructureProviders'),
+      infrastructureProviders: [],
       bankIds: bankMode ? banks.map((option) => option.value) : [],
       areaCodes: list('targetedAreaCodes'), cities: list('targetedCities'), states: list('targetedStates'), postalCodes: list('targetedPostalCodes'),
       radiusMiles: Number($('targetedRadius').value || 25), maxContactsPerCompany: Number($('targetedContactsPerCompany').value || 10),
@@ -196,8 +196,8 @@
       catalog = await api.getTargetedCatalog();
       $('targetedBank').innerHTML = catalog.banks.map((bank) => '<option value="' + escapeHtml(bank.id) + '" data-country="' + escapeHtml(bank.country) + '">' + escapeHtml(bank.label + ' · ' + bank.country) + '</option>').join('');
       const visible = [...new Map(catalog.providers.filter((p) => p.matchType === 'visible_domain').map((p) => [p.id, p])).values()];
-      const infrastructure = [...new Map(catalog.providers.filter((p) => p.matchType !== 'visible_domain').map((p) => [p.id, p])).values()];
-      providerChecks('targetedVisibleProviders', visible, []); providerChecks('targetedInfrastructureProviders', infrastructure, ['microsoft_365', 'google_workspace']);
+      providerChecks('targetedVisibleProviders', visible, []);
+      $('targetedInfrastructureProviders').innerHTML = '<p class="targeted-hint">Infrastructure filters are unavailable: DNS/MX verification is external.</p>';
       const audit = await api.auditTargetedGeography();
       if (audit.quarantined) setStatus('Removed ' + audit.quarantined + ' legacy foreign leads from accepted tiers.', false);
       renderFunnel({}); await refreshHistory();

@@ -2,23 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { classifyMailInfrastructure } from '../../../src/domain/targeted/mailInfrastructure';
 
 describe('classifyMailInfrastructure', () => {
-  it('classifies valid MX without claiming mailbox verification', async () => {
-    const resolver = { resolveMx: async () => [{ exchange: 'tenant.mail.protection.outlook.com', priority: 0 }] };
-    expect(await classifyMailInfrastructure('person@acme.example', resolver)).toMatchObject({
-      depth: 'domain_mx', infrastructureProviders: ['microsoft_365'], mxValid: true, tier: 'strict',
+  const resolver = { resolveMx: async () => { throw new Error('resolver must not run'); } };
+
+  it('classifies qualifying business and consumer addresses as syntax-valid without DNS', async () => {
+    await expect(classifyMailInfrastructure('person@acme.com', resolver)).resolves.toMatchObject({
+      depth: 'syntax', mxValid: false, tier: 'strict', reason: 'syntax_valid',
+    });
+    await expect(classifyMailInfrastructure('owner@gmail.com', resolver)).resolves.toMatchObject({
+      depth: 'syntax', mxValid: false, tier: 'strict', reason: 'syntax_valid',
     });
   });
 
-  it('rejects no-reply and disposable contacts before DNS', async () => {
-    const resolver = { resolveMx: async () => [{ exchange: 'mx.example', priority: 0 }] };
+  it('rejects malformed, placeholder, disposable, and no-reply contacts before DNS', async () => {
+    await expect(classifyMailInfrastructure('not-an-email', resolver)).resolves.toMatchObject({ tier: 'rejected', reason: 'invalid_syntax' });
+    await expect(classifyMailInfrastructure('test@acme.com', resolver)).resolves.toMatchObject({ tier: 'rejected', reason: 'placeholder_address' });
     expect(await classifyMailInfrastructure('no-reply@acme.com', resolver)).toMatchObject({ tier: 'rejected', reason: 'no_reply_address' });
     expect(await classifyMailInfrastructure('person@mailinator.com', resolver)).toMatchObject({ tier: 'rejected', reason: 'disposable_domain' });
-  });
-
-  it('places resolver timeouts in review rather than strict', async () => {
-    const resolver = { resolveMx: async () => new Promise<never>(() => undefined) };
-    expect(await classifyMailInfrastructure('person@acme.example', resolver, 5)).toMatchObject({
-      depth: 'syntax', mxValid: false, tier: 'review', reason: 'resolver_timeout',
-    });
   });
 });

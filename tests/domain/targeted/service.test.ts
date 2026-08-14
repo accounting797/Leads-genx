@@ -43,7 +43,7 @@ describe('TargetedService lifecycle', () => {
       localClient: { search: async () => businesses },
       googleClient: { search: async () => [] },
       emailExtractor: { extract: async () => [] },
-      mxResolver: { resolveMx: async () => [{ exchange: 'mx.acme.example', priority: 0 }] },
+      mxResolver: { resolveMx: async () => { throw new Error('resolver must not run'); } },
     });
     const draft = await service.createDraft(userId, {
       prompt: 'Public freight and logistics company contacts in Phoenix', mode: 'office', country: 'US',
@@ -56,6 +56,13 @@ describe('TargetedService lifecycle', () => {
     await service.start(draft.id, { googleApiKey: 'test-key', background: false });
     expect((await service.get(draft.id))?.status).toBe('completed');
     expect(await service.strictEmails(draft.id)).toEqual(['ops@phoenixfreight.example']);
+    const validCandidate = await prisma.targetedCandidate.findFirstOrThrow({
+      where: { campaignId: draft.id, normalizedEmail: 'ops@phoenixfreight.example' },
+    });
+    expect(validCandidate).toMatchObject({ qualityTier: 'strict', verificationDepth: 'syntax' });
+    expect(await prisma.targetedVerification.findFirstOrThrow({ where: { candidateId: validCandidate.id } })).toMatchObject({
+      checkType: 'syntax', status: 'strict', depth: 'syntax', reason: 'syntax_valid',
+    });
     expect(await service.listCandidates(draft.id, { tier: 'rejected' })).toEqual([
       expect.objectContaining({ email: 'sales@fashion.example', relevanceReason: 'target_mismatch' }),
     ]);
@@ -167,7 +174,7 @@ describe('TargetedService lifecycle', () => {
         website: 'https://phoenixaviation.example', phone: '602-555-0100',
       }] },
       emailExtractor: { extract: async () => [] },
-      mxResolver: { resolveMx: async () => [{ exchange: 'gmail-smtp-in.l.google.com', priority: 5 }] },
+      mxResolver: { resolveMx: async () => { throw new Error('resolver must not run'); } },
     });
     const draft = await service.createDraft(userId, {
       prompt: 'Public aviation contacts in Phoenix', mode: 'google', country: 'US',
@@ -189,7 +196,7 @@ describe('TargetedService lifecycle', () => {
         body: Buffer.from(`Company,Location,Email\n${csvRows}\n`),
         byteCount: Buffer.byteLength(csvRows),
       }),
-      mxResolver: { resolveMx: async () => [{ exchange: 'gmail-smtp-in.l.google.com', priority: 5 }] },
+      mxResolver: { resolveMx: async () => { throw new Error('resolver must not run'); } },
     });
     const draft = await service.createDraft(userId, {
       prompt: 'Public aviation bulkcsv contacts in Phoenix', mode: 'google', country: 'US',
@@ -203,6 +210,9 @@ describe('TargetedService lifecycle', () => {
     const candidate = await prisma.targetedCandidate.findFirstOrThrow({ where: { campaignId: draft.id, normalizedEmail: 'owner0@gmail.com' } });
     const evidence = await prisma.targetedEvidence.findFirstOrThrow({ where: { candidateId: candidate.id } });
     expect(JSON.parse(evidence.fieldsJson ?? '{}')).toMatchObject({ documentType: 'csv', row: 2 });
+    expect(await prisma.targetedVerification.findFirstOrThrow({ where: { candidateId: candidate.id } })).toMatchObject({
+      checkType: 'syntax', status: 'strict', depth: 'syntax', reason: 'syntax_valid', providerVersion: 'syntax-2026-08-14',
+    });
     const csvUnit = await prisma.targetedWorkUnit.findFirstOrThrow({ where: { campaignId: draft.id, documentType: 'csv' } });
     expect(JSON.parse(csvUnit.checkpointJson ?? '{}')).toMatchObject({ adaptiveMetric: { strict: 25, unique: 25 } });
   });

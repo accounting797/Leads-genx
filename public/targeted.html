@@ -46,7 +46,7 @@
             <label><span>Keywords</span><input id="targetedKeywords"></label><label><span>Industries</span><input id="targetedIndustries"></label>
             <label><span>Company types</span><input id="targetedCompanyTypes"></label><label><span>Roles</span><input id="targetedRoles"></label>
           </div>
-          <div class="targeted-grid two"><div><h3>Visible domains</h3><div id="targetedVisibleProviders" class="targeted-checks"></div></div><div><h3>Mail infrastructure</h3><div id="targetedInfrastructureProviders" class="targeted-checks"></div></div></div>
+          <div class="targeted-grid two"><div><h3>Visible domains</h3><div id="targetedVisibleProviders" class="targeted-checks"></div></div><div><h3>Infrastructure filters</h3><div id="targetedInfrastructureProviders" class="targeted-checks"><p class="targeted-hint">Infrastructure filters are unavailable: DNS/MX verification is external.</p></div></div></div>
           <div class="targeted-grid four">
             <label><span>Area codes</span><textarea id="targetedAreaCodes" rows="3"></textarea></label><label><span>Cities</span><textarea id="targetedCities" rows="3"></textarea></label>
             <label><span>States/provinces</span><textarea id="targetedStates" rows="3"></textarea></label><label><span>ZIP/postal</span><textarea id="targetedPostalCodes" rows="3"></textarea></label>
@@ -74,7 +74,7 @@
         <div class="targeted-progress"><i id="targetedProgressFill"></i></div>
         <div class="targeted-signal"><i></i><i></i><i></i><i></i><i></i><i></i></div>
         <label><span>Display tier</span><select id="targetedTierFilter"><option value="strict">Valid</option><option value="review">Review</option><option value="rejected">Rejected</option></select></label>
-        <p class="targeted-hint">Valid emails can be personal or business addresses when they are publicly published, target-aligned, and deliverability-checked.</p>
+        <p class="targeted-hint">Valid emails can be personal or business addresses when they are publicly published, target-aligned, and pass deterministic bad-address screening. DNS/MX and mailbox verification are external.</p>
         <div id="targetedCandidates" class="targeted-candidates"><p class="targeted-hint">No leads loaded yet.</p></div>
       </aside>
     </section>

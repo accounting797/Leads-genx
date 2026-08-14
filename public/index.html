@@ -387,7 +387,7 @@
           </div>
 
           <div class="targeted-policy">
-            Public contacts only. Valid means publicly published, target-aligned personal or business addresses with a valid domain/MX; it does not mean mailbox verified or guarantee inbox delivery.
+            Public contacts only. Valid means publicly published, target-aligned personal or business addresses that pass deterministic bad-address screening. DNS/MX and mailbox verification are external.
           </div>
 
           <section class="targeted-stage targeted-compact active">
@@ -422,7 +422,7 @@
             </div>
             <div class="targeted-grid two">
               <div><h4>Visible email domain</h4><div id="targetedVisibleProviders" class="targeted-checks"></div></div>
-              <div><h4>MX / security infrastructure</h4><div id="targetedInfrastructureProviders" class="targeted-checks"></div></div>
+              <div><h4>Infrastructure filters</h4><div id="targetedInfrastructureProviders" class="targeted-checks"><p class="targeted-hint">Infrastructure filters are unavailable: DNS/MX verification is external.</p></div></div>
             </div>
             <h4>Manual area-code-first geography</h4>
             <div class="targeted-grid three">
@@ -438,7 +438,7 @@
               <label><span>Google Places request budget</span><input id="targetedGoogleBudget" type="number" min="0" max="10000" value="50"></label>
               <label><span>Public document searches</span><input id="targetedPublicSearchBudget" type="number" min="0" max="5000" value="1200"></label>
             </div>
-            <ul class="targeted-rules"><li>Public HTML, PDF, XLS, XLSX, CSV, DOCX, and TXT sources are executable.</li><li>Catch-all, unknown, timeout, and unverified outcomes stay out of Valid.</li><li>Maximum 5,000 work units; 100 markets × 7 formats produces 700 complete substitutions.</li></ul>
+            <ul class="targeted-rules"><li>Public HTML, PDF, XLS, XLSX, CSV, DOCX, and TXT sources are executable.</li><li>Valid addresses pass deterministic bad-address screening; DNS/MX and mailbox verification are external.</li><li>Maximum 5,000 work units; 100 markets × 7 formats produces 700 complete substitutions.</li></ul>
             <div class="targeted-stage-head"><div><h4>Editable work units</h4><p>Queries remain auditable.</p></div><button id="targetedResetLearningBtn" class="ghost-btn danger" type="button">Reset learned priorities</button></div>
             <div id="targetedWorkUnits" class="targeted-work-units"><p class="settings-hint">Build the plan to see exact queries.</p></div>
           </details>

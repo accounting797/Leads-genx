@@ -4,6 +4,13 @@ The Sales Navigator extension and Greenhouse hiring signals share one rule:
 supplemental work can add evidence and output, but it never holds a parent run
 hostage or silently crosses a source-lane boundary.
 
+## Temporary Targeted Valid qualification contract
+
+- Keep internal `strict` identifiers for Targeted APIs, database records, and exports.
+- Valid includes qualifying, publicly published personal and business addresses after deterministic syntax and bad-address screening, public association, relevance, and geography checks.
+- Targeted does not perform MX/DNS, SMTP, or mailbox verification. Its qualifying verification records use `checkType: 'syntax'`, `depth: 'syntax'`, `reason: 'syntax_valid'`, and provider version `syntax-2026-08-14`.
+- DNS/MX and mailbox verification are external to Targeted Valid qualification.
+
 ## Sales Navigator Extension Ingestion
 
 Three modules, one contract. Implement faithfully; no unilateral changes.

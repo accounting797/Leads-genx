@@ -81,14 +81,20 @@ describe('admin targeted scraping wizard', () => {
     const appJs = readPublicFile('app.js');
 
     expect(html).toContain('Public contacts only. Valid means publicly published, target-aligned personal or business addresses');
+    expect(html).toContain('pass deterministic bad-address screening. DNS/MX and mailbox verification are external.');
     expect(html).toContain('Export Valid emails');
     expect(html).toContain('<option value="strict" selected>Valid only</option>');
     expect(html).not.toContain('Strict means');
     expect(html).not.toContain('Export Strict');
     expect(html).not.toContain('out of Strict');
+    expect(html).not.toContain('with a valid domain/MX');
+    expect(html).not.toContain('MX-valid');
+    expect(html).not.toContain('deliverability-checked');
+    expect(html).toContain('Infrastructure filters are unavailable: DNS/MX verification is external.');
     expect(appJs).toContain("['Valid', funnel.strict]");
     expect(appJs).toContain("tier === 'strict' ? 'Valid' : tier");
     expect(appJs).not.toContain("['Strict Export', funnel.strict]");
+    expect(appJs).toContain('infrastructureProviders: []');
   });
 
   it('opens a dedicated animated targeted workspace with run controls and complete exports', () => {
@@ -101,6 +107,11 @@ describe('admin targeted scraping wizard', () => {
     expect(html).toContain('id="targetedQualityFunnel"');
     expect(html).toContain('Download all Valid emails');
     expect(html).toContain('<option value="strict">Valid</option>');
+    expect(html).toContain('personal or business addresses when they are publicly published, target-aligned, and pass deterministic bad-address screening. DNS/MX and mailbox verification are external.');
+    expect(html).not.toContain('deliverability-checked');
+    expect(html).not.toContain('with a valid domain/MX');
+    expect(html).not.toContain('MX-valid');
+    expect(html).toContain('Infrastructure filters are unavailable: DNS/MX verification is external.');
     expect(js).toContain("['Discovered', funnel.discovered], ['Aligned', funnel.aligned], ['Valid', funnel.strict]");
     expect(js).toContain('Download Valid');
     expect(js).toContain('listTargetedCampaigns');
@@ -109,6 +120,7 @@ describe('admin targeted scraping wizard', () => {
     expect(js).toContain('downloadAllTargetedStrict');
     expect(js).toContain('deleteTargetedCampaign');
     expect(js).toContain('data-delete-run');
+    expect(js).toContain('infrastructureProviders: []');
     expect(css).toContain('@keyframes targetedPulse');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(html).toContain('/targeted.js?v=20260803-stop5');
