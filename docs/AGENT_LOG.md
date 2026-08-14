@@ -476,3 +476,10 @@ Newest entries on top. Format:
 - Final fresh GUID SQLite gate: schema push succeeded; 70 files and 571/571
   tests passed, plus TypeScript build, browser JavaScript syntax checks, and
   staged diff validation. No remote push was performed.
+
+## 2026-08-14 — codex — design (Targeted syntax-valid qualification)
+- Approved design temporarily removes MX/DNS as a Targeted qualification gate.
+  Valid will accept qualifying public business and personal addresses after
+  deterministic bad-address, association, relevance, and geography checks.
+- Mailbox verification remains explicitly external; syntax-only leads will not
+  be represented as DNS- or mailbox-verified.
