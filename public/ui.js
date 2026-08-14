@@ -44,6 +44,9 @@
             '">View</button> <button class="ghost-btn" data-copy-run-emails="' +
             run.id +
             '">Copy Emails</button> ' +
+            (run.actorId === 'sn_extension'
+              ? '<button class="ghost-btn" data-enrich-run="' + run.id + '">Enrich</button> '
+              : '') +
             (active ? '<button class="ghost-btn danger" data-stop-run="' + run.id + '">Stop</button> ' : '') +
             '<button class="ghost-btn" data-delete-run="' +
             run.id +

@@ -74,6 +74,8 @@ export const suggestions = {
       'President',
       'General Manager',
       'Real Estate',
+      'Practice Manager',
+      'Office Manager',
     ],
     // Top-30 category nouns — clean Maps category phrasing, safe to combine
     // with any search term.
@@ -139,6 +141,18 @@ export const suggestions = {
       'Food & Beverage',
       'Hospitality',
       'Agriculture',
+      'Dental Clinics',
+      'Veterinary Services',
+      'Auto Repair',
+      'Landscaping & Lawn Care',
+      'Real Estate Agencies',
+      'Restaurants & Food Service',
+      'Warehousing & Distribution',
+      'Accounting Firms',
+      'Medical Spas & Aesthetics',
+      'Electrical Contractors',
+      'Staffing & Recruiting',
+      'Insurance Agencies',
     ],
     // Top-30 Maps-safe company-type qualifiers. Short keywords that read
     // naturally when appended to a search term (e.g. "law firm Partners").
@@ -289,6 +303,7 @@ export const suggestions = {
       'Director of Real Estate',
       'Facilities Manager',
       'Office Manager',
+      'Practice Manager',
     ],
     // The operator's industry picks first, extended across LinkedIn's
     // 13-sector taxonomy for full B2B coverage.

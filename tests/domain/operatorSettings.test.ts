@@ -14,18 +14,28 @@ import {
 
 function fakeSettingsStore(seed: Record<string, string> = {}) {
   const rows = new Map(Object.entries(seed));
+  const writes: Array<{
+    where: { key: string };
+    create: { value: string; secret?: boolean };
+    update?: { value: string; secret?: boolean };
+  }> = [];
   const appSetting = {
     async findMany() {
       return Array.from(rows.entries()).map(([key, value]) => ({ key, value }));
     },
-    async upsert(args: { where: { key: string }; create: { value: string } }) {
+    async upsert(args: {
+      where: { key: string };
+      create: { value: string; secret?: boolean };
+      update?: { value: string; secret?: boolean };
+    }) {
+      writes.push(args);
       rows.set(args.where.key, args.create.value);
     },
     async deleteMany(args: { where: { key: string } }) {
       rows.delete(args.where.key);
     },
   };
-  return { appSetting, rows };
+  return { appSetting, rows, writes };
 }
 
 describe('normalizeProxyLine', () => {
@@ -77,18 +87,25 @@ describe('saveOperatorSettings / loadOperatorSettings', () => {
 
     await saveOperatorSettings(store, {
       apifyToken: 'apify-secret',
+      brightDataApiKey: 'brightdata-secret',
       googleApiKeys: ['key-one', 'key-two'],
       proxyUrls: ['socks5h://operator:supersecret@127.0.0.1:60001'],
     });
 
     const saved = await loadOperatorSettings(store);
     expect(saved.apifyToken).toBe('apify-secret');
+    expect(saved.brightDataApiKey).toBe('brightdata-secret');
+    expect(store.writes.find((write) => write.where.key === 'brightDataApiKey')).toMatchObject({
+      create: { secret: true },
+      update: { secret: true },
+    });
     expect(saved.googleApiKeys).toEqual(['key-one', 'key-two']);
     expect(saved.proxyUrls).toEqual(['socks5h://operator:supersecret@127.0.0.1:60001']);
 
-    await saveOperatorSettings(store, { apifyToken: '', googleApiKeys: [] });
+    await saveOperatorSettings(store, { apifyToken: '', brightDataApiKey: '', googleApiKeys: [] });
     const cleared = await loadOperatorSettings(store);
     expect(cleared.apifyToken).toBeUndefined();
+    expect(cleared.brightDataApiKey).toBeUndefined();
     expect(cleared.googleApiKeys).toEqual([]);
     expect(cleared.proxyUrls).toEqual(['socks5h://operator:supersecret@127.0.0.1:60001']);
   });
@@ -126,6 +143,7 @@ describe('toSafeOperatorSettings', () => {
     const safe = toSafeOperatorSettings(
       {
         apifyToken: 'apify-secret',
+        brightDataApiKey: 'brightdata-secret',
         googleApiKeys: ['key-one'],
         proxyUrls: ['socks5h://operator:supersecret@127.0.0.1:60001'],
       },
@@ -136,6 +154,8 @@ describe('toSafeOperatorSettings', () => {
       defaultGoogleMapsActorId: 'default/maps',
       defaultSalesNavigatorActorId: 'default/sn',
       hasSavedApifyToken: true,
+      hasSavedBrightDataKey: true,
+      brightDataKeyPreview: 'bright…',
       hasSavedGoogleApiKeys: true,
       googleApiKeyCount: 1,
       proxyCount: 1,
@@ -143,6 +163,7 @@ describe('toSafeOperatorSettings', () => {
     });
     expect(JSON.stringify(safe)).not.toContain('supersecret');
     expect(JSON.stringify(safe)).not.toContain('apify-secret');
+    expect(JSON.stringify(safe)).not.toContain('brightdata-secret');
     expect(JSON.stringify(safe)).not.toContain('key-one');
   });
 });
@@ -151,6 +172,7 @@ describe('withSavedCredentials', () => {
   const settings = {
     googleApiKeys: ['saved-google-key'],
     apifyToken: 'saved-apify-token',
+    brightDataApiKey: 'saved-brightdata-key',
     proxyUrls: ['socks5h://operator:supersecret@127.0.0.1:60001'],
   };
 
@@ -164,6 +186,7 @@ describe('withSavedCredentials', () => {
       googleApiKey: 'saved-google-key',
       googleApiKeys: ['saved-google-key'],
       apifyToken: 'saved-apify-token',
+      brightDataApiKey: 'saved-brightdata-key',
       proxyUrls: ['socks5h://operator:supersecret@127.0.0.1:60001'],
     });
   });

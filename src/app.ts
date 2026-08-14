@@ -14,10 +14,18 @@ import { createDeployService } from './domain/deployService';
 import { PrismaTargetedStore } from './domain/targeted/store';
 import { TargetedService } from './domain/targeted/service';
 import { PublicWebSearchClient } from './domain/targeted/publicWebSearch';
+import { createHiringSignalService } from './domain/hiringSignalService';
+import { GreenhouseClient } from './integrations/greenhouseClient';
 
 export function createApp(deps: ApiDeps = {}) {
   const app = express();
   const runtimePrisma = deps.prisma ?? prisma;
+  const hiringSignalService =
+    deps.hiringSignalService ??
+    createHiringSignalService({
+      prisma: runtimePrisma,
+      greenhouseClient: new GreenhouseClient(),
+    });
   const runService =
     deps.runService ??
     createRunService({
@@ -31,6 +39,9 @@ export function createApp(deps: ApiDeps = {}) {
       loadQuarantinedCredentials: () => loadQuarantinedCredentials(runtimePrisma),
       quarantineCredential: (provider, credential, reason) =>
         quarantineCredential(runtimePrisma, provider, credential, reason),
+      onRunSettled: async (runId) => {
+        await hiringSignalService.scheduleIfEligible(runId);
+      },
     });
   const targetedService = deps.targetedService ?? new TargetedService({
     store: new PrismaTargetedStore(runtimePrisma),
@@ -53,6 +64,11 @@ export function createApp(deps: ApiDeps = {}) {
   }
   if (deps.recoverOnStartup) {
     setImmediate(() => {
+      void hiringSignalService.recoverInterruptedScans().catch((error) => {
+        console.error(`Hiring-signal recovery failed: ${safeErrorMessage(error)}`);
+      });
+    });
+    setImmediate(() => {
       void targetedService.recoverInterruptedCampaigns().catch((error) => {
         console.error(`Targeted recovery failed: ${safeErrorMessage(error)}`);
       });
@@ -70,6 +86,8 @@ export function createApp(deps: ApiDeps = {}) {
       authDisabled: deps.authDisabled,
       deployService: deps.deployService ?? createDeployService(),
       targetedService,
+      hiringSignalService,
+      linkedinEnricher: deps.linkedinEnricher,
     })
   );
   app.use(express.static(path.join(__dirname, '..', 'public'), {

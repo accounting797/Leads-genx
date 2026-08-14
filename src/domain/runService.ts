@@ -10,7 +10,9 @@ import { executeBalancedGoogleMapsRun } from './balancedGoogleMapsRunService';
 import { RunIngestionCoordinator } from './runIngestionCoordinator';
 import type { LocalFirstRunStore } from './prismaRunStore';
 import type { ResumableLocalMapsScraperClient } from '../integrations/localMapsScraperClient';
-import { GoogleMapsFilters, LeadSource, NormalizedLead, OutputMode, RouteMode, ValidatedRunInput } from './types';
+import { GoogleMapsFilters, LeadSource, NormalizedLead, OutputMode, RouteMode, SalesNavigatorFilters, ValidatedRunInput } from './types';
+import { searchLinkedInPeople } from './brightDataLinkedInSearch';
+import { BrightDataError } from '../integrations/brightDataClient';
 import { OperatorSettings, QuarantinedCredential, filterQuarantined, withSavedCredentials } from './operatorSettings';
 import { RunCancelledError, throwIfCancelled } from './runCancelled';
 import { RunEngineer } from './runEngineer';
@@ -76,6 +78,8 @@ export interface RunServiceDeps {
   loadQuarantinedCredentials?: () => Promise<QuarantinedCredential[]>;
   /** Injectable sleeper for engineer backoff (tests). */
   engineerSleep?: (ms: number) => Promise<void>;
+  /** Supplemental work scheduled only after the parent run has settled. */
+  onRunSettled?: (runId: number) => Promise<void>;
 }
 
 export interface StartRunOptions {
@@ -100,6 +104,7 @@ export function serializeSafeFilters(input: ValidatedRunInput): string {
   const { cookies: _cookies, userAgent: _userAgent, ...safeSalesNavigator } =
     input.salesNavigator ?? {};
   return JSON.stringify({
+    comboId: input.comboId,
     googleMaps: input.googleMaps,
     salesNavigator: input.salesNavigator ? safeSalesNavigator : undefined,
     routeMode: input.routeMode ?? 'direct',
@@ -111,6 +116,7 @@ export interface ResumeCredentials {
   googleApiKey?: string;
   googleApiKeys?: string[];
   apifyToken?: string;
+  brightDataApiKey?: string;
   proxyUrls?: string[];
 }
 
@@ -124,6 +130,15 @@ function isHybridRun(input: ValidatedRunInput): boolean {
 
 function isLocalFirstRun(input: ValidatedRunInput): boolean {
   return input.leadSource === 'google_maps' && input.googleMaps?.provider === 'local_first';
+}
+
+function isBrightDataRun(input: ValidatedRunInput): boolean {
+  return Boolean(
+    input.leadSource === 'sales_navigator' &&
+    !input.searchUrl &&
+    input.salesNavigator &&
+    input.brightDataApiKey
+  );
 }
 
 function websiteCount(leads: NormalizedLead[]): number {
@@ -143,6 +158,7 @@ export function createRunService({
   quarantineCredential,
   loadQuarantinedCredentials,
   engineerSleep,
+  onRunSettled,
 }: RunServiceDeps) {
   async function saveEmailLeadsInBatches(
     runId: number,
@@ -581,6 +597,87 @@ export function createRunService({
 
   const cancelledRunIds = new Set<number>();
 
+  async function runBrightDataLinkedInSearch(
+    run: RunRecord,
+    input: ValidatedRunInput,
+    apiKey: string,
+    isCancelled: () => Promise<boolean>
+  ): Promise<void> {
+    await store.updateRun(run.id, { status: 'running', actorId: 'brightdata_linkedin' });
+    await store.addEvent(
+      run.id,
+      'run_started',
+      "Nova here — running your Sales Navigator filters through Bright Data's LinkedIn dataset. No SN account needed, and emails ride along when Bright Data has them.",
+      { provider: 'brightdata' }
+    );
+    try {
+      await throwIfCancelled(isCancelled);
+      const { leads, totalHits } = await searchLinkedInPeople(input.salesNavigator ?? {}, input.maxResults, {
+        apiKey,
+        onEvent: (type, message, metadata) => store.addEvent(run.id, type, message, metadata),
+      });
+      await throwIfCancelled(isCancelled);
+
+      const seenProfiles = new Set<string>();
+      const seenEmails = new Set<string>();
+      let leadCount = 0;
+      for (let index = 0; index < leads.length; index += 25) {
+        const batch = leads
+          .slice(index, index + 25)
+          .filter((lead) => {
+            const key = (lead.profileUrl ?? '').toLowerCase();
+            if (!key || seenProfiles.has(key)) return false;
+            if (lead.email && seenEmails.has(lead.email)) return false;
+            seenProfiles.add(key);
+            if (lead.email) seenEmails.add(lead.email);
+            return true;
+          })
+          .map((lead): NormalizedLead => ({
+            leadSource: 'sales_navigator',
+            leadType: 'person',
+            fullName: lead.fullName,
+            firstName: lead.firstName,
+            lastName: lead.lastName,
+            jobTitle: lead.jobTitle,
+            companyName: lead.companyName,
+            email: lead.email,
+            normalizedEmail: lead.email,
+            phone: lead.phone,
+            location: lead.location,
+            profileUrl: lead.profileUrl,
+            contactQuality: lead.email ? 'qualified' : 'raw',
+            qualityReason: lead.email
+              ? 'Found via Bright Data LinkedIn search (contact-enriched)'
+              : 'Found via Bright Data LinkedIn search — enrich for contact data',
+            rawJson: lead.rawJson,
+          }));
+        if (!batch.length) continue;
+        await store.addLeads(run.id, batch);
+        leadCount += batch.length;
+        await store.updateRun(run.id, { leadCount });
+      }
+
+      const withEmail = leads.filter((lead) => lead.email).length;
+      await store.updateRun(run.id, { status: 'completed', leadCount });
+      await store.addEvent(
+        run.id,
+        'run_completed',
+        `Nova here — search complete: ${leadCount} LinkedIn leads saved (${withEmail} already have emails, ${totalHits} total matches in the dataset). The Enrich button can backfill the rest.`,
+        { provider: 'brightdata', leadCount, withEmail, totalHits }
+      );
+    } catch (error) {
+      if (error instanceof RunCancelledError) throw error;
+      const message =
+        error instanceof BrightDataError && error.code === 'auth'
+          ? 'Bright Data rejected the API key — update it in Settings and run again.'
+          : safeErrorMessage(error);
+      await store.updateRun(run.id, { status: 'failed', errorMessage: message });
+      await store.addEvent(run.id, 'run_failed', `Nova hit a wall with the Bright Data search: ${message}`, {
+        provider: 'brightdata',
+      });
+    }
+  }
+
   async function executeRun(run: RunRecord, input: ValidatedRunInput) {
     const statusReader = store as Partial<LocalFirstRunStore>;
     const isCancelled = async (): Promise<boolean> =>
@@ -605,6 +702,12 @@ export function createRunService({
       },
     });
     try {
+      const brightDataKey =
+        input.brightDataApiKey || (loadOperatorSettings ? (await loadOperatorSettings()).brightDataApiKey : undefined);
+      if (input.leadSource === 'sales_navigator' && !input.searchUrl && input.salesNavigator && brightDataKey) {
+        await runBrightDataLinkedInSearch(run, input, brightDataKey, isCancelled);
+        return;
+      }
       if (isLocalFirstRun(input)) {
         if (!localMapsScraperClient) throw new Error('Local Google Maps scraper client is not configured');
         const checkpointStore = store as Partial<LocalFirstRunStore>;
@@ -937,6 +1040,18 @@ export function createRunService({
     }
   }
 
+  async function executeAndNotify(run: RunRecord, input: ValidatedRunInput): Promise<void> {
+    try {
+      await executeRun(run, input);
+    } finally {
+      try {
+        await onRunSettled?.(run.id);
+      } catch {
+        // Supplemental discovery must never reopen, fail, or change the parent run.
+      }
+    }
+  }
+
   async function stopRun(id: number) {
     cancelledRunIds.add(id);
     const batchStore = store as Partial<LocalFirstRunStore>;
@@ -946,7 +1061,12 @@ export function createRunService({
   }
 
   function recoveredInput(run: RunRecord, credentials: ResumeCredentials = {}): ValidatedRunInput {
-    let persisted: { googleMaps?: GoogleMapsFilters; routeMode?: RouteMode; outputMode?: OutputMode } = {};
+    let persisted: {
+      googleMaps?: GoogleMapsFilters;
+      salesNavigator?: SalesNavigatorFilters;
+      routeMode?: RouteMode;
+      outputMode?: OutputMode;
+    } = {};
     try {
       persisted = JSON.parse(run.filterJson ?? '{}') as typeof persisted;
     } catch {
@@ -968,6 +1088,8 @@ export function createRunService({
       googleApiKeys,
       apifyToken: credentials.apifyToken,
       apifyTokens: credentials.apifyToken ? [credentials.apifyToken] : undefined,
+      brightDataApiKey: credentials.brightDataApiKey,
+      salesNavigator: persisted.salesNavigator,
     };
   }
 
@@ -982,7 +1104,7 @@ export function createRunService({
     const input = recoveredInput(run, credentials);
     if (input.routeMode === 'proxy' && !input.proxyUrls?.length) throw new Error('Proxy credentials must be re-entered');
     const queued = await store.updateRun(run.id, { status: 'queued', errorMessage: undefined });
-    void executeRun(queued, input);
+    void executeAndNotify(queued, input);
     return { id: run.id, status: 'queued' };
   }
 
@@ -1001,7 +1123,7 @@ export function createRunService({
       for (const batch of batches.filter((candidate) => candidate.status === 'running')) {
         await checkpointStore.upsertBatch(run.id, { ...batch, status: 'retry', errorCode: 'interrupted' });
       }
-      void executeRun(run, input);
+      void executeAndNotify(run, input);
     }
   }
 
@@ -1040,8 +1162,10 @@ export function createRunService({
         }
       }
     }
-    const actorInput = isLocalFirstRun(input)
-      ? { actorId: 'local_first' }
+    const actorInput = isBrightDataRun(input)
+      ? { actorId: 'brightdata_linkedin' }
+      : isLocalFirstRun(input)
+        ? { actorId: 'local_first' }
       : isHybridRun(input)
       ? { actorId: 'hybrid' }
       : isGooglePlacesRun(input)
@@ -1082,9 +1206,9 @@ export function createRunService({
 
     const runInBackground = options.background ?? true;
     if (runInBackground) {
-      void executeRun(run, input);
+      void executeAndNotify(run, input);
     } else {
-      await executeRun(run, input);
+      await executeAndNotify(run, input);
     }
 
     return queuedRun;

@@ -56,12 +56,15 @@ export interface GoogleMapsFilters {
 
 export interface ValidatedRunInput {
   apifyToken?: string;
+  brightDataApiKey?: string;
   apifyTokens?: string[];
   googleApiKey?: string;
   googleApiKeys?: string[];
   proxyUrls?: string[];
   routeMode?: RouteMode;
   outputMode?: OutputMode;
+  /** Nova Shuffle combo this run was arranged from (learning signal). */
+  comboId?: string;
   leadSource: LeadSource;
   actorId?: string;
   searchUrl?: string;

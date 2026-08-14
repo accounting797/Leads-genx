@@ -459,3 +459,20 @@ Newest entries on top. Format:
   history now labels Owner so preserved runs cannot be mistaken for merging.
 - Release evidence before push: focused red/green regressions, extension JS
   syntax checks, 489/489 canonical tests, and TypeScript build.
+
+## 2026-08-14 — codex — fix (local feature branch)
+- Restored retained Prisma, hiring lifecycle, extension-route, analyst, and
+  lead-source contracts lost during repository sync; retained the generation
+  guard for test/build entry points.
+- Renamed user-facing Strict email wording to Valid while preserving internal
+  compatibility identifiers. Valid explicitly includes qualifying public
+  personal and business addresses.
+- Restored Nova Arrange as a learning Google Maps-only filter deck, including
+  secure combo validation, history, consumption, and failure preservation. It
+  is not exposed in Targeted mode.
+- Restored Bright Data end to end: operator/BYOD secret settings, key-only
+  LinkedIn filter searches, owned contact enrichment, safe UI status/test
+  controls, and extension-run Enrich action.
+- Final fresh GUID SQLite gate: schema push succeeded; 70 files and 571/571
+  tests passed, plus TypeScript build, browser JavaScript syntax checks, and
+  staged diff validation. No remote push was performed.

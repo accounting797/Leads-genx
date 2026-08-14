@@ -60,13 +60,17 @@ describe('user credentials (BYOD)', () => {
   it('masks secrets in the safe view and never returns raw values', async () => {
     await saveUserCredentials(prisma, 9, {
       apifyToken: 'super-secret-token-1234',
+      brightDataApiKey: 'brightdata-secret-5678',
       proxyUrls: ['http://user:pass@proxy.example:8080'],
     });
     const safe = toSafeUserCredentials(await loadUserCredentials(prisma, 9));
     const serialized = JSON.stringify(safe);
     expect(safe.hasCredentials).toBe(true);
     expect(safe.apifyTokenSet).toBe(true);
+    expect(safe.brightDataKeySet).toBe(true);
+    expect(safe.brightDataKeyPreview).toBe('••••5678');
     expect(serialized).not.toContain('super-secret-token-1234');
+    expect(serialized).not.toContain('brightdata-secret-5678');
     expect(serialized).not.toContain('user:pass@');
   });
 

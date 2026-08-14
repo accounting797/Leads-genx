@@ -238,6 +238,7 @@ describe('API', () => {
         defaultGoogleMapsActorId: 'compass/google-maps-extractor',
         defaultSalesNavigatorActorId: 'harvestapi/linkedin-profile-search',
         hasSavedApifyToken: false,
+        hasSavedBrightDataKey: false,
         hasSavedGoogleApiKeys: false,
         googleApiKeyCount: 0,
         proxyCount: 0,

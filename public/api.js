@@ -65,6 +65,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}),
       }),
+    testMyBrightData: (body) =>
+      requestJson('/auth/credentials/test/brightdata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }),
     adminListUsers: () => requestJson('/admin/users'),
     adminCreateUser: (body) =>
       requestJson('/admin/users', {
@@ -97,6 +103,12 @@
       }),
     recheckDeployDns: () => requestJson('/admin/deploy/recheck', { method: 'POST' }),
     getSuggestions: () => requestJson('/suggestions'),
+    shuffleNext: (body) =>
+      requestJson('/shuffle/next', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
     createRun: (body) =>
       requestJson('/runs', {
         method: 'POST',
@@ -107,6 +119,7 @@
     getRun: (id) => requestJson('/runs/' + id),
     deleteRun: (id) => requestJson('/runs/' + id, { method: 'DELETE' }),
     stopRun: (id) => requestJson('/runs/' + id + '/stop', { method: 'POST' }),
+    enrichLinkedIn: (runId) => requestJson('/runs/' + runId + '/enrich-linkedin', { method: 'POST' }),
     getRunEvents: (id) => requestJson('/runs/' + id + '/events'),
     getRunAnalyst: (id) => requestJson('/runs/' + id + '/analyst'),
     listLeads: (runId) => requestJson('/leads' + (runId ? '?runId=' + runId : '')),
@@ -134,6 +147,12 @@
       }),
     testGoogleCredentials: (body) =>
       requestJson('/settings/test/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }),
+    testBrightDataCredential: (body) =>
+      requestJson('/settings/test/brightdata', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}),

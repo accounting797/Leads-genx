@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { credentialFingerprint } from '../../src/domain/operatorSettings';
 import { createRunService, RunStore, serializeSafeFilters } from '../../src/domain/runService';
 import { ActorClient } from '../../src/integrations/actorClient';
@@ -48,10 +48,113 @@ function createStore(): RunStore & {
 }
 
 describe('createRunService', () => {
+  it('runs Sales Navigator filter searches through Bright Data without Apify', async () => {
+    const store = createStore();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/metadata')) {
+        return new Response(JSON.stringify({
+          fields: {
+            name: { type: 'text' },
+            position: { type: 'text' },
+            current_company_name: { type: 'text' },
+            location: { type: 'text' },
+            url: { type: 'text' },
+            email: { type: 'text' },
+          },
+        }), { status: 200 });
+      }
+      if (url.includes('/datasets/search/')) {
+        return new Response(JSON.stringify({
+          total_hits: 1,
+          hits: [{
+            name: 'Jane Doe',
+            position: 'VP Sales',
+            current_company_name: 'Acme',
+            url: 'https://www.linkedin.com/in/jane-doe/',
+            email: 'Jane@Acme.com',
+          }],
+        }), { status: 200 });
+      }
+      throw new Error(`Unexpected Bright Data request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const actorClient: ActorClient = {
+      async startRun() {
+        throw new Error('Bright Data filter runs must not use Apify');
+      },
+      async getRun() {
+        throw new Error('Bright Data filter runs must not use Apify');
+      },
+      async getDatasetItems() {
+        throw new Error('Bright Data filter runs must not use Apify');
+      },
+    };
+
+    try {
+      const service = createRunService({ store, actorClient });
+      await service.startRun({
+        brightDataApiKey: 'bd-test-key',
+        leadSource: 'sales_navigator',
+        maxResults: 10,
+        salesNavigator: { titles: ['VP Sales'] },
+      }, { background: false });
+
+      expect(store.runs[0]).toMatchObject({ status: 'completed', actorId: 'brightdata_linkedin', leadCount: 1 });
+      expect(store.leads).toEqual([
+        expect.objectContaining({
+          leadSource: 'sales_navigator',
+          fullName: 'Jane Doe',
+          email: 'jane@acme.com',
+        }),
+      ]);
+      expect(store.events.some((event) => event.type === 'brightdata_search_progress')).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('notifies the supplemental coordinator once after a foreground run settles', async () => {
+    const store = createStore();
+    const settled: number[] = [];
+    const actorClient: ActorClient = {
+      async startRun() {
+        return { runId: 'settled-run', status: 'SUCCEEDED', datasetId: 'settled-dataset' };
+      },
+      async getRun() {
+        throw new Error('not used');
+      },
+      async getDatasetItems() {
+        return [];
+      },
+    };
+    const service = createRunService({
+      store,
+      actorClient,
+      onRunSettled: async (runId) => {
+        settled.push(runId);
+      },
+    });
+
+    const run = await service.startRun(
+      {
+        apifyToken: 'token',
+        leadSource: 'google_maps',
+        maxResults: 10,
+        googleMaps: { provider: 'apify', searchTerms: ['dentist'], locationQuery: 'Austin, TX' },
+      },
+      { background: false },
+    );
+
+    expect(settled).toEqual([run.id]);
+  });
+
   it('exports secret-safe persisted filters for restart recovery', () => {
     const serialized = serializeSafeFilters({
       apifyToken: 'apify-secret',
       googleApiKey: 'google-secret',
+      comboId: 'owner-roofing-houston',
       proxyUrls: ['socks5h://user:proxy-secret@127.0.0.1:60001'],
       routeMode: 'proxy',
       leadSource: 'google_maps',
@@ -63,6 +166,7 @@ describe('createRunService', () => {
     expect(serialized).not.toContain('google-secret');
     expect(serialized).not.toContain('proxy-secret');
     expect(JSON.parse(serialized)).toMatchObject({
+      comboId: 'owner-roofing-houston',
       googleMaps: { provider: 'local_first', searchTerms: ['dentist'], apiRequestBudget: 25 },
       routeMode: 'proxy',
     });

@@ -9,8 +9,8 @@ import { suggestions } from '../../src/domain/suggestions';
 
 describe('suggestions', () => {
   it('exposes curated Google Maps suggestion groups', () => {
-    expect(suggestions.googleMaps.searchTemplates).toHaveLength(50);
-    expect(suggestions.googleMaps.businessCategories).toHaveLength(50);
+    expect(suggestions.googleMaps.searchTemplates).toHaveLength(52);
+    expect(suggestions.googleMaps.businessCategories).toHaveLength(62);
     expect(suggestions.googleMaps.companyTypes).toHaveLength(30);
     expect(suggestions.googleMaps.searchTemplates).toEqual(
       expect.arrayContaining(['Sales', 'Engineering', 'CEO', 'Accounting'])

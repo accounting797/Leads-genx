@@ -13,6 +13,7 @@
   let targetedCampaignId = null;
   let targetedPollTimer = null;
   let targetedRefreshVersion = 0;
+  let lastShuffleComboId;
 
   const RING_CIRCUMFERENCE = 326.7;
 
@@ -89,6 +90,7 @@
   function setSource(source) {
     const maxResults = $('maxResults');
     maxResultsBySource[activeSource] = maxResults.value;
+    if (source !== 'google_maps') lastShuffleComboId = undefined;
     activeSource = source;
     if (maxResultsBySource[source]) maxResults.value = maxResultsBySource[source];
     applySourceLimits(source);
@@ -242,10 +244,14 @@
 
   function renderTargetedFunnel(funnel) {
     const cards = [
-      ['Discovered', funnel.discovered], ['Aligned', funnel.aligned], ['Strict Export', funnel.strict],
+      ['Discovered', funnel.discovered], ['Aligned', funnel.aligned], ['Valid', funnel.strict],
       ['Mailbox Verified', funnel.mailboxVerified], ['Review / Risky', funnel.review], ['Rejected', funnel.rejected],
     ];
     $('targetedQualityFunnel').innerHTML = cards.map((card) => '<div><strong>' + Number(card[1] || 0).toLocaleString() + '</strong><span>' + card[0] + '</span></div>').join('');
+  }
+
+  function displayTargetedTier(tier) {
+    return tier === 'strict' ? 'Valid' : tier;
   }
 
   async function renderTargetedCandidates(campaignId) {
@@ -253,7 +259,7 @@
     $('targetedCandidates').innerHTML = candidates.length ? '<table><thead><tr><th>Email</th><th>Company</th><th>Location</th><th>Score</th><th>Tier</th><th>Reason</th></tr></thead><tbody>' +
       candidates.slice(0, 200).map((candidate) => '<tr><td>' + escapeHtml(candidate.email) + '</td><td>' + escapeHtml(candidate.companyName || '—') +
       '</td><td>' + escapeHtml(candidate.address || '—') + '</td><td>' + candidate.relevanceScore + '</td><td><span class="targeted-tier" data-tier="' + escapeHtml(candidate.qualityTier) + '">' +
-      escapeHtml(candidate.qualityTier) + '</span></td><td>' + escapeHtml(candidate.relevanceReason || '—') + '</td></tr>').join('') + '</tbody></table>'
+      escapeHtml(displayTargetedTier(candidate.qualityTier)) + '</span></td><td>' + escapeHtml(candidate.relevanceReason || '—') + '</td></tr>').join('') + '</tbody></table>'
       : '<p class="settings-hint">No candidates yet.</p>';
   }
 
@@ -343,6 +349,9 @@
     $('setGoogleActor').value = settings.defaultGoogleMapsActorId;
     $('setSalesNavActor').value = settings.defaultSalesNavigatorActorId;
     $('setApifyStatus').textContent = settings.hasSavedApifyToken ? '· saved' : '· not saved';
+    $('setBrightDataStatus').textContent = settings.hasSavedBrightDataKey
+      ? '· saved ' + (settings.brightDataKeyPreview || '')
+      : '· not saved';
     $('setGoogleStatus').textContent = settings.hasSavedGoogleApiKeys
       ? '· ' + settings.googleApiKeyCount + ' key(s) saved'
       : '· not saved';
@@ -388,11 +397,13 @@
         defaultGoogleMapsActorId: $('setGoogleActor').value,
         defaultSalesNavigatorActorId: $('setSalesNavActor').value,
         apifyToken: $('setApifyToken').value.trim() || undefined,
+        brightDataApiKey: $('setBrightDataKey').value.trim() || undefined,
         googleApiKeys: $('setGoogleKeys').value.trim() || undefined,
         proxyUrls: $('setProxyUrls').value.trim() || undefined,
       };
       const settings = await api.saveSettings(body);
       $('setApifyToken').value = '';
+      $('setBrightDataKey').value = '';
       $('setGoogleKeys').value = '';
       $('setProxyUrls').value = '';
       applySettingsStatus(settings);
@@ -457,6 +468,7 @@
       const parts = [
         settings.hasSavedGoogleApiKeys ? 'Google: ' + settings.googleApiKeyCount + ' saved key(s)' : 'Google: no saved key',
         settings.hasSavedApifyToken ? 'Apify: saved' : 'Apify: none',
+        settings.hasSavedBrightDataKey ? 'Bright Data: saved' : 'Bright Data: none',
         settings.proxyCount ? 'Proxies: ' + settings.proxyCount + ' saved' : 'Proxies: none',
       ];
       settingsSummary = parts.join(' · ');
@@ -500,6 +512,7 @@
       proxyUrls: $('gmProxyUrls').value.trim() || undefined,
       routeMode: $('gmUseSavedProxies').checked ? 'proxy' : undefined,
       outputMode: selectedOutputMode,
+      comboId: activeSource === 'google_maps' ? lastShuffleComboId : undefined,
       leadSource: activeSource,
       actorId: $('actorId').value.trim() || undefined,
       maxResults: numberValue('maxResults') || 100,
@@ -537,12 +550,76 @@
     return body;
   }
 
+  async function testBrightDataCredential() {
+    $('testBrightDataBtn').disabled = true;
+    $('brightDataTestStatus').textContent = 'Testing...';
+    try {
+      const pasted = $('setBrightDataKey').value.trim();
+      const result = await api.testBrightDataCredential(pasted ? { brightDataApiKey: pasted } : {});
+      $('brightDataTestStatus').textContent = (result.ok ? '✓ ' : '✗ ') + result.detail;
+      $('brightDataTestStatus').className = result.ok ? 'settings-hint test-ok' : 'settings-hint test-fail';
+    } catch (error) {
+      $('brightDataTestStatus').textContent = error.message;
+      $('brightDataTestStatus').className = 'settings-hint test-fail';
+    } finally {
+      $('testBrightDataBtn').disabled = false;
+    }
+  }
+
+  function loadGoogleShuffleHistory() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('leadsgenx:nova-shuffle:google_maps') || '{}');
+      return {
+        comboIds: Array.isArray(parsed.comboIds) ? parsed.comboIds.filter((value) => typeof value === 'string') : [],
+        cities: Array.isArray(parsed.cities) ? parsed.cities.filter((value) => typeof value === 'string') : [],
+        currentComboId: typeof parsed.currentComboId === 'string' ? parsed.currentComboId : undefined,
+      };
+    } catch {
+      return { comboIds: [], cities: [], currentComboId: undefined };
+    }
+  }
+
+  async function shuffleGoogleMapsFilters() {
+    const history = loadGoogleShuffleHistory();
+    $('shuffleFiltersBtn').disabled = true;
+    $('shuffleStatus').textContent = 'Nova is arranging…';
+    try {
+      const pick = await api.shuffleNext({
+        source: 'google_maps',
+        recentComboIds: history.comboIds,
+        recentCities: history.cities,
+        currentComboId: history.currentComboId,
+      });
+      const combo = pick.combo;
+      if (!combo || !pick.updatedHistory || !pick.filters) {
+        throw new Error('Nova returned an incomplete filter set.');
+      }
+      chips.gmSearchTerms.setValues(pick.filters.searchTerms);
+      chips.gmCategories.setValues(pick.filters.categoryFilters);
+      chips.gmCompanyTypes.setValues(pick.filters.companyTypes);
+      chips.gmLocations.setValues(pick.filters.locations);
+      lastShuffleComboId = combo.id;
+      localStorage.setItem('leadsgenx:nova-shuffle:google_maps', JSON.stringify(pick.updatedHistory));
+      $('shuffleStatus').textContent = combo.label + ' · ' + (pick.freshTerritory ? 'fresh slice' : 'learned performer');
+      window.LeadsGenXUi.toast('Nova arranged: ' + combo.label + '. ' + pick.note + ' ' + combo.rationale);
+    } catch (error) {
+      $('shuffleStatus').textContent = '';
+      window.LeadsGenXUi.toast(error.message);
+    } finally {
+      $('shuffleFiltersBtn').disabled = false;
+    }
+  }
+
   async function submitRun(event) {
     event.preventDefault();
     $('startBtn').disabled = true;
     $('formStatus').textContent = 'Starting...';
     try {
-      const run = await api.createRun(buildBody());
+      const body = buildBody();
+      const run = await api.createRun(body);
+      if (body.leadSource === 'google_maps' && body.comboId && lastShuffleComboId === body.comboId) {
+        lastShuffleComboId = undefined;
+      }
       $('gmProxyUrls').value = '';
       $('snCookies').value = '';
       $('snUserAgent').value = '';
@@ -583,6 +660,17 @@
       if (active) startProgress(active.id);
     }
     return runs;
+  }
+
+  async function enrichLinkedInRun(runId, button) {
+    if (button) button.disabled = true;
+    try {
+      const result = await api.enrichLinkedIn(runId);
+      window.LeadsGenXUi.toast(result.message || 'Nova started LinkedIn enrichment');
+    } catch (error) {
+      window.LeadsGenXUi.toast(error.message);
+      if (button) button.disabled = false;
+    }
   }
 
   async function loadLeads() {
@@ -960,6 +1048,8 @@
       suggestions: suggestions.salesNavigator.headcounts,
     });
 
+    $('shuffleFiltersBtn').addEventListener('click', shuffleGoogleMapsFilters);
+
     document.querySelectorAll('.source-btn').forEach((btn) =>
       btn.addEventListener('click', () => setSource(btn.dataset.source))
     );
@@ -1006,10 +1096,12 @@
     $('downloadEmails').addEventListener('click', () => api.downloadLeads($('leadRunFilter').value, 'emails'));
     $('saveSettingsBtn').addEventListener('click', () => saveSettings());
     $('clearApifyBtn').addEventListener('click', () => saveSettings({ apifyToken: '' }));
+    $('clearBrightDataBtn').addEventListener('click', () => saveSettings({ brightDataApiKey: '' }));
     $('clearGoogleBtn').addEventListener('click', () => saveSettings({ googleApiKeys: '' }));
     $('clearProxiesBtn').addEventListener('click', () => saveSettings({ proxyUrls: '' }));
     $('testProxiesBtn').addEventListener('click', testSavedProxies);
     $('testApifyBtn').addEventListener('click', testApifyCredential);
+    $('testBrightDataBtn').addEventListener('click', testBrightDataCredential);
     $('testGoogleBtn').addEventListener('click', testGoogleCredentials);
     $('targetedBank').addEventListener('change', loadTargetedBankMarkets);
     $('targetedLoadMarkets').addEventListener('click', loadTargetedBankMarkets);
@@ -1035,15 +1127,18 @@
     $('targetedWorkUnits').addEventListener('click', saveTargetedWorkUnit);
     $('runsTable').addEventListener('click', (event) => {
       const target = event.target;
+      const enrichTarget = target.closest ? target.closest('[data-enrich-run]') : null;
       const viewRunId = target.dataset ? target.dataset.viewRun : undefined;
       const copyRunEmailsId = target.dataset ? target.dataset.copyRunEmails : undefined;
       const deleteRunId = target.dataset ? target.dataset.deleteRun : undefined;
       const stopRunId = target.dataset ? target.dataset.stopRun : undefined;
+      const enrichRunId = enrichTarget && enrichTarget.dataset ? enrichTarget.dataset.enrichRun : undefined;
       if (viewRunId) {
         $('leadRunFilter').value = viewRunId;
         setTab('leads');
       }
       if (copyRunEmailsId) void copyRunEmails(copyRunEmailsId);
+      if (enrichRunId) void enrichLinkedInRun(enrichRunId, enrichTarget);
       if (stopRunId) void stopRun(stopRunId);
       if (deleteRunId) void deleteRun(deleteRunId);
     });
@@ -1187,6 +1282,7 @@
     $('byodSaveBtn').addEventListener('click', saveByod);
     $('byodClearBtn').addEventListener('click', clearByod);
     $('byodTestApify').addEventListener('click', () => testByod('apify'));
+    $('byodTestBrightData').addEventListener('click', () => testByod('brightdata'));
     $('byodTestGoogle').addEventListener('click', () => testByod('google'));
     $('adminCreateBtn').addEventListener('click', adminCreateUser);
     $('refreshAdmin').addEventListener('click', loadAdminPanel);
@@ -1244,6 +1340,7 @@
       ? 'Using your own details: ' +
         [
           status.apifyTokenSet ? 'Apify token ' + (status.apifyTokenPreview || 'saved') : null,
+          status.brightDataKeySet ? 'Bright Data key ' + (status.brightDataKeyPreview || 'saved') : null,
           status.googleApiKeyCount ? status.googleApiKeyCount + ' Google key' + (status.googleApiKeyCount > 1 ? 's' : '') : null,
           status.proxyCount ? status.proxyCount + ' prox' + (status.proxyCount > 1 ? 'ies' : 'y') : null,
         ]
@@ -1256,6 +1353,7 @@
     $('byodFormStatus').textContent = '';
     const body = {};
     if ($('byodApifyToken').value.trim()) body.apifyToken = $('byodApifyToken').value.trim();
+    if ($('byodBrightDataKey').value.trim()) body.brightDataApiKey = $('byodBrightDataKey').value.trim();
     if ($('byodGoogleKeys').value.trim()) body.googleApiKeys = $('byodGoogleKeys').value;
     if ($('byodProxyUrls').value.trim()) body.proxyUrls = $('byodProxyUrls').value;
     if (!Object.keys(body).length) {
@@ -1265,6 +1363,7 @@
     try {
       const status = await api.saveMyCredentials(body);
       $('byodApifyToken').value = '';
+      $('byodBrightDataKey').value = '';
       $('byodGoogleKeys').value = '';
       $('byodProxyUrls').value = '';
       renderByodStatus(status);
@@ -1278,7 +1377,7 @@
   async function clearByod() {
     if (!window.confirm('Remove all your saved details? Your runs will return to the shared pool.')) return;
     try {
-      const status = await api.saveMyCredentials({ apifyToken: '', googleApiKeys: '', proxyUrls: '' });
+      const status = await api.saveMyCredentials({ apifyToken: '', brightDataApiKey: '', googleApiKeys: '', proxyUrls: '' });
       renderByodStatus(status);
       window.LeadsGenXUi.toast('Personal details cleared');
     } catch (error) {
@@ -1294,10 +1393,19 @@
           ? $('byodApifyToken').value.trim()
             ? { token: $('byodApifyToken').value.trim() }
             : {}
-          : $('byodGoogleKeys').value.trim()
-            ? { key: $('byodGoogleKeys').value.split('\n')[0].trim() }
-            : {};
-      const result = which === 'apify' ? await api.testMyApify(body) : await api.testMyGoogle(body);
+          : which === 'brightdata'
+            ? $('byodBrightDataKey').value.trim()
+              ? { key: $('byodBrightDataKey').value.trim() }
+              : {}
+            : $('byodGoogleKeys').value.trim()
+              ? { key: $('byodGoogleKeys').value.split('\n')[0].trim() }
+              : {};
+      const result =
+        which === 'apify'
+          ? await api.testMyApify(body)
+          : which === 'brightdata'
+            ? await api.testMyBrightData(body)
+            : await api.testMyGoogle(body);
       $('byodFormStatus').textContent = (result.ok ? '✓ ' : '✗ ') + result.detail;
     } catch (error) {
       $('byodFormStatus').textContent = error.message;

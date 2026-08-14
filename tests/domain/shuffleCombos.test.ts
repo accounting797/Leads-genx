@@ -25,6 +25,17 @@ describe('shuffle combo library', () => {
     expect(new Set(SHUFFLE_COMBOS.map((combo) => combo.id)).size).toBe(SHUFFLE_COMBOS.length);
     expect(new Set(SHUFFLE_COMBOS.map((combo) => combo.city)).size).toBeGreaterThan(10);
   });
+
+  it('retains the curated Shuffle deck IDs exactly', () => {
+    expect(SHUFFLE_COMBOS.map((combo) => combo.id)).toEqual([
+      'owner-roofing-houston', 'owner-hvac-phoenix', 'ceo-construction-dallas', 'owner-dental-tampa',
+      'manager-vet-denver', 'owner-trucking-atlanta', 'gm-autorepair-nashville', 'owner-landscaping-charlotte',
+      'ceo-manufacturing-columbus', 'owner-realestate-sacramento', 'sales-oilgas-houston', 'purchasing-manufacturing-columbus',
+      'owner-restaurants-austin', 'office-legal-raleigh', 'owner-plumbing-jacksonville', 'ceo-renewable-denver',
+      'ops-warehousing-slc', 'owner-accounting-okc', 'marketing-medspa-tampa', 'owner-electrical-dallas',
+      'hr-staffing-chicago', 'ceo-solar-phoenix', 'owner-insurance-nashville', 'finance-healthcare-atlanta',
+    ]);
+  });
 });
 
 describe('pickNextCombo', () => {
@@ -103,5 +114,20 @@ describe('pickNextCombo', () => {
     expect(pick.freshTerritory).toBe(false);
     expect(pick.note.toLowerCase()).toContain('learned');
     expect(pick.combo.id).toBe(SHUFFLE_COMBOS[7].id);
+  });
+
+  it('ignores mixed recent history values and returns a current combo', () => {
+    const pick = pickNextCombo(
+      {
+        source: 'google_maps',
+        recentComboIds: ['removed-combo', 42, null, { id: SHUFFLE_COMBOS[0].id }] as never,
+        recentCities: ['Unknown', 42, null, { city: SHUFFLE_COMBOS[0].city }] as never,
+        currentComboId: '__proto__',
+      },
+      {},
+      () => 0,
+    );
+
+    expect(SHUFFLE_COMBOS).toContainEqual(pick.combo);
   });
 });

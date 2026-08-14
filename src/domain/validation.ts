@@ -7,6 +7,7 @@ import {
   ValidatedRunInput,
 } from './types';
 import { normalizeProxyLine } from './operatorSettings';
+import { SHUFFLE_COMBOS } from './shuffleCombos';
 
 export class ValidationError extends Error {
   constructor(
@@ -210,6 +211,8 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
   const apifyToken = apifyTokens[0];
   const googleApiKey = googleApiKeys[0];
   const proxyUrls = asProxyList(obj.proxyUrls, fields);
+  const requestedComboId = asString(obj.comboId);
+  const comboId = SHUFFLE_COMBOS.some((combo) => combo.id === requestedComboId) ? requestedComboId : undefined;
   const rawGoogleMaps = obj.googleMaps && typeof obj.googleMaps === 'object'
     ? (obj.googleMaps as Record<string, unknown>)
     : {};
@@ -222,12 +225,25 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
     parsedOutputMode === 'hybrid_max'
       ? 'hybrid'
       : parseGoogleMapsProvider(rawGoogleMaps.provider) ?? 'local_first';
+  const brightDataApiKey = asString(obj.brightDataApiKey);
+  const parsedSalesNavigatorForGate = parseSalesNavigator(obj.salesNavigator ?? obj.filters);
+  const snRunsOnBrightData =
+    parseLeadSource(obj.leadSource) === 'sales_navigator' &&
+    !asString(obj.searchUrl) &&
+    hasSalesNavigatorFilters(parsedSalesNavigatorForGate) &&
+    Boolean(brightDataApiKey);
   const requiresApifyToken =
-    parseLeadSource(obj.leadSource) === 'sales_navigator' ||
+    (parseLeadSource(obj.leadSource) === 'sales_navigator' && !snRunsOnBrightData) ||
     (parseLeadSource(obj.leadSource) === 'google_maps' && requestedGoogleMapsProvider === 'apify') ||
     !parseLeadSource(obj.leadSource);
 
-  if (requiresApifyToken && !apifyToken && !hasSavedToken) {
+  const snFilterSearchWithoutEngine =
+    parseLeadSource(obj.leadSource) === 'sales_navigator' &&
+    !asString(obj.searchUrl) &&
+    hasSalesNavigatorFilters(parsedSalesNavigatorForGate) &&
+    !brightDataApiKey &&
+    !(parsedSalesNavigatorForGate?.cookies && parsedSalesNavigatorForGate?.userAgent);
+  if (requiresApifyToken && !apifyToken && !hasSavedToken && !snFilterSearchWithoutEngine) {
     fields.apifyToken = 'Apify token is required.';
   }
 
@@ -300,15 +316,32 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
     fields.salesNavigator = 'Sales Navigator runs need a search URL or professional filters.';
   }
 
-  if (leadSource === 'sales_navigator' && !salesNavigator?.cookies) {
+  const snBrightDataLane =
+    leadSource === 'sales_navigator' &&
+    !searchUrl &&
+    hasSalesNavigatorFilters(salesNavigator) &&
+    Boolean(brightDataApiKey);
+
+  if (
+    leadSource === 'sales_navigator' &&
+    !searchUrl &&
+    hasSalesNavigatorFilters(salesNavigator) &&
+    !brightDataApiKey &&
+    !(salesNavigator?.cookies && salesNavigator?.userAgent)
+  ) {
+    fields.brightDataApiKey =
+      'Filter searches run through Bright Data — save a Bright Data API key in Settings, add your LinkedIn cookies, or paste a Sales Navigator search URL.';
+  }
+
+  if (leadSource === 'sales_navigator' && !snBrightDataLane && !salesNavigator?.cookies) {
     fields.cookies = 'LinkedIn cookies are required for Sales Navigator runs.';
   }
 
-  if (leadSource === 'sales_navigator' && salesNavigator?.cookies && !hasValidCookieJson(salesNavigator.cookies)) {
+  if (leadSource === 'sales_navigator' && !snBrightDataLane && salesNavigator?.cookies && !hasValidCookieJson(salesNavigator.cookies)) {
     fields.cookies = 'LinkedIn cookie JSON must be a non-empty array of cookies with name and value fields.';
   }
 
-  if (leadSource === 'sales_navigator' && !salesNavigator?.userAgent) {
+  if (leadSource === 'sales_navigator' && !snBrightDataLane && !salesNavigator?.userAgent) {
     fields.userAgent = 'Browser user agent is required for Sales Navigator runs.';
   }
 
@@ -326,12 +359,14 @@ export function validateCreateRunInput(input: unknown, hasSavedToken: boolean): 
 
   return {
     apifyToken,
+    brightDataApiKey,
     apifyTokens: apifyTokens.length ? apifyTokens : undefined,
     googleApiKey,
     googleApiKeys: googleApiKeys.length ? googleApiKeys : undefined,
     proxyUrls: proxyUrls.length ? proxyUrls : undefined,
     routeMode: proxyUrls.length || obj.routeMode === 'proxy' ? 'proxy' : 'direct',
     outputMode,
+    comboId,
     leadSource: leadSource ?? 'google_maps',
     actorId: asString(obj.actorId),
     searchUrl,

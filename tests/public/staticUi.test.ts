@@ -9,6 +9,40 @@ function readPublicFile(fileName: string): string {
 }
 
 describe('static dashboard downloads', () => {
+  it('keeps Nova Arrange in standard Google Maps scraping and out of Targeted Scraping', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const googleStart = html.indexOf('<section id="googleMapsFields"');
+    const googleEnd = html.indexOf('<section id="salesNavigatorFields"');
+    const targetedStart = html.indexOf('<div id="targetedTab"');
+
+    expect(googleStart).toBeGreaterThan(-1);
+    expect(googleEnd).toBeGreaterThan(googleStart);
+    expect(targetedStart).toBeGreaterThan(googleEnd);
+    expect(html.slice(googleStart, googleEnd)).toContain('id="shuffleFiltersBtn"');
+    expect(html.slice(targetedStart)).not.toContain('id="shuffleFiltersBtn"');
+    expect(appJs).toContain("source: 'google_maps'");
+    expect(appJs).toContain('chips.gmSearchTerms.setValues(pick.filters.searchTerms)');
+    expect(appJs).not.toContain('targetedShuffle');
+  });
+
+  it('gates Nova Shuffle attribution to Google Maps and clears it when leaving Maps', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain("comboId: activeSource === 'google_maps' ? lastShuffleComboId : undefined");
+    expect(appJs).toContain("if (source !== 'google_maps') lastShuffleComboId = undefined;");
+  });
+
+  it('consumes only the successfully submitted Google Maps Shuffle combo', () => {
+    const appJs = readPublicFile('app.js');
+
+    expect(appJs).toContain('const body = buildBody();');
+    expect(appJs).toContain('const run = await api.createRun(body);');
+    expect(appJs).toContain("body.leadSource === 'google_maps' && body.comboId && lastShuffleComboId === body.comboId");
+    expect(appJs).toContain('lastShuffleComboId = undefined;');
+    expect(appJs.indexOf('const run = await api.createRun(body);')).toBeLessThan(appJs.indexOf("body.leadSource === 'google_maps' && body.comboId"));
+  });
+
   it('makes the top leads metric open the all-runs leads view', () => {
     const html = readPublicFile('index.html');
     const appJs = readPublicFile('app.js');
@@ -42,6 +76,21 @@ describe('static dashboard downloads', () => {
 });
 
 describe('admin targeted scraping wizard', () => {
+  it('uses Valid-email wording on the embedded targeted dashboard', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+
+    expect(html).toContain('Public contacts only. Valid means publicly published, target-aligned personal or business addresses');
+    expect(html).toContain('Export Valid emails');
+    expect(html).toContain('<option value="strict" selected>Valid only</option>');
+    expect(html).not.toContain('Strict means');
+    expect(html).not.toContain('Export Strict');
+    expect(html).not.toContain('out of Strict');
+    expect(appJs).toContain("['Valid', funnel.strict]");
+    expect(appJs).toContain("tier === 'strict' ? 'Valid' : tier");
+    expect(appJs).not.toContain("['Strict Export', funnel.strict]");
+  });
+
   it('opens a dedicated animated targeted workspace with run controls and complete exports', () => {
     const html = readPublicFile('targeted.html');
     const js = readPublicFile('targeted.js');
@@ -682,5 +731,57 @@ describe('static dashboard BYOD (bring your own details)', () => {
     expect(appJs).toContain('hasOwnCredentials');
     expect(appJs).toContain('byod-badge');
     expect(css).toContain('.byod-badge');
+  });
+});
+
+describe('retained Bright Data dashboard wiring', () => {
+  it('ships operator and BYOD key controls with safe status and test actions', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+
+    for (const id of [
+      'setBrightDataStatus',
+      'setBrightDataKey',
+      'testBrightDataBtn',
+      'clearBrightDataBtn',
+      'brightDataTestStatus',
+      'byodBrightDataKey',
+      'byodTestBrightData',
+    ]) {
+      expect(html).toContain(`id="${id}"`);
+    }
+    expect(appJs).toContain('settings.hasSavedBrightDataKey');
+    expect(appJs).toContain("brightDataApiKey: $('setBrightDataKey').value.trim() || undefined");
+    expect(appJs).toContain("saveSettings({ brightDataApiKey: '' })");
+    expect(appJs).toContain("body.brightDataApiKey = $('byodBrightDataKey').value.trim()");
+    expect(appJs).toContain("testByod('brightdata')");
+  });
+
+  it('connects client methods and enrichment only for extension-captured runs', () => {
+    const apiJs = readPublicFile('api.js');
+    const appJs = readPublicFile('app.js');
+    const uiJs = readPublicFile('ui.js');
+
+    expect(apiJs).toContain("'/auth/credentials/test/brightdata'");
+    expect(apiJs).toContain("'/settings/test/brightdata'");
+    expect(apiJs).toContain("'/enrich-linkedin'");
+    expect(appJs).toContain('enrichLinkedInRun');
+    expect(appJs).toContain('api.enrichLinkedIn(runId)');
+    expect(appJs).toContain('data-enrich-run');
+    expect(uiJs).toContain("run.actorId === 'sn_extension'");
+    expect(uiJs).toContain('data-enrich-run');
+  });
+
+  it('keeps Nova Arrange in the standard Google Maps form after Bright Data controls return', () => {
+    const html = readPublicFile('index.html');
+    const appJs = readPublicFile('app.js');
+    const googleStart = html.indexOf('<section id="googleMapsFields"');
+    const googleEnd = html.indexOf('<section id="salesNavigatorFields"');
+    const targetedStart = html.indexOf('<div id="targetedTab"');
+
+    expect(html.slice(googleStart, googleEnd)).toContain('id="shuffleFiltersBtn"');
+    expect(html.slice(targetedStart)).not.toContain('id="shuffleFiltersBtn"');
+    expect(appJs).toContain("source: 'google_maps'");
+    expect(appJs).not.toContain('targetedShuffle');
   });
 });

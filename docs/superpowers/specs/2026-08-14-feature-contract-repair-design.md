@@ -42,6 +42,7 @@ No hand-written migration will be added; this repository uses `prisma db push` f
 
 - Restore the existing `/api/shuffle/next` route and its source-specific mapping without changing the curated combinations or learning behavior.
 - Reconcile curated values with the current suggestions catalog only where the existing tests prove a broken contract.
+- Restore the “Nova, arrange my filters” control inside the standard New Run Google Maps section only. Do not place or expose it in Targeted Scraping.
 - Shuffle prepares filters; it does not automatically launch paid work.
 
 ## Error Handling

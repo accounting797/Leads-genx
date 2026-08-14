@@ -18,6 +18,7 @@ model User {
   updatedAt         DateTime           @updatedAt
   sessions          Session[]
   runs              Run[]
+  extensionToken    String?
   upgradeRequests   UpgradeRequest[]
   targetedCampaigns TargetedCampaign[]
 }
@@ -83,6 +84,8 @@ model Run {
   batches                          RunBatch[]
   businesses                       DiscoveredBusiness[]
   providerStates                   RunProviderState[]
+  hiringSignalScans                HiringSignalScan[]
+  hiringOpportunities              HiringOpportunity[]
   user                             User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
@@ -190,6 +193,75 @@ model RunEvent {
   metadataJson String?
   createdAt    DateTime @default(now())
   run          Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+model HiringSignalScan {
+  id               Int                 @id @default(autoincrement())
+  runId            Int
+  activeRunKey     Int?                @unique
+  status           String              @default("queued")
+  manualRefresh    Boolean             @default(false)
+  candidateCount   Int                 @default(0)
+  inspectedCount   Int                 @default(0)
+  cachedBoardCount Int                 @default(0)
+  matchedCount     Int                 @default(0)
+  opportunityCount Int                 @default(0)
+  heartbeatAt      DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  errorMessage     String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  run              Run                 @relation(fields: [runId], references: [id], onDelete: Cascade)
+  opportunities    HiringOpportunity[]
+
+  @@index([runId, createdAt])
+  @@index([status, heartbeatAt])
+}
+
+model GreenhouseBoard {
+  id              Int       @id @default(autoincrement())
+  boardToken      String    @unique
+  companyKey      String
+  companyName     String
+  companyDomain   String?
+  industry        String?
+  geographiesJson String?
+  evidenceUrl     String
+  discoverySource String
+  jobsJson        String?
+  fetchedAt       DateTime?
+  verifiedAt      DateTime?
+  invalidAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([companyKey])
+}
+
+model HiringOpportunity {
+  id                  Int              @id @default(autoincrement())
+  scanId              Int
+  runId               Int
+  companyKey          String
+  companyName         String
+  companyDomain       String?
+  originLane          String
+  score               Int
+  scoreJson           String
+  jobsJson            String
+  evidenceUrl         String
+  evidenceFingerprint String
+  relationship        String
+  explanation         String?
+  saved               Boolean          @default(false)
+  dismissed           Boolean          @default(false)
+  observedAt          DateTime         @default(now())
+  scan                HiringSignalScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  run                 Run              @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([scanId, companyKey])
+  @@index([runId, originLane, score])
 }
 
 model AppSetting {

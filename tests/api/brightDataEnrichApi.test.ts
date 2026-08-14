@@ -2,18 +2,23 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { createApp } from '../../src/app';
 import { hashPassword } from '../../src/domain/auth';
+import type { ApiDeps } from '../../src/routes/api';
 
 const tempDir = mkdtempSync(join(tmpdir(), 'leads-genx-bdenrich-'));
 const databaseUrl = `file:${join(tempDir, 'test.db').replace(/\\/g, '/')}`;
 let prisma: PrismaClient;
 
-function app() {
-  return createApp({ prisma, runService: { async startRun() { return { id: 1 }; } } as never });
+function app(overrides: ApiDeps = {}) {
+  return createApp({
+    prisma,
+    runService: { async startRun() { return { id: 1 }; } } as never,
+    ...overrides,
+  });
 }
 
 function cookieOf(res: request.Response): string {
@@ -34,6 +39,9 @@ beforeAll(async () => {
   });
   await prisma.user.create({
     data: { username: 'bd.other', passwordHash: await hashPassword('bd-password-2') },
+  });
+  await prisma.user.create({
+    data: { username: 'bd.admin', passwordHash: await hashPassword('bd-password-3'), role: 'ADMIN' },
   });
 });
 
@@ -115,5 +123,120 @@ describe('POST /api/runs/:id/enrich-linkedin', () => {
     const res = await request(app()).post(`/api/runs/${run.id}/enrich-linkedin`).set('Cookie', cookie);
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ started: false, pending: 0 });
+  });
+
+  it("uses a standard caller's BYOD Bright Data key but never loads another user's key for an admin", async () => {
+    const owner = await prisma.user.findUniqueOrThrow({ where: { username: 'bd.owner' } });
+    const admin = await prisma.user.findUniqueOrThrow({ where: { username: 'bd.admin' } });
+    const run = await prisma.run.create({
+      data: {
+        userId: owner.id,
+        status: 'waiting_for_credentials',
+        leadSource: 'sales_navigator',
+        actorId: 'brightdata_linkedin',
+        filterJson: JSON.stringify({ salesNavigator: { titles: ['VP Sales'] } }),
+      },
+    });
+    await prisma.appSetting.upsert({
+      where: { key: `userCreds:${owner.id}` },
+      create: { key: `userCreds:${owner.id}`, value: JSON.stringify({ brightDataApiKey: 'bd-owner-key', googleApiKeys: [], proxyUrls: [] }), secret: true },
+      update: { value: JSON.stringify({ brightDataApiKey: 'bd-owner-key', googleApiKeys: [], proxyUrls: [] }) },
+    });
+    await prisma.appSetting.upsert({
+      where: { key: `userCreds:${admin.id}` },
+      create: { key: `userCreds:${admin.id}`, value: JSON.stringify({ brightDataApiKey: 'bd-admin-key', googleApiKeys: [], proxyUrls: [] }), secret: true },
+      update: { value: JSON.stringify({ brightDataApiKey: 'bd-admin-key', googleApiKeys: [], proxyUrls: [] }) },
+    });
+    await prisma.appSetting.upsert({
+      where: { key: 'brightDataApiKey' },
+      create: { key: 'brightDataApiKey', value: 'bd-operator-key', secret: true },
+      update: { value: 'bd-operator-key', secret: true },
+    });
+
+    let received: unknown;
+    const application = app({
+      runService: {
+        async startRun() { return { id: 1 }; },
+        async resumeRun(runId, credentials) {
+          received = { runId, credentials };
+          return { id: runId, status: 'queued' };
+        },
+      } as never,
+    });
+    const ownerCookie = await login('bd.owner', 'bd-password-1');
+
+    const res = await request(application).post(`/api/runs/${run.id}/resume`).set('Cookie', ownerCookie);
+
+    expect(res.status).toBe(202);
+    expect(received).toMatchObject({
+      runId: run.id,
+      credentials: { brightDataApiKey: 'bd-owner-key' },
+    });
+
+    const adminRun = await prisma.run.create({
+      data: {
+        userId: owner.id,
+        status: 'waiting_for_credentials',
+        leadSource: 'sales_navigator',
+        actorId: 'brightdata_linkedin',
+      },
+    });
+    const adminCookie = await login('bd.admin', 'bd-password-3');
+    const adminResume = await request(application).post(`/api/runs/${adminRun.id}/resume`).set('Cookie', adminCookie);
+    expect(adminResume.status).toBe(202);
+    expect(received).toMatchObject({
+      runId: adminRun.id,
+      credentials: { brightDataApiKey: 'bd-operator-key' },
+    });
+  });
+
+  it('allows only one in-flight Bright Data enrichment job per run and unlocks after success', async () => {
+    const runId = await seedLinkedInRun('bd.owner');
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const enrich = vi.fn()
+      .mockImplementationOnce(async () => {
+        await blocked;
+        return { attempted: 1, enriched: 1, skipped: 0 };
+      })
+      .mockResolvedValue({ attempted: 1, enriched: 1, skipped: 0 });
+    const application = app({ linkedinEnricher: enrich });
+    const cookie = await login('bd.owner', 'bd-password-1');
+
+    const [first, concurrent] = await Promise.all([
+      request(application).post(`/api/runs/${runId}/enrich-linkedin`).set('Cookie', cookie),
+      request(application).post(`/api/runs/${runId}/enrich-linkedin`).set('Cookie', cookie),
+    ]);
+
+    expect([first.status, concurrent.status]).toEqual([202, 202]);
+    const bodies = [first.body.data, concurrent.body.data];
+    expect(bodies.filter((data) => data.started === true)).toHaveLength(1);
+    expect(bodies.filter((data) => data.inProgress === true)).toHaveLength(1);
+    expect(enrich).toHaveBeenCalledTimes(1);
+
+    release();
+    await new Promise((resolve) => setImmediate(resolve));
+    const afterSuccess = await request(application).post(`/api/runs/${runId}/enrich-linkedin`).set('Cookie', cookie);
+    expect(afterSuccess.status).toBe(202);
+    expect(afterSuccess.body.data.started).toBe(true);
+    expect(enrich).toHaveBeenCalledTimes(2);
+  });
+
+  it('unlocks Bright Data enrichment after a background failure', async () => {
+    const runId = await seedLinkedInRun('bd.owner');
+    const enrich = vi.fn()
+      .mockRejectedValueOnce(new Error('synthetic Bright Data failure'))
+      .mockResolvedValue({ attempted: 1, enriched: 1, skipped: 0 });
+    const application = app({ linkedinEnricher: enrich });
+    const cookie = await login('bd.owner', 'bd-password-1');
+
+    const failed = await request(application).post(`/api/runs/${runId}/enrich-linkedin`).set('Cookie', cookie);
+    expect(failed.status).toBe(202);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const retry = await request(application).post(`/api/runs/${runId}/enrich-linkedin`).set('Cookie', cookie);
+    expect(retry.status).toBe(202);
+    expect(retry.body.data.started).toBe(true);
+    expect(enrich).toHaveBeenCalledTimes(2);
   });
 });

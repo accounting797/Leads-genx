@@ -165,6 +165,61 @@ describe('validateCreateRunInput', () => {
     });
   });
 
+  it('runs Sales Navigator filter searches on Bright Data alone — no Apify, no cookies', () => {
+    const input = validateCreateRunInput(
+      {
+        leadSource: 'sales_navigator',
+        maxResults: 100,
+        brightDataApiKey: 'bd-secret',
+        salesNavigator: {
+          titles: ['VP Sales'],
+          seniorities: ['Director'],
+          functions: ['Sales'],
+          industries: ['Software'],
+          headcounts: ['51-200'],
+          geographies: ['Austin, TX'],
+        },
+      },
+      false
+    );
+
+    expect(input).toMatchObject({
+      leadSource: 'sales_navigator',
+      brightDataApiKey: 'bd-secret',
+      salesNavigator: { titles: ['VP Sales'], headcounts: ['51-200'] },
+    });
+  });
+
+  it('points filter searches to Bright Data when neither engine can run', () => {
+    expect(() =>
+      validateCreateRunInput(
+        {
+          leadSource: 'sales_navigator',
+          maxResults: 100,
+          salesNavigator: { titles: ['VP Sales'] },
+        },
+        false
+      )
+    ).toThrow(/Bright Data/);
+  });
+
+  it('still allows filter searches via HarvestAPI cookies without a Bright Data key', () => {
+    const input = validateCreateRunInput(
+      {
+        apifyToken: 'secret-token',
+        leadSource: 'sales_navigator',
+        maxResults: 100,
+        salesNavigator: {
+          titles: ['VP Sales'],
+          cookies: '[{"name":"li_at","value":"dummy"}]',
+          userAgent: 'Mozilla/5.0 test-agent',
+        },
+      },
+      false
+    );
+    expect(input.salesNavigator?.titles).toEqual(['VP Sales']);
+  });
+
   it('rejects Sales Navigator runs with malformed cookie JSON', () => {
     expect(() =>
       validateCreateRunInput(
@@ -507,5 +562,37 @@ describe('validateCreateRunInput', () => {
       googleApiKeys: ['key-one', 'key-two'],
       proxyUrls: ['socks5h://user:pass@127.0.0.1:60001'],
     });
+  });
+
+  it('keeps a Nova Shuffle combo id as a run learning signal', () => {
+    const input = validateCreateRunInput(
+      {
+        leadSource: 'google_maps',
+        maxResults: 100,
+        googleApiKey: 'google-key',
+        comboId: 'owner-roofing-houston',
+        googleMaps: { provider: 'google_places', searchTerms: ['Owner'], locations: ['Houston, TX'] },
+      },
+      false,
+    );
+
+    expect(input.comboId).toBe('owner-roofing-houston');
+  });
+
+  it('drops unknown and prototype-shaped Nova Shuffle combo ids', () => {
+    for (const comboId of ['removed-combo', '__proto__']) {
+      const input = validateCreateRunInput(
+        {
+          leadSource: 'google_maps',
+          maxResults: 100,
+          googleApiKey: 'google-key',
+          comboId,
+          googleMaps: { provider: 'google_places', searchTerms: ['Owner'] },
+        },
+        false,
+      );
+
+      expect(input.comboId).toBeUndefined();
+    }
   });
 });
