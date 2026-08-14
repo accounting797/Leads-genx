@@ -12,6 +12,11 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-08-14 — codex — design (feature contract repair)
+- Documented the approved restore-and-reconcile repair for Greenhouse hiring signals, the Sales Navigator extension, and Nova Shuffle after targeted sync commit `b0247b3` removed required schema/contracts but retained their source and tests.
+- The repair preserves targeted Valid-email behavior, restores only previously tested contracts and route wiring, regenerates Prisma deterministically, and requires the fresh full suite plus plain build before any push.
+
+
 ## 2026-08-13 — codex — fix (targeted Valid email terminology)
 - Targeted document rows now map business/name/phone/geography fields and can export an explicitly published personal-provider address when geography, public-contact evidence, and MX checks qualify it; business-domain behavior remains intact.
 - Renamed targeted user-facing Strict copy to Valid / Valid emails while preserving internal `strict` quality and export contracts.
