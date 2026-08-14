@@ -483,3 +483,4 @@ Newest entries on top. Format:
   deterministic bad-address, association, relevance, and geography checks.
 - Mailbox verification remains explicitly external; syntax-only leads will not
   be represented as DNS- or mailbox-verified.
+- Implementation plan: `docs/superpowers/plans/2026-08-14-targeted-syntax-valid.md`.
