@@ -76,6 +76,12 @@ function leadIdentity(lead: NormalizedLead): string {
     .filter(Boolean).join('|').toLowerCase();
 }
 
+function labeledField(text: string, labels: string[]): string | undefined {
+  const pattern = new RegExp(`(?:${labels.map((label) => label.replace(/[.*+?^${}()|[\\]\\]/g, '\\\\$&')).join('|')})\\s*:\\s*([^|\\n]*)`, 'i');
+  const value = text.match(pattern)?.[1]?.trim();
+  return value || undefined;
+}
+
 export class TargetedService {
   private readonly store: PrismaTargetedStore;
   private readonly bankMarketsClient: FdicBankMarketsClient;
@@ -393,20 +399,29 @@ export class TargetedService {
       for (const section of sections) {
         const remaining = Math.max(0, 20_000 - artifactContacts);
         for (const email of extractEmailCandidatesFromText(section.text).slice(0, Math.min(500, remaining))) {
+          const companyName = labeledField(section.text, ['Business / Organization', 'Business', 'Organization', 'Company', 'Employer']);
+          const personName = [labeledField(section.text, ['First Name']), labeledField(section.text, ['Last Name'])].filter(Boolean).join(' ') || undefined;
+          const phone = labeledField(section.text, ['Tel1', 'Phone', 'Telephone']);
+          const city = labeledField(section.text, ['City']);
+          const state = labeledField(section.text, ['State', 'Province']);
+          const postalCode = labeledField(section.text, ['Zip Code', 'ZIP', 'Postal Code']);
+          const structuredAddress = [city, state, postalCode].filter(Boolean).join(', ');
+          const candidateText = [companyName, personName, section.text].filter(Boolean).join(' | ');
           const association = associatePublicContact({ email }, {
-            website: artifact.finalUrl, text: section.text, contactSource: 'public_document', exactEmailPublished: true,
+            website: artifact.finalUrl, text: candidateText, contactSource: 'public_document', exactEmailPublished: true,
           });
           const mail = await classifyMailInfrastructure(email, this.deps.mxResolver);
           const relevance = scoreTargetedCandidate({
-            companyName: section.text, category: section.text, address: section.text,
+            companyName, category: companyName, jobTitle: undefined, address: structuredAddress || section.text, phone,
             email, sourceUrl: artifact.finalUrl, visibleProvider: visibleDomainProvider(email)?.id,
             infrastructureProviders: mail.infrastructureProviders,
+            explicitPublicContact: association.accepted,
           }, scopedFilters);
           let qualityTier: TargetedQualityTier = relevance.tier;
           if (!association.accepted || mail.tier === 'rejected' || !relevance.accepted) qualityTier = 'rejected';
           else if (mail.tier === 'review' || relevance.tier === 'review') qualityTier = 'review';
           await this.store.upsertCandidate(campaignId, {
-            email, website: artifact.finalUrl, address: section.text, visibleProvider: visibleDomainProvider(email)?.id,
+            email, fullName: personName, companyName, website: artifact.finalUrl, phone, address: structuredAddress || section.text, visibleProvider: visibleDomainProvider(email)?.id,
             infrastructureProviders: mail.infrastructureProviders, relevanceScore: relevance.score,
             relevanceReason: relevance.reason, qualityTier, verificationDepth: mail.depth,
             complianceStatus: 'public_b2b', artifactId,
@@ -496,6 +511,7 @@ export class TargetedService {
         address: contact.address ?? contact.location, email: contact.email!, sourceUrl: contact.website ?? contact.placeUrl,
         visibleProvider: visibleDomainProvider(contact.email!)?.id,
         infrastructureProviders: mail.infrastructureProviders,
+        explicitPublicContact: association.accepted,
       }, filters);
       let qualityTier: TargetedQualityTier = relevance.tier;
       if (!association.accepted || mail.tier === 'rejected' || !relevance.accepted) qualityTier = 'rejected';

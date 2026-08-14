@@ -13,7 +13,7 @@
     <a class="targeted-brand" href="/"><span>GX</span><div><strong>LEADS-GENX</strong><small>Targeted Intelligence</small></div></a>
     <div class="targeted-live"><i></i><span id="targetedLiveText">SYSTEM READY</span></div>
     <div class="inline-actions">
-      <button id="targetedDownloadAllBtn" class="ghost-btn" type="button">Download all Strict leads</button>
+      <button id="targetedDownloadAllBtn" class="ghost-btn" type="button">Download all Valid emails</button>
       <a href="/" class="ghost-btn">Main dashboard</a>
     </div>
   </header>
@@ -62,7 +62,7 @@
           <button id="targetedPlanBtn" class="ghost-btn" type="button">Build plan</button>
           <button id="targetedStartBtn" class="primary-btn" type="button">Launch targeted run</button>
           <button id="targetedStopBtn" class="ghost-btn danger" type="button" disabled>Stop run</button>
-          <button id="targetedExportBtn" class="ghost-btn" type="button" disabled>Download this run</button>
+          <button id="targetedExportBtn" class="ghost-btn" type="button" disabled>Download Valid emails</button>
         </div>
         <p id="targetedFormStatus" class="targeted-hint"></p>
       </article>
@@ -73,7 +73,8 @@
         <div id="targetedActiveSubstitution" class="targeted-active-substitution"><small>CURRENT SUBSTITUTION</small><strong>No run selected</strong></div>
         <div class="targeted-progress"><i id="targetedProgressFill"></i></div>
         <div class="targeted-signal"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <label><span>Display tier</span><select id="targetedTierFilter"><option value="strict">Strict</option><option value="review">Review</option><option value="rejected">Rejected</option></select></label>
+        <label><span>Display tier</span><select id="targetedTierFilter"><option value="strict">Valid</option><option value="review">Review</option><option value="rejected">Rejected</option></select></label>
+        <p class="targeted-hint">Valid emails can be personal or business addresses when they are publicly published, target-aligned, and deliverability-checked.</p>
         <div id="targetedCandidates" class="targeted-candidates"><p class="targeted-hint">No leads loaded yet.</p></div>
       </aside>
     </section>

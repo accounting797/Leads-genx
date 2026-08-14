@@ -84,7 +84,7 @@
   }
 
   function renderFunnel(funnel) {
-    const cards = [['Discovered', funnel.discovered], ['Aligned', funnel.aligned], ['Strict', funnel.strict], ['Mailbox verified', funnel.mailboxVerified], ['Review', funnel.review], ['Rejected', funnel.rejected]];
+    const cards = [['Discovered', funnel.discovered], ['Aligned', funnel.aligned], ['Valid', funnel.strict], ['Mailbox verified', funnel.mailboxVerified], ['Review', funnel.review], ['Rejected', funnel.rejected]];
     $('targetedQualityFunnel').innerHTML = cards.map((card) => '<div><strong>' + Number(card[1] || 0).toLocaleString() + '</strong><span>' + card[0] + '</span></div>').join('');
   }
 
@@ -115,16 +115,17 @@
   async function renderCandidates() {
     if (!campaignId) return;
     const candidates = await api.getTargetedCandidates(campaignId, $('targetedTierFilter').value);
-    $('targetedCandidates').innerHTML = candidates.length ? '<table><thead><tr><th>Email</th><th>Company</th><th>Location</th><th>Score</th><th>Tier</th></tr></thead><tbody>' +
-      candidates.slice(0, 500).map((candidate) => '<tr><td>' + escapeHtml(candidate.email) + '</td><td>' + escapeHtml(candidate.companyName || '—') + '</td><td>' + escapeHtml(candidate.address || '—') + '</td><td>' + candidate.relevanceScore + '</td><td>' + escapeHtml(candidate.qualityTier) + '</td></tr>').join('') + '</tbody></table>' : '<p class="targeted-hint">No ' + escapeHtml($('targetedTierFilter').value) + ' leads yet.</p>';
+    const displayTier = (tier) => tier === 'strict' ? 'Valid' : tier;
+    $('targetedCandidates').innerHTML = candidates.length ? '<table><thead><tr><th>Email</th><th>Company / Name</th><th>Location</th><th>Score</th><th>Tier</th></tr></thead><tbody>' +
+      candidates.slice(0, 500).map((candidate) => '<tr><td>' + escapeHtml(candidate.email) + '</td><td>' + escapeHtml(candidate.companyName || candidate.fullName || '—') + '</td><td>' + escapeHtml(candidate.address || '—') + '</td><td>' + candidate.relevanceScore + '</td><td>' + escapeHtml(displayTier(candidate.qualityTier)) + '</td></tr>').join('') + '</tbody></table>' : '<p class="targeted-hint">No ' + escapeHtml(displayTier($('targetedTierFilter').value)) + ' leads yet.</p>';
   }
 
   function renderHistory(campaigns) {
     $('targetedRunHistory').innerHTML = campaigns.length ? campaigns.map((campaign) => {
       const f = campaign.funnel || {}; const active = stoppableStatuses.includes(campaign.status);
       return '<article class="targeted-run-card" data-active="' + active + '"><div class="targeted-run-title"><strong>Run #' + campaign.id + '</strong><span>' + escapeHtml(campaign.status.replace(/_/g, ' ')) + '</span></div>' +
-        '<div class="targeted-run-counts"><div><strong>' + Number(f.discovered || 0).toLocaleString() + '</strong><small>Scraped</small></div><div><strong>' + Number(f.aligned || 0).toLocaleString() + '</strong><small>Aligned</small></div><div><strong>' + Number(f.strict || 0).toLocaleString() + '</strong><small>Strict</small></div><div><strong>' + Number(f.review || 0).toLocaleString() + '</strong><small>Review</small></div><div><strong>' + Number(f.rejected || 0).toLocaleString() + '</strong><small>Rejected</small></div><div><strong>' + Number(campaign.completedUnitCount || 0) + '/' + Number(campaign.plannedUnitCount || 0) + '</strong><small>Units</small></div></div>' +
-      '<div class="targeted-run-actions"><button class="ghost-btn" data-view-run="' + campaign.id + '">View</button><button class="ghost-btn danger" data-stop-run="' + campaign.id + '" ' + (active ? '' : 'disabled') + '>Stop</button><button class="ghost-btn danger" data-delete-run="' + campaign.id + '">Delete</button><button class="ghost-btn" data-download-run="' + campaign.id + '" ' + (Number(f.strict || 0) ? '' : 'disabled') + '>Download Strict</button></div></article>';
+        '<div class="targeted-run-counts"><div><strong>' + Number(f.discovered || 0).toLocaleString() + '</strong><small>Scraped</small></div><div><strong>' + Number(f.aligned || 0).toLocaleString() + '</strong><small>Aligned</small></div><div><strong>' + Number(f.strict || 0).toLocaleString() + '</strong><small>Valid</small></div><div><strong>' + Number(f.review || 0).toLocaleString() + '</strong><small>Review</small></div><div><strong>' + Number(f.rejected || 0).toLocaleString() + '</strong><small>Rejected</small></div><div><strong>' + Number(campaign.completedUnitCount || 0) + '/' + Number(campaign.plannedUnitCount || 0) + '</strong><small>Units</small></div></div>' +
+      '<div class="targeted-run-actions"><button class="ghost-btn" data-view-run="' + campaign.id + '">View</button><button class="ghost-btn danger" data-stop-run="' + campaign.id + '" ' + (active ? '' : 'disabled') + '>Stop</button><button class="ghost-btn danger" data-delete-run="' + campaign.id + '">Delete</button><button class="ghost-btn" data-download-run="' + campaign.id + '" ' + (Number(f.strict || 0) ? '' : 'disabled') + '>Download Valid</button></div></article>';
     }).join('') : '<p class="targeted-hint">No targeted runs yet.</p>';
   }
 

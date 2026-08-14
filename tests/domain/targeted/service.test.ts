@@ -207,6 +207,28 @@ describe('TargetedService lifecycle', () => {
     expect(JSON.parse(csvUnit.checkpointJson ?? '{}')).toMatchObject({ adaptiveMetric: { strict: 25, unique: 25 } });
   });
 
+  it('exports an explicitly published personal address from an aligned document row', async () => {
+    const service = new TargetedService({
+      store: new PrismaTargetedStore(prisma),
+      localClient: { search: async () => [] },
+      webSearchClient: { search: async (query: string) => query.includes('filetype:csv') && query.includes('email contact directory') ? ['https://records.example/personal.csv'] : [] },
+      artifactFetcher: async (url: string) => ({
+        finalUrl: url, contentType: 'text/csv',
+        body: Buffer.from('Business / Organization,First Name,Last Name,Email,City,State,Zip Code\n,Alex,Smith,alex@gmail.com,Phoenix,AZ,85001\n'),
+        byteCount: 112,
+      }),
+      mxResolver: { resolveMx: async () => [{ exchange: 'gmail-smtp-in.l.google.com', priority: 5 }] },
+    });
+    const draft = await service.createDraft(userId, {
+      prompt: 'Public personal contacts for the aviation regression in Phoenix', mode: 'google', country: 'US',
+      keywords: ['personal-email-regression-2026'], areaCodes: ['602'], states: ['AZ'], cities: ['Phoenix'], postalCodes: ['85001'],
+      googleRequestBudget: 10,
+    });
+    await service.plan(draft.id);
+    await service.start(draft.id, { background: false });
+    expect(await service.strictEmails(draft.id)).toEqual(['alex@gmail.com']);
+  });
+
   it('extracts contacts from public documents linked by a targeted business website', async () => {
     const service = new TargetedService({
       store: new PrismaTargetedStore(prisma),

@@ -19,7 +19,7 @@ describe('rankPendingWork', () => {
     ];
     const ranked = rankPendingWork([unit('next-pdf', 'pdf'), unit('next-csv', 'csv')], metrics);
     expect(ranked[0]).toMatchObject({ workKey: 'next-csv' });
-    expect(ranked[0].priorityReason).toMatch(/Strict yield/i);
+    expect(ranked[0].priorityReason).toMatch(/Valid yield/i);
   });
 
   it('preserves an exploration bonus for unseen combinations', () => {

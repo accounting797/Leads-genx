@@ -50,6 +50,10 @@ describe('admin targeted scraping wizard', () => {
     expect(html).toContain('id="targetedRunHistory"');
     expect(html).toContain('id="targetedDownloadAllBtn"');
     expect(html).toContain('id="targetedQualityFunnel"');
+    expect(html).toContain('Download all Valid emails');
+    expect(html).toContain('<option value="strict">Valid</option>');
+    expect(js).toContain("['Discovered', funnel.discovered], ['Aligned', funnel.aligned], ['Valid', funnel.strict]");
+    expect(js).toContain('Download Valid');
     expect(js).toContain('listTargetedCampaigns');
     expect(js).toContain('stopTargetedCampaign');
     expect(js).toContain('downloadTargetedStrict');

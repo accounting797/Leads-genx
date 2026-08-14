@@ -52,7 +52,7 @@ export function rankPendingWork(
       - (totals.elapsedMs / Math.max(1, history.length)) / 10_000;
     return {
       ...unit, priority, originalIndex,
-      priorityReason: `Historical Strict yield ${(strictRate * 100).toFixed(1)}%, unique ${(uniqueRate * 100).toFixed(1)}%, rejected ${(rejectedRate * 100).toFixed(1)}%.`,
+      priorityReason: `Historical Valid yield ${(strictRate * 100).toFixed(1)}%, unique ${(uniqueRate * 100).toFixed(1)}%, rejected ${(rejectedRate * 100).toFixed(1)}%.`,
     };
   }).sort((a, b) => b.priority - a.priority || a.originalIndex - b.originalIndex)
     .map(({ originalIndex: _originalIndex, ...unit }) => unit);

@@ -12,6 +12,7 @@ export interface RelevanceCandidate {
   phone?: string;
   visibleProvider?: string;
   infrastructureProviders?: string[];
+  explicitPublicContact?: boolean;
 }
 
 export interface RelevanceDecision {
@@ -53,10 +54,11 @@ export function scoreTargetedCandidate(candidate: RelevanceCandidate, filters: T
     .filter(Boolean).join(' ').toLowerCase();
   const intentTerms = [...filters.keywords, ...filters.industries, ...filters.companyTypes, ...filters.roles, ...filters.seniorities]
     .filter((term) => !DISCOVERY_ONLY_TERMS.has(term.trim().toLowerCase()));
-  const intentMatch = intentTerms.length === 0 || includesAny(text, intentTerms);
+  const publicContactMatch = candidate.explicitPublicContact === true && geography.status === 'match';
+  const intentMatch = publicContactMatch || intentTerms.length === 0 || includesAny(text, intentTerms);
   if (intentMatch) {
     score += 35;
-    matchedRules.push('business_intent');
+    matchedRules.push(publicContactMatch ? 'public_contact' : 'business_intent');
   } else {
     missingRules.push('business_intent');
   }

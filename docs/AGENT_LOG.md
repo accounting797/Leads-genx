@@ -12,6 +12,12 @@ Newest entries on top. Format:
 
 ---
 
+## 2026-08-13 — codex — fix (targeted Valid email terminology)
+- Targeted document rows now map business/name/phone/geography fields and can export an explicitly published personal-provider address when geography, public-contact evidence, and MX checks qualify it; business-domain behavior remains intact.
+- Renamed targeted user-facing Strict copy to Valid / Valid emails while preserving internal `strict` quality and export contracts.
+- Focused targeted + static UI verification: 127/127 tests green; `node --check public/targeted.js` clean. The checkout-wide suite and build remain blocked by pre-existing schema/generated-client drift in hiring/extension code.
+
+
 ## 2026-07-26 — codex — design (smart city shuffle)
 - Added the approved design for a non-repeating, source-aware Nova Shuffle.
 - The design gives Google Maps and Sales Navigator separate browser-persisted
