@@ -445,6 +445,10 @@
 
           <section class="targeted-results">
             <div class="table-actions"><div><h3>Quality funnel</h3><p>Every count is explicit and auditable.</p></div><div class="inline-actions"><label><span>Results</span><select id="targetedTierFilter"><option value="strict" selected>Valid only</option><option value="review">Review</option><option value="rejected">Rejected</option></select></label><button id="targetedRefreshBtn" class="ghost-btn" type="button">Refresh</button></div></div>
+            <div id="targetedUnitProgress" class="targeted-unit-progress" aria-live="polite">
+              <div><strong>0</strong><span>Completed</span></div><div><strong>0</strong><span>Failed</span></div><div><strong>0</strong><span>Skipped</span></div><div><strong>0</strong><span>Running</span></div><div><strong>0</strong><span>Pending</span></div>
+            </div>
+            <div id="targetedActiveSubstitution" class="targeted-active-substitution" aria-live="polite"><small>ACTIVE WORK UNIT</small><strong>No active work unit</strong><span>Waiting for a running unit.</span></div>
             <div id="targetedQualityFunnel" class="targeted-funnel"></div>
             <div id="targetedCandidates" class="targeted-candidates"></div>
           </section>

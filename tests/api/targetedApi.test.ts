@@ -60,6 +60,31 @@ describe('admin targeted scraping API', () => {
     expect(detail.body.data.workUnits.length).toBeGreaterThan(0);
   });
 
+  it('returns a parsed safe progress checkpoint on campaign detail', async () => {
+    const owner = await prisma.user.findUniqueOrThrow({ where: { username: 'target-admin' } });
+    const campaign = await prisma.targetedCampaign.create({ data: {
+      userId: owner.id, prompt: 'Public business contacts', filterJson: '{}', policyJson: '{}', status: 'running',
+    } });
+    const unit = await prisma.targetedWorkUnit.create({ data: {
+      campaignId: campaign.id, workKey: `progress-${campaign.id}`, connector: 'public_document',
+      query: 'public contacts Phoenix', documentType: 'pdf', geographyJson: '{}', status: 'running',
+      checkpointJson: JSON.stringify({ progress: {
+        stage: 'extracting <script>alert(1)</script>', processed: 12, total: 40, succeeded: 10, failed: 2,
+        currentSource: 'https://user:secret@example.com/path?token=hidden#fragment', heartbeatAt: '2026-08-14T12:00:00.000Z',
+      }, credentials: 'must not be returned' }),
+    } });
+
+    const detail = await request(app()).get(`/api/targeted/campaigns/${campaign.id}`).set('Cookie', adminCookie).expect(200);
+    expect(detail.body.data.workUnits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: unit.id, progress: {
+        stage: 'extracting <script>alert(1)</script>', processed: 12, total: 40, succeeded: 10, failed: 2,
+        currentSource: 'https://example.com/path', heartbeatAt: '2026-08-14T12:00:00.000Z',
+      } }),
+    ]));
+    expect(JSON.stringify(detail.body.data)).not.toContain('must not be returned');
+    expect(JSON.stringify(detail.body.data)).not.toContain('secret');
+  });
+
   it('returns validation fields and strict export headers', async () => {
     const invalid = await request(app()).post('/api/targeted/campaigns').set('Cookie', adminCookie)
       .send({ prompt: 'Chase account holders', mode: 'bank', bankIds: ['chase'] }).expect(400);
@@ -93,7 +118,8 @@ describe('admin targeted scraping API', () => {
     } });
     const response = await request(app()).post('/api/targeted/learning/reset').set('Cookie', adminCookie).expect(200);
     expect(response.body.data.resetWorkUnits).toBeGreaterThanOrEqual(1);
-    expect(await prisma.targetedWorkUnit.count({ where: { checkpointJson: { not: null } } })).toBe(0);
+    const checkpoints = await prisma.targetedWorkUnit.findMany({ where: { checkpointJson: { not: null } }, select: { checkpointJson: true } });
+    expect(checkpoints.every((row) => !row.checkpointJson || !('adaptiveMetric' in JSON.parse(row.checkpointJson)))).toBe(true);
   });
 
   it('downloads deduplicated Strict leads across all targeted runs', async () => {

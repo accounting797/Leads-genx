@@ -88,6 +88,49 @@
     $('targetedQualityFunnel').innerHTML = cards.map((card) => '<div><strong>' + Number(card[1] || 0).toLocaleString() + '</strong><span>' + card[0] + '</span></div>').join('');
   }
 
+  function targetedUnitCounts(units) {
+    const counts = { completed: 0, failed: 0, skipped: 0, running: 0, pending: 0 };
+    units.forEach((unit) => {
+      const status = String(unit.status || '').toLowerCase();
+      if (status === 'completed') counts.completed += 1;
+      else if (status === 'failed') counts.failed += 1;
+      else if (status === 'running') counts.running += 1;
+      else if (status === 'pending' || status === 'queued') counts.pending += 1;
+      else if (status.startsWith('skipped') || status === 'cancelled') counts.skipped += 1;
+    });
+    return counts;
+  }
+
+  function renderTargetedUnitProgress(units) {
+    const counts = targetedUnitCounts(units);
+    const cards = [['Completed', counts.completed], ['Failed', counts.failed], ['Skipped', counts.skipped], ['Running', counts.running], ['Pending', counts.pending]];
+    $('targetedUnitProgress').innerHTML = cards.map((card) => '<div><strong>' + card[1].toLocaleString() + '</strong><span>' + card[0] + '</span></div>').join('');
+  }
+
+  function targetedHeartbeatLabel(progress) {
+    if (!progress || !progress.heartbeatAt) return 'Heartbeat unavailable · elapsed unavailable';
+    const timestamp = Date.parse(progress.heartbeatAt);
+    if (!Number.isFinite(timestamp)) return 'Heartbeat timestamp unavailable · elapsed unavailable';
+    const elapsed = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+    return 'Heartbeat ' + elapsed + 's ago · elapsed ' + elapsed + 's';
+  }
+
+  function renderTargetedActiveUnit(units, status) {
+    const unit = units.find((entry) => entry.status === 'running') || units.find((entry) => entry.status === 'pending');
+    if (!unit || ['completed', 'partially_completed', 'cancelled', 'failed'].includes(status)) {
+      $('targetedActiveSubstitution').innerHTML = '<small>ACTIVE WORK UNIT</small><strong>No active work unit</strong><span>Waiting for a running unit.</span>';
+      return;
+    }
+    const progress = unit.progress || {};
+    const processed = Number(progress.processed || 0).toLocaleString();
+    const total = Number.isFinite(progress.total) ? ' / ' + Number(progress.total).toLocaleString() : '';
+    const source = progress.currentSource ? '<div><dt>Source</dt><dd>' + escapeHtml(progress.currentSource) + '</dd></div>' : '';
+    $('targetedActiveSubstitution').innerHTML = '<small>' + (unit.status === 'running' ? 'ACTIVE WORK UNIT' : 'NEXT WORK UNIT') + '</small><dl>' +
+      '<div><dt>Connector</dt><dd>' + escapeHtml(unit.connector) + '</dd></div><div><dt>Document</dt><dd>' + escapeHtml(unit.documentType) + '</dd></div>' +
+      '<div><dt>Query</dt><dd>' + escapeHtml(unit.query) + '</dd></div><div><dt>Stage</dt><dd>' + escapeHtml(progress.stage || unit.status || 'pending') + '</dd></div>' +
+      '<div><dt>Processed</dt><dd>' + processed + total + '</dd></div>' + source + '</dl><em>' + targetedHeartbeatLabel(progress) + '</em>';
+  }
+
   function renderWorkUnits(units) {
     $('targetedWorkUnits').innerHTML = units.length ? '<p class="targeted-hint">' + units.length.toLocaleString() + ' work units planned. “Used before” identifies exact duplicate history.</p>' + units.slice(0, 100).map((unit) =>
       '<div class="targeted-unit"><span>' + escapeHtml(unit.documentType.toUpperCase()) + '</span><code>' + escapeHtml(unit.query) + '</code><small>' +
@@ -137,7 +180,7 @@
     try {
       const detail = await api.getTargetedCampaign(campaignId);
       if (refreshVersion !== targetedRefreshVersion) return;
-      renderFunnel(detail.funnel || {}); renderWorkUnits(detail.workUnits || []); renderActiveSubstitution(detail.workUnits || [], detail.status);
+      renderFunnel(detail.funnel || {}); renderWorkUnits(detail.workUnits || []); renderActiveSubstitution(detail.workUnits || [], detail.status); renderTargetedUnitProgress(detail.workUnits || []); renderTargetedActiveUnit(detail.workUnits || [], detail.status);
       $('targetedCampaignStatus').textContent = 'Run #' + detail.id + ' · ' + detail.status.replace(/_/g, ' ');
       const active = stoppableStatuses.includes(detail.status);
       $('targetedStopBtn').disabled = !active; $('targetedExportBtn').disabled = !(detail.funnel && detail.funnel.strict);
@@ -153,7 +196,7 @@
     renderConfirmation(); setStatus('Building every deterministic market substitution…', false);
     const draft = await api.createTargetedCampaign(input()); campaignId = draft.id;
     const campaign = await api.planTargetedCampaign(campaignId); planned = true;
-    const detail = await api.getTargetedCampaign(campaign.id); renderWorkUnits(detail.workUnits || []);
+    const detail = await api.getTargetedCampaign(campaign.id); renderWorkUnits(detail.workUnits || []); renderTargetedUnitProgress(detail.workUnits || []); renderTargetedActiveUnit(detail.workUnits || [], detail.status);
     $('targetedCampaignStatus').textContent = 'Run #' + campaignId + ' · planned';
     setStatus((detail.workUnits || []).length.toLocaleString() + ' work units ready.', false); await refreshHistory();
   }

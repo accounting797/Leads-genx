@@ -242,6 +242,49 @@
       : '<p class="settings-hint">No work units planned.</p>';
   }
 
+  function targetedUnitCounts(units) {
+    const counts = { completed: 0, failed: 0, skipped: 0, running: 0, pending: 0 };
+    units.forEach((unit) => {
+      const status = String(unit.status || '').toLowerCase();
+      if (status === 'completed') counts.completed += 1;
+      else if (status === 'failed') counts.failed += 1;
+      else if (status === 'running') counts.running += 1;
+      else if (status === 'pending' || status === 'queued') counts.pending += 1;
+      else if (status.startsWith('skipped') || status === 'cancelled') counts.skipped += 1;
+    });
+    return counts;
+  }
+
+  function renderTargetedUnitProgress(units) {
+    const counts = targetedUnitCounts(units);
+    const cards = [['Completed', counts.completed], ['Failed', counts.failed], ['Skipped', counts.skipped], ['Running', counts.running], ['Pending', counts.pending]];
+    $('targetedUnitProgress').innerHTML = cards.map((card) => '<div><strong>' + card[1].toLocaleString() + '</strong><span>' + card[0] + '</span></div>').join('');
+  }
+
+  function targetedHeartbeatLabel(progress) {
+    if (!progress || !progress.heartbeatAt) return 'Heartbeat unavailable · elapsed unavailable';
+    const timestamp = Date.parse(progress.heartbeatAt);
+    if (!Number.isFinite(timestamp)) return 'Heartbeat timestamp unavailable · elapsed unavailable';
+    const elapsed = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+    return 'Heartbeat ' + elapsed + 's ago · elapsed ' + elapsed + 's';
+  }
+
+  function renderTargetedActiveUnit(units, status) {
+    const unit = units.find((entry) => entry.status === 'running') || units.find((entry) => entry.status === 'pending');
+    if (!unit || ['completed', 'partially_completed', 'cancelled', 'failed'].includes(status)) {
+      $('targetedActiveSubstitution').innerHTML = '<small>ACTIVE WORK UNIT</small><strong>No active work unit</strong><span>Waiting for a running unit.</span>';
+      return;
+    }
+    const progress = unit.progress || {};
+    const processed = Number(progress.processed || 0).toLocaleString();
+    const total = Number.isFinite(progress.total) ? ' / ' + Number(progress.total).toLocaleString() : '';
+    const source = progress.currentSource ? '<div><dt>Source</dt><dd>' + escapeHtml(progress.currentSource) + '</dd></div>' : '';
+    $('targetedActiveSubstitution').innerHTML = '<small>' + (unit.status === 'running' ? 'ACTIVE WORK UNIT' : 'NEXT WORK UNIT') + '</small><dl>' +
+      '<div><dt>Connector</dt><dd>' + escapeHtml(unit.connector) + '</dd></div><div><dt>Document</dt><dd>' + escapeHtml(unit.documentType) + '</dd></div>' +
+      '<div><dt>Query</dt><dd>' + escapeHtml(unit.query) + '</dd></div><div><dt>Stage</dt><dd>' + escapeHtml(progress.stage || unit.status || 'pending') + '</dd></div>' +
+      '<div><dt>Processed</dt><dd>' + processed + total + '</dd></div>' + source + '</dl><em>' + targetedHeartbeatLabel(progress) + '</em>';
+  }
+
   function renderTargetedFunnel(funnel) {
     const cards = [
       ['Discovered', funnel.discovered], ['Aligned', funnel.aligned], ['Valid', funnel.strict],
@@ -267,7 +310,11 @@
     targetedCampaignId = detail.id;
     $('targetedCampaignStatus').textContent = 'Campaign #' + detail.id + ' · ' + detail.status.replace(/_/g, ' ');
     renderTargetedFunnel(detail.funnel || {});
-    if (detail.workUnits) renderTargetedWorkUnits(detail.workUnits);
+    if (detail.workUnits) {
+      renderTargetedWorkUnits(detail.workUnits);
+      renderTargetedUnitProgress(detail.workUnits);
+      renderTargetedActiveUnit(detail.workUnits, detail.status);
+    }
     const active = ['queued', 'running', 'waiting_for_scraper'].includes(detail.status);
     $('targetedStopBtn').disabled = !active;
     $('targetedExportBtn').disabled = !['completed', 'partially_completed', 'cancelled'].includes(detail.status) || !(detail.funnel && detail.funnel.strict);

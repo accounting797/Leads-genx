@@ -76,6 +76,37 @@ describe('static dashboard downloads', () => {
 });
 
 describe('admin targeted scraping wizard', () => {
+  it('shows five unit-state counts and an escaped active-unit checkpoint on both Targeted surfaces', () => {
+    const embeddedHtml = readPublicFile('index.html');
+    const dedicatedHtml = readPublicFile('targeted.html');
+    const appJs = readPublicFile('app.js');
+    const targetedJs = readPublicFile('targeted.js');
+    for (const html of [embeddedHtml, dedicatedHtml]) {
+      expect(html).toContain('id="targetedUnitProgress"');
+      expect(html).toContain('id="targetedActiveSubstitution"');
+    }
+    for (const js of [appJs, targetedJs]) {
+      for (const label of ['Completed', 'Failed', 'Skipped', 'Running', 'Pending']) expect(js).toContain(label);
+      expect(js).toContain('unit.status');
+      expect(js).toContain('progress.stage');
+      expect(js).toContain('progress.processed');
+      expect(js).toContain('progress.total');
+      expect(js).toContain('progress.heartbeatAt');
+      expect(js).toContain('escapeHtml(unit.connector)');
+      expect(js).toContain('escapeHtml(unit.documentType)');
+      expect(js).toContain('escapeHtml(unit.query)');
+      expect(js).toContain('escapeHtml(progress.stage');
+    }
+  });
+
+  it('renders dedicated planned-unit progress immediately after building a plan', () => {
+    const js = readPublicFile('targeted.js');
+    const detailIndex = js.indexOf('const detail = await api.getTargetedCampaign(campaign.id)');
+    expect(detailIndex).toBeGreaterThan(-1);
+    expect(js.indexOf('renderTargetedUnitProgress(detail.workUnits || [])', detailIndex)).toBeGreaterThan(detailIndex);
+    expect(js.indexOf('renderTargetedActiveUnit(detail.workUnits || [], detail.status)', detailIndex)).toBeGreaterThan(detailIndex);
+  });
+
   it('uses Valid-email wording on the embedded targeted dashboard', () => {
     const html = readPublicFile('index.html');
     const appJs = readPublicFile('app.js');

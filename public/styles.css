@@ -2041,6 +2041,20 @@ tr:last-child td { border-bottom: 0; }
 .targeted-funnel span { display: block; }
 .targeted-funnel strong { font-size: 20px; color: var(--text); }
 .targeted-funnel span { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.targeted-unit-progress { display: grid; grid-template-columns: repeat(5, minmax(90px, 1fr)); gap: 8px; margin: 12px 0; }
+.targeted-unit-progress div { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 255, 255, .025); }
+.targeted-unit-progress strong, .targeted-unit-progress span { display: block; }
+.targeted-unit-progress strong { font-size: 17px; color: var(--text); }
+.targeted-unit-progress span { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.targeted-active-substitution { padding: 12px; margin: 12px 0 18px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 255, 255, .025); }
+.targeted-active-substitution small, .targeted-active-substitution strong, .targeted-active-substitution span, .targeted-active-substitution em { display: block; }
+.targeted-active-substitution small { color: var(--cyan); font: 700 10px Consolas, monospace; letter-spacing: .08em; }
+.targeted-active-substitution strong { margin: 5px 0; font-size: 14px; }
+.targeted-active-substitution span, .targeted-active-substitution em { color: var(--muted); font-size: 11px; font-style: normal; }
+.targeted-active-substitution dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 9px 0; }
+.targeted-active-substitution dl div { padding: 7px; border-radius: 6px; background: rgba(255, 255, 255, .025); }
+.targeted-active-substitution dt { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.targeted-active-substitution dd { margin: 3px 0 0; color: var(--soft); font: 11px/1.35 Consolas, monospace; overflow-wrap: anywhere; }
 .targeted-candidates { overflow-x: auto; }
 .targeted-candidates table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .targeted-candidates th,
@@ -2054,7 +2068,7 @@ tr:last-child td { border-bottom: 0; }
   .targeted-grid.three,
   .targeted-markets,
   .targeted-confirmation dl { grid-template-columns: 1fr; }
-  .targeted-funnel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .targeted-funnel, .targeted-unit-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .targeted-unit { grid-template-columns: 42px minmax(190px, 1fr); }
   .targeted-unit button { grid-column: 2; justify-self: start; }
 }
