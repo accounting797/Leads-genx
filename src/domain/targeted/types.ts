@@ -75,6 +75,17 @@ export interface TargetedWorkUnitRecord {
   status: string;
   resultCount: number;
   previousUseCount?: number;
+  progress?: TargetedWorkUnitProgress;
+}
+
+export interface TargetedWorkUnitProgress {
+  stage: string;
+  processed: number;
+  total?: number;
+  succeeded: number;
+  failed: number;
+  currentSource?: string;
+  heartbeatAt: string;
 }
 
 export interface TargetedGeography {

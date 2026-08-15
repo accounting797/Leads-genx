@@ -165,7 +165,10 @@ export class TargetedService {
   async recoverInterruptedCampaigns(): Promise<number> {
     const interrupted = (await this.store.list(100))
       .filter((campaign) => campaign.status === 'running' || campaign.status === 'queued');
-    for (const campaign of interrupted) void this.start(campaign.id, { background: true });
+    for (const campaign of interrupted) {
+      await this.store.resetInterruptedWorkUnits(campaign.id);
+      void this.start(campaign.id, { background: true });
+    }
     return interrupted.length;
   }
 
@@ -277,6 +280,9 @@ export class TargetedService {
         }
       };
       await this.store.updateWorkUnit(unit.id, { status: 'running' });
+      await this.store.updateWorkUnitProgress(unit.id, {
+        stage: 'starting', processed: 0, succeeded: 0, failed: 0, heartbeatAt: new Date().toISOString(),
+      });
       if (unit.connector === 'public_document') {
         if (!this.deps.webSearchClient) {
           await this.store.updateWorkUnit(unit.id, { status: 'skipped_unavailable', errorCode: 'web_search_unavailable', errorMessage: 'Public web search is unavailable; linked business-site documents can still be processed.' });
@@ -287,6 +293,9 @@ export class TargetedService {
           continue;
         }
         try {
+          await this.store.updateWorkUnitProgress(unit.id, {
+            stage: 'discovering_sources', processed: 0, succeeded: 0, failed: 0, heartbeatAt: new Date().toISOString(),
+          });
           const urls: string[] = [];
           const documentQueries = [
             unit.query,
@@ -299,14 +308,35 @@ export class TargetedService {
             if (await this.wasCancelled(campaignId)) return;
           }
           let processed = 0;
+          let succeeded = 0;
+          let failures = 0;
+          await this.store.updateWorkUnitProgress(unit.id, {
+            stage: 'processing_sources', processed, total: urls.length, succeeded, failed: failures, heartbeatAt: new Date().toISOString(),
+          });
           for (const url of urls) {
             if (await this.wasCancelled(campaignId)) return;
-            processed += await this.processDocumentUrl(campaignId, url, unit.documentType, unit.geography, filters);
+            try {
+              await this.processDocumentUrl(campaignId, url, unit.documentType, unit.geography, filters, async () => {
+                processed += 1;
+                if (processed % 25 === 0) await this.store.updateWorkUnitProgress(unit.id, {
+                  stage: 'processing_sources', processed, total: urls.length, succeeded, failed: failures,
+                  currentSource: url, heartbeatAt: new Date().toISOString(),
+                });
+              }, true);
+              succeeded += 1;
+            } catch {
+              failures += 1;
+            }
+            await this.store.updateWorkUnitProgress(unit.id, {
+              stage: 'processing_sources', processed, total: urls.length, succeeded, failed: failures,
+              currentSource: url, heartbeatAt: new Date().toISOString(),
+            });
           }
           if (await this.wasCancelled(campaignId)) return;
-          connectorSuccesses += 1;
+          connectorSuccesses += succeeded > 0 ? 1 : 0;
+          connectorFailures += failures;
           await this.store.updateWorkUnit(unit.id, { status: 'completed', resultCount: processed });
-          await recordPerformance(processed);
+          await recordPerformance(processed, failures);
         } catch (error) {
           if (await this.wasCancelled(campaignId)) return;
           connectorFailures += 1;
@@ -334,6 +364,10 @@ export class TargetedService {
       connectorSuccesses += settled.filter((entry) => entry.status === 'fulfilled').length;
       const rawItems = settled.flatMap((entry) => entry.status === 'fulfilled' ? entry.value : []);
       let processed = 0;
+      await this.store.updateWorkUnitProgress(unit.id, {
+        stage: 'processing_results', processed, total: rawItems.length, succeeded: 0,
+        failed: settled.filter((entry) => entry.status === 'rejected').length, heartbeatAt: new Date().toISOString(),
+      });
       const scopedFilters: TargetedDraftInput = {
         ...filters,
         areaCodes: unit.geography.areaCode ? [unit.geography.areaCode] : [],
@@ -349,6 +383,9 @@ export class TargetedService {
           if (seenBusinesses.has(identity)) continue;
           seenBusinesses.add(identity);
           processed += await this.processLead(campaignId, lead, scopedFilters);
+          if (processed % 25 === 0 && processed > 0) await this.store.updateWorkUnitProgress(unit.id, {
+            stage: 'processing_results', processed, total: rawItems.length, succeeded: processed, failed: 0, heartbeatAt: new Date().toISOString(),
+          });
         }
         await this.store.updateWorkUnit(unit.id, { status: 'completed', resultCount: processed });
         await recordPerformance(processed);
@@ -378,6 +415,8 @@ export class TargetedService {
     documentType: string,
     geography: { country: 'US' | 'CA'; areaCode: string; state: string; city: string; postalCode: string },
     filters: TargetedDraftInput,
+    onExtracted?: () => Promise<void>,
+    rethrow = false,
   ): Promise<number> {
     let artifactId = await this.store.createArtifact(campaignId, {
       canonicalUrl: url, sourceType: 'public_document', retrievalStatus: 'discovered', metadata: { documentType, geography },
@@ -432,6 +471,7 @@ export class TargetedService {
             verification: { checkType: 'syntax', status: qualityTier, depth: 'syntax', reason: mail.reason, providerVersion: 'syntax-2026-08-14' },
           });
           count += 1;
+          await onExtracted?.();
           artifactContacts += 1;
         }
         if (artifactContacts >= 20_000) break;
@@ -442,6 +482,7 @@ export class TargetedService {
         canonicalUrl: url, sourceType: 'public_document', retrievalStatus: 'quarantined',
         metadata: { documentType, reason: error instanceof Error ? error.message : 'Document processing failed.' },
       });
+      if (rethrow) throw error;
       return 0;
     }
   }

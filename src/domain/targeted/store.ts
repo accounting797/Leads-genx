@@ -7,6 +7,7 @@ import {
   TargetedDraftInput,
   TargetedFilters,
   TargetedQualityTier,
+  TargetedWorkUnitProgress,
   TargetedWorkUnitRecord,
   VerificationDepth,
 } from './types';
@@ -43,6 +44,44 @@ export interface CampaignStatusWrite {
 
 function parseJson<T>(value: string, fallback: T): T {
   try { return JSON.parse(value) as T; } catch { return fallback; }
+}
+
+function sanitizeCurrentSource(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  try {
+    const url = new URL(value);
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function progress(value: unknown): TargetedWorkUnitProgress | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.stage !== 'string' || typeof candidate.heartbeatAt !== 'string'
+    || !Number.isFinite(candidate.processed) || !Number.isFinite(candidate.succeeded) || !Number.isFinite(candidate.failed)
+    || (candidate.total !== undefined && !Number.isFinite(candidate.total))) return undefined;
+  const currentSource = sanitizeCurrentSource(candidate.currentSource);
+  return {
+    stage: candidate.stage, processed: candidate.processed as number, total: candidate.total as number | undefined,
+    succeeded: candidate.succeeded as number, failed: candidate.failed as number, heartbeatAt: candidate.heartbeatAt,
+    ...(currentSource ? { currentSource } : {}),
+  };
+}
+
+function checkpointValue(value: string | null): Record<string, unknown> {
+  const parsed = parseJson<unknown>(value ?? '', {});
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+}
+
+function checkpoint(value: string | null): { adaptiveMetric?: WorkPerformanceMetric; progress?: TargetedWorkUnitProgress } {
+  const parsed = checkpointValue(value);
+  return { adaptiveMetric: parsed.adaptiveMetric as WorkPerformanceMetric | undefined, progress: progress(parsed.progress) };
 }
 
 function campaignRecord(row: {
@@ -146,6 +185,7 @@ export class PrismaTargetedStore {
       query: row.query, documentType: row.documentType, geography: parseJson(row.geographyJson, {
         country: 'US', areaCode: '', state: '', city: '', postalCode: '',
       }), status: row.status, resultCount: row.resultCount, previousUseCount: priorCounts.get(row.workKey) ?? 0,
+      progress: checkpoint(row.checkpointJson).progress,
     }));
   }
 
@@ -184,8 +224,27 @@ export class PrismaTargetedStore {
   }
 
   async recordWorkUnitMetric(id: number, metric: WorkPerformanceMetric): Promise<void> {
+    const row = await this.prisma.targetedWorkUnit.findUniqueOrThrow({ where: { id }, select: { checkpointJson: true } });
     await this.prisma.targetedWorkUnit.update({
-      where: { id }, data: { checkpointJson: JSON.stringify({ adaptiveMetric: metric }) },
+      where: { id }, data: { checkpointJson: JSON.stringify({ ...checkpoint(row.checkpointJson), adaptiveMetric: metric }) },
+    });
+  }
+
+  async updateWorkUnitProgress(id: number, progress: TargetedWorkUnitProgress): Promise<void> {
+    const row = await this.prisma.targetedWorkUnit.findUniqueOrThrow({ where: { id }, select: { checkpointJson: true } });
+    const safeProgress = progress ? {
+      ...progress,
+      ...(sanitizeCurrentSource(progress.currentSource) ? { currentSource: sanitizeCurrentSource(progress.currentSource) } : { currentSource: undefined }),
+    } : progress;
+    await this.prisma.targetedWorkUnit.update({
+      where: { id }, data: { checkpointJson: JSON.stringify({ ...checkpoint(row.checkpointJson), progress: safeProgress }) },
+    });
+  }
+
+  async resetInterruptedWorkUnits(campaignId: number): Promise<void> {
+    await this.prisma.targetedWorkUnit.updateMany({
+      where: { campaignId, status: 'running' },
+      data: { status: 'pending', errorCode: null, errorMessage: null },
     });
   }
 
@@ -195,16 +254,23 @@ export class PrismaTargetedStore {
       orderBy: { updatedAt: 'desc' }, take: Math.min(5_000, Math.max(1, limit)),
     });
     return rows.flatMap((row) => {
-      const value = parseJson<{ adaptiveMetric?: WorkPerformanceMetric }>(row.checkpointJson ?? '', {});
+      const value = checkpoint(row.checkpointJson);
       return value.adaptiveMetric ? [value.adaptiveMetric] : [];
     });
   }
 
   async resetWorkMetrics(): Promise<number> {
-    const result = await this.prisma.targetedWorkUnit.updateMany({
-      where: { checkpointJson: { not: null } }, data: { checkpointJson: null },
+    const rows = await this.prisma.targetedWorkUnit.findMany({
+      where: { checkpointJson: { not: null } }, select: { id: true, checkpointJson: true },
     });
-    return result.count;
+    const updates = rows.flatMap((row) => {
+      const current = checkpointValue(row.checkpointJson);
+      if (!('adaptiveMetric' in current)) return [];
+      const { adaptiveMetric: _adaptiveMetric, ...remaining } = current;
+      return [this.prisma.targetedWorkUnit.update({ where: { id: row.id }, data: { checkpointJson: JSON.stringify(remaining) } })];
+    });
+    if (updates.length) await this.prisma.$transaction(updates);
+    return updates.length;
   }
 
   async editWorkUnit(campaignId: number, unitId: number, query: string): Promise<TargetedWorkUnitRecord | undefined> {

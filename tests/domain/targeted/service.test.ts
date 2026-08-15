@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TargetedService } from '../../../src/domain/targeted/service';
 import { PrismaTargetedStore } from '../../../src/domain/targeted/store';
 
@@ -262,5 +262,98 @@ describe('TargetedService lifecycle', () => {
     await service.plan(draft.id);
     await service.start(draft.id, { background: false });
     expect(await service.strictEmails(draft.id)).toEqual(['dispatch@yahoo.com']);
+  });
+
+  it('resets interrupted work units before recovery retries them', async () => {
+    const store = new PrismaTargetedStore(prisma);
+    const service = new TargetedService({ store });
+    const draft = await service.createDraft(userId, {
+      prompt: 'Public recovery contacts in Phoenix', mode: 'office', country: 'US', keywords: ['recovery-progress'],
+      areaCodes: ['602'], states: ['AZ'], cities: ['Phoenix'], postalCodes: ['85001'],
+    });
+    await service.plan(draft.id);
+    const unit = (await service.workUnits(draft.id))[0];
+    await store.updateWorkUnit(unit.id, { status: 'running', errorCode: 'interrupted', errorMessage: 'Interrupted.' });
+    await store.updateStatus(draft.id, { status: 'running' });
+
+    await service.recoverInterruptedCampaigns();
+    await vi.waitFor(async () => expect((await service.get(draft.id))?.status).toBe('waiting_for_scraper'));
+    expect((await service.workUnits(draft.id))[0].status).toBe('pending');
+  });
+
+  it('tracks document source failures while continuing to later sources and terminalizing all work units', async () => {
+    const service = new TargetedService({
+      store: new PrismaTargetedStore(prisma),
+      webSearchClient: { search: async (query: string) => query.includes('filetype:csv')
+        ? ['https://records.example/rejected.csv', 'https://records.example/valid.csv'] : [] },
+      artifactFetcher: async (url: string) => {
+        if (url.includes('rejected')) throw new Error('Rejected document URL');
+        return {
+          finalUrl: url, contentType: 'text/csv',
+          body: Buffer.from('Company,Location,Email\nPhoenix Recovery,"Phoenix, AZ 85001",ops@recovery.example\n'), byteCount: 90,
+        };
+      },
+    });
+    const draft = await service.createDraft(userId, {
+      prompt: 'Public recovery csv contacts in Phoenix', mode: 'google', country: 'US', keywords: ['recoverycsv'],
+      areaCodes: ['602'], states: ['AZ'], cities: ['Phoenix'], postalCodes: ['85001'], googleRequestBudget: 10,
+    });
+    await service.plan(draft.id);
+    await service.start(draft.id, { background: false });
+
+    const csvUnit = (await service.workUnits(draft.id)).find((unit) => unit.documentType === 'csv');
+    expect(csvUnit?.progress).toMatchObject({ stage: 'processing_sources', processed: 1, total: 2, succeeded: 1, failed: 1 });
+    const units = await service.workUnits(draft.id);
+    expect(units.every((unit) => unit.status !== 'running')).toBe(true);
+    const csvIndex = units.findIndex((unit) => unit.id === csvUnit?.id);
+    expect(units.slice(csvIndex + 1).some((unit) => unit.status === 'completed')).toBe(true);
+    expect((await service.get(draft.id))?.status).toBe('partially_completed');
+  });
+
+  it('exposes document progress while a deferred source is still running', async () => {
+    let release!: () => void;
+    let announceStarted!: () => void;
+    const sourceStarted = new Promise<void>((resolve) => { announceStarted = resolve; });
+    const service = new TargetedService({
+      store: new PrismaTargetedStore(prisma),
+      webSearchClient: { search: async (query: string) => query.includes('filetype:csv') ? ['https://records.example/deferred.csv'] : [] },
+      artifactFetcher: async () => {
+        announceStarted();
+        await new Promise<void>((resolve) => { release = resolve; });
+        return {
+          finalUrl: 'https://records.example/deferred.csv', contentType: 'text/csv',
+          body: Buffer.from('Company,Location,Email\nPhoenix Deferred,"Phoenix, AZ 85001",ops@deferred.example\n'), byteCount: 90,
+        };
+      },
+    });
+    const draft = await service.createDraft(userId, {
+      prompt: 'Public deferred csv contacts in Phoenix', mode: 'google', country: 'US', keywords: ['deferredcsv'],
+      areaCodes: ['602'], states: ['AZ'], cities: ['Phoenix'], postalCodes: ['85001'], googleRequestBudget: 10,
+    });
+    await service.plan(draft.id);
+    const execution = service.start(draft.id, { background: false });
+    await sourceStarted;
+
+    const csvUnit = (await service.workUnits(draft.id)).find((unit) => unit.documentType === 'csv');
+    expect(csvUnit).toMatchObject({ status: 'running', progress: { stage: 'processing_sources', processed: 0, total: 1 } });
+    release();
+    await execution;
+    expect((await service.workUnits(draft.id)).find((unit) => unit.documentType === 'csv')?.status).toBe('completed');
+  });
+
+  it('recovers an interrupted campaign with a null checkpoint without throwing', async () => {
+    const store = new PrismaTargetedStore(prisma);
+    const service = new TargetedService({ store, localClient: { search: async () => [] } });
+    const draft = await service.createDraft(userId, {
+      prompt: 'Public null checkpoint recovery in Phoenix', mode: 'office', country: 'US', keywords: ['nullcheckpoint'],
+      areaCodes: ['602'], states: ['AZ'], cities: ['Phoenix'], postalCodes: ['85001'],
+    });
+    await service.plan(draft.id);
+    const unit = (await service.workUnits(draft.id))[0];
+    await prisma.targetedWorkUnit.update({ where: { id: unit.id }, data: { status: 'running', checkpointJson: 'null' } });
+    await store.updateStatus(draft.id, { status: 'running' });
+
+    await expect(service.recoverInterruptedCampaigns()).resolves.toBe(1);
+    await vi.waitFor(async () => expect((await service.get(draft.id))?.status).toBe('completed'));
   });
 });
