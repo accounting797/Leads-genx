@@ -266,19 +266,21 @@ describe('TargetedService lifecycle', () => {
 
   it('resets interrupted work units before recovery retries them', async () => {
     const store = new PrismaTargetedStore(prisma);
-    const service = new TargetedService({ store });
+    const service = new TargetedService({ store, localClient: { search: async () => [] } });
     const draft = await service.createDraft(userId, {
       prompt: 'Public recovery contacts in Phoenix', mode: 'office', country: 'US', keywords: ['recovery-progress'],
       areaCodes: ['602'], states: ['AZ'], cities: ['Phoenix'], postalCodes: ['85001'],
     });
     await service.plan(draft.id);
-    const unit = (await service.workUnits(draft.id))[0];
+    const units = await service.workUnits(draft.id);
+    const unit = units.find((entry) => entry.connector === 'public_web')!;
+    const failedUnit = units.find((entry) => entry.id !== unit.id)!;
     await store.updateWorkUnit(unit.id, { status: 'running', errorCode: 'interrupted', errorMessage: 'Interrupted.' });
+    await store.updateWorkUnit(failedUnit.id, { status: 'failed', errorCode: 'failed_before_restart', errorMessage: 'Already failed.' });
     await store.updateStatus(draft.id, { status: 'running' });
-
     await service.recoverInterruptedCampaigns();
-    await vi.waitFor(async () => expect((await service.get(draft.id))?.status).toBe('waiting_for_scraper'));
-    expect((await service.workUnits(draft.id))[0].status).toBe('pending');
+    await vi.waitFor(async () => expect((await service.get(draft.id))?.status).toBe('completed'));
+    expect(await service.workUnits(draft.id)).toEqual(expect.arrayContaining([expect.objectContaining({ id: unit.id, status: 'completed' }), expect.objectContaining({ id: failedUnit.id, status: 'failed' })]));
   });
 
   it('tracks document source failures while continuing to later sources and terminalizing all work units', async () => {
@@ -300,9 +302,8 @@ describe('TargetedService lifecycle', () => {
     });
     await service.plan(draft.id);
     await service.start(draft.id, { background: false });
-
     const csvUnit = (await service.workUnits(draft.id)).find((unit) => unit.documentType === 'csv');
-    expect(csvUnit?.progress).toMatchObject({ stage: 'processing_sources', processed: 1, total: 2, succeeded: 1, failed: 1 });
+    expect(csvUnit?.progress).toMatchObject({ stage: 'processing_sources', processed: 2, total: 2, succeeded: 1, failed: 1 });
     const units = await service.workUnits(draft.id);
     expect(units.every((unit) => unit.status !== 'running')).toBe(true);
     const csvIndex = units.findIndex((unit) => unit.id === csvUnit?.id);
@@ -314,15 +315,22 @@ describe('TargetedService lifecycle', () => {
     let release!: () => void;
     let announceStarted!: () => void;
     const sourceStarted = new Promise<void>((resolve) => { announceStarted = resolve; });
+    const store = new PrismaTargetedStore(prisma);
+    const snapshots: Array<{ stage: string; processed: number; total?: number }> = [];
+    const persistProgress = store.updateWorkUnitProgress.bind(store);
+    vi.spyOn(store, 'updateWorkUnitProgress').mockImplementation(async (id, progress) => {
+      snapshots.push(progress);
+      await persistProgress(id, progress);
+    });
     const service = new TargetedService({
-      store: new PrismaTargetedStore(prisma),
+      store,
       webSearchClient: { search: async (query: string) => query.includes('filetype:csv') ? ['https://records.example/deferred.csv'] : [] },
       artifactFetcher: async () => {
         announceStarted();
         await new Promise<void>((resolve) => { release = resolve; });
         return {
           finalUrl: 'https://records.example/deferred.csv', contentType: 'text/csv',
-          body: Buffer.from('Company,Location,Email\nPhoenix Deferred,"Phoenix, AZ 85001",ops@deferred.example\n'), byteCount: 90,
+          body: Buffer.from(`Company,Location,Email\n${Array.from({ length: 25 }, (_, index) => `Phoenix Deferred,"Phoenix, AZ 85001",ops${index}@deferred.example`).join('\n')}\n`), byteCount: 90,
         };
       },
     });
@@ -333,12 +341,13 @@ describe('TargetedService lifecycle', () => {
     await service.plan(draft.id);
     const execution = service.start(draft.id, { background: false });
     await sourceStarted;
-
     const csvUnit = (await service.workUnits(draft.id)).find((unit) => unit.documentType === 'csv');
     expect(csvUnit).toMatchObject({ status: 'running', progress: { stage: 'processing_sources', processed: 0, total: 1 } });
     release();
     await execution;
     expect((await service.workUnits(draft.id)).find((unit) => unit.documentType === 'csv')?.status).toBe('completed');
+    expect(snapshots.some((snapshot) => snapshot.stage === 'extracting_candidates' && snapshot.total === undefined)).toBe(true);
+    expect(snapshots.filter((snapshot) => snapshot.total !== undefined).every((snapshot) => snapshot.processed <= snapshot.total!)).toBe(true);
   });
 
   it('recovers an interrupted campaign with a null checkpoint without throwing', async () => {

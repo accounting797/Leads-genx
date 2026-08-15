@@ -258,7 +258,7 @@ export class TargetedService {
     for (let unitIndex = 0; unitIndex < workUnits.length; unitIndex += 1) {
       const unit = workUnits[unitIndex];
       if (await this.wasCancelled(campaignId)) return;
-      if (unit.status === 'completed') continue;
+      if (unit.status !== 'pending') continue;
       const unitStartedAt = Date.now();
       const funnelBefore = (await this.requireCampaign(campaignId)).funnel;
       const recordPerformance = async (processed: number, failures = 0) => {
@@ -280,9 +280,7 @@ export class TargetedService {
         }
       };
       await this.store.updateWorkUnit(unit.id, { status: 'running' });
-      await this.store.updateWorkUnitProgress(unit.id, {
-        stage: 'starting', processed: 0, succeeded: 0, failed: 0, heartbeatAt: new Date().toISOString(),
-      });
+      await this.store.updateWorkUnitProgress(unit.id, { stage: 'starting', processed: 0, succeeded: 0, failed: 0, heartbeatAt: new Date().toISOString() });
       if (unit.connector === 'public_document') {
         if (!this.deps.webSearchClient) {
           await this.store.updateWorkUnit(unit.id, { status: 'skipped_unavailable', errorCode: 'web_search_unavailable', errorMessage: 'Public web search is unavailable; linked business-site documents can still be processed.' });
@@ -293,9 +291,7 @@ export class TargetedService {
           continue;
         }
         try {
-          await this.store.updateWorkUnitProgress(unit.id, {
-            stage: 'discovering_sources', processed: 0, succeeded: 0, failed: 0, heartbeatAt: new Date().toISOString(),
-          });
+          await this.store.updateWorkUnitProgress(unit.id, { stage: 'discovering_sources', processed: 0, succeeded: 0, failed: 0, heartbeatAt: new Date().toISOString() });
           const urls: string[] = [];
           const documentQueries = [
             unit.query,
@@ -310,27 +306,19 @@ export class TargetedService {
           let processed = 0;
           let succeeded = 0;
           let failures = 0;
-          await this.store.updateWorkUnitProgress(unit.id, {
-            stage: 'processing_sources', processed, total: urls.length, succeeded, failed: failures, heartbeatAt: new Date().toISOString(),
-          });
+          await this.store.updateWorkUnitProgress(unit.id, { stage: 'processing_sources', processed, total: urls.length, succeeded, failed: failures, heartbeatAt: new Date().toISOString() });
           for (const url of urls) {
             if (await this.wasCancelled(campaignId)) return;
             try {
               await this.processDocumentUrl(campaignId, url, unit.documentType, unit.geography, filters, async () => {
                 processed += 1;
-                if (processed % 25 === 0) await this.store.updateWorkUnitProgress(unit.id, {
-                  stage: 'processing_sources', processed, total: urls.length, succeeded, failed: failures,
-                  currentSource: url, heartbeatAt: new Date().toISOString(),
-                });
+                if (processed % 25 === 0) await this.store.updateWorkUnitProgress(unit.id, { stage: 'extracting_candidates', processed, succeeded, failed: failures, currentSource: url, heartbeatAt: new Date().toISOString() });
               }, true);
               succeeded += 1;
             } catch {
               failures += 1;
             }
-            await this.store.updateWorkUnitProgress(unit.id, {
-              stage: 'processing_sources', processed, total: urls.length, succeeded, failed: failures,
-              currentSource: url, heartbeatAt: new Date().toISOString(),
-            });
+            await this.store.updateWorkUnitProgress(unit.id, { stage: 'processing_sources', processed: succeeded + failures, total: urls.length, succeeded, failed: failures, currentSource: url, heartbeatAt: new Date().toISOString() });
           }
           if (await this.wasCancelled(campaignId)) return;
           connectorSuccesses += succeeded > 0 ? 1 : 0;
@@ -364,10 +352,7 @@ export class TargetedService {
       connectorSuccesses += settled.filter((entry) => entry.status === 'fulfilled').length;
       const rawItems = settled.flatMap((entry) => entry.status === 'fulfilled' ? entry.value : []);
       let processed = 0;
-      await this.store.updateWorkUnitProgress(unit.id, {
-        stage: 'processing_results', processed, total: rawItems.length, succeeded: 0,
-        failed: settled.filter((entry) => entry.status === 'rejected').length, heartbeatAt: new Date().toISOString(),
-      });
+      await this.store.updateWorkUnitProgress(unit.id, { stage: 'processing_results', processed, total: rawItems.length, succeeded: 0, failed: settled.filter((entry) => entry.status === 'rejected').length, heartbeatAt: new Date().toISOString() });
       const scopedFilters: TargetedDraftInput = {
         ...filters,
         areaCodes: unit.geography.areaCode ? [unit.geography.areaCode] : [],
@@ -383,9 +368,7 @@ export class TargetedService {
           if (seenBusinesses.has(identity)) continue;
           seenBusinesses.add(identity);
           processed += await this.processLead(campaignId, lead, scopedFilters);
-          if (processed % 25 === 0 && processed > 0) await this.store.updateWorkUnitProgress(unit.id, {
-            stage: 'processing_results', processed, total: rawItems.length, succeeded: processed, failed: 0, heartbeatAt: new Date().toISOString(),
-          });
+          if (processed % 25 === 0 && processed > 0) await this.store.updateWorkUnitProgress(unit.id, { stage: 'processing_results', processed, total: rawItems.length, succeeded: processed, failed: 0, heartbeatAt: new Date().toISOString() });
         }
         await this.store.updateWorkUnit(unit.id, { status: 'completed', resultCount: processed });
         await recordPerformance(processed);
